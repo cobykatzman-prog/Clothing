@@ -510,7 +510,8 @@ export const rasterizeElement = rasteriseElement;
 /* ------------------------------------------------------------------ drawing */
 /** Drop shadow props: {on, color:'#rrggbb', alpha 0..1, blur px, x px, y px}. Stored as a plain object (replaced, never mutated). */
 const shadowRGBA = sh => { const [r, g, b] = hexToRgb(sh.color || '#000000'); return `rgba(${r},${g},${b},${sh.alpha ?? 0.45})`; };
-const inView =(el, view) => el.visible !== false && (!el.view || el.view === 'all' || el.view === view);
+// Fully transparent layers are visually absent and should not intercept clicks on artwork beneath them.
+const inView = (el, view) => el.visible !== false && (el.opacity ?? 1) > 0 && (!el.view || el.view === 'all' || el.view === view);
 export function handlesFor(el, hs = 1) {
   const hw = el.w / 2, hh = el.h / 2; const cos = Math.cos(el.rotation * Math.PI / 180), sin = Math.sin(el.rotation * Math.PI / 180);
   const T = (lx, ly) => ({ x: el.x + lx * cos - ly * sin, y: el.y + lx * sin + ly * cos });
