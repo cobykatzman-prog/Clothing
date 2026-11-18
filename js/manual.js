@@ -501,7 +501,37 @@ export function createInspector() {
         }),
         btn('Duplicate', 'Make another copy of this item', x => duplicateElement(x)),
         btn('Delete', 'Remove this item', x => deleteElement(x), 'btn ghost sm danger')),
-      h('div', { class: 'muted small' }, 'You can also drag the item on the shirt, pull a corner to resize, or use the round handle to rotate it.')
+      h('details', { class: 'igrp' },
+        h('summary', {}, 'Align to garment'),
+        h('div', { class: 'igrp-body' },
+          h('div', { class: 'btns' },
+            btn('Centre horizontally', 'Align the item to the garment centre from left to right', x => {
+              const b = activeView().seg?.bbox;
+              if (b) change(() => { x.x = b.x + b.w / 2; });
+            }),
+            btn('Centre vertically', 'Align the item to the garment centre from top to bottom', x => {
+              const b = activeView().seg?.bbox;
+              if (b) change(() => { x.y = b.y + b.h / 2; });
+            })),
+          h('div', { class: 'btns' },
+            btn('Align left', 'Align the left edge of the item with the garment left edge', x => {
+              const b = activeView().seg?.bbox;
+              if (b) change(() => { x.x = b.x + x.w / 2; });
+            }),
+            btn('Align right', 'Align the right edge of the item with the garment right edge', x => {
+              const b = activeView().seg?.bbox;
+              if (b) change(() => { x.x = b.x + b.w - x.w / 2; });
+            })),
+          h('div', { class: 'btns' },
+            btn('Align top', 'Align the top edge of the item with the garment top edge', x => {
+              const b = activeView().seg?.bbox;
+              if (b) change(() => { x.y = b.y + x.h / 2; });
+            }),
+            btn('Align bottom', 'Align the bottom edge of the item with the garment bottom edge', x => {
+              const b = activeView().seg?.bbox;
+              if (b) change(() => { x.y = b.y + b.h - x.h / 2; });
+            }))),
+      h('div', { class: 'muted small' }, 'Drag the item on the shirt to move it. Pull a corner to resize, or use the round handle to rotate it. Arrow keys nudge it; Shift + arrow moves 10 px.')
     ]));
 
     // ---- content: what the item says or shows
