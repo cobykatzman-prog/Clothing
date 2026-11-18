@@ -62,7 +62,7 @@ export function initLeft(root) {
     } finally { genBtn.disabled = false; genLabel.textContent = 'Generate garment'; }
   };
   genPrompt.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runGenerate(); });
-  const sec2 = section(2, 'Generate garment', 'Describe a garment and the editor builds front, back, side and detail views of it at once. The built-in generator runs in your browser; if AI editing is on, the front view is made by the AI service instead.', [
+  const sec2 = section(2, 'Generate garment', 'Describe a garment and the editor builds front, back, side and detail views of it at once. The built-in generator runs in your browser; if AI editing is on, AI makes the front and Threadform builds matching back, side and detail views.', [
     h('div', { class: 'chips' }, kindBtns),
     h('div', { class: 'row gap center' }, field('Colour', colorIn), h('label', { class: 'check' }, stripeIn, 'Stripes')),
     genPrompt,
