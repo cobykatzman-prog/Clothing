@@ -189,6 +189,7 @@ function snapDoc(s, ref) {   // s has the shape produced by capture()
   return {
     views: Object.fromEntries(VIEWS.map(n => [n, viewDoc(s.views[n], ref)])),
     elements: s.elements.map(elDoc), activeView: s.activeView, name: s.name,
+    measure: s.measure ? { ...s.measure } : null,
   };
 }
 // a version that is still in storage: re-reference its assets in the new save
@@ -267,6 +268,9 @@ async function hydrateSnapshot(sd, load) {
   return {
     views, elements: (sd.elements || []).map(o => ElementLayer.fromJSON(o)),
     activeView: sd.activeView || 'front', name: sd.name || 'Untitled design',
+    // Version snapshots must restore the measurement setup as well as the artwork.
+    // Older saved versions did not include it, so fall back to the standard defaults.
+    measure: sd.measure ? normalizeMeasureState(sd.measure) : defaultMeasureState(),
   };
 }
 function lazyVersion(v, assets) {
