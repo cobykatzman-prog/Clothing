@@ -445,14 +445,54 @@ function readLogo(file) {
     fr.readAsDataURL(file);
   });
 }
+/** Read and sanitise an SVG as vector artwork. It stays an SVG layer instead of being flattened to pixels. */
+async function readVector(file) {
+  if (!file || file.size > 20 * 1024 * 1024) throw userError('That SVG is larger than 20 MB.');
+  const source = await file.text();
+  if (source.length > 20 * 1024 * 1024) throw userError('That SVG is larger than 20 MB.');
+  const doc = new DOMParser().parseFromString(source, 'image/svg+xml');
+  const root = doc.documentElement;
+  if (root?.localName !== 'svg' || doc.querySelector('parsererror')) throw userError('That file is not a valid SVG.');
+  root.querySelectorAll('script,foreignObject,iframe,object,embed,style,link,animate,animateTransform,animateMotion,set').forEach(n => n.remove());
+  for (const node of root.querySelectorAll('*')) {
+    for (const attr of [...node.attributes]) {
+      const name = attr.name.toLowerCase(), value = attr.value.trim();
+      if (name.startsWith('on')) node.removeAttribute(attr.name);
+      else if ((name === 'href' || name === 'xlink:href') && !value.startsWith('#')) node.removeAttribute(attr.name);
+      else if (/javascript:|expression\\(|url\\(\\s*['"]?(?!#)/i.test(value)) node.removeAttribute(attr.name);
+    }
+  }
+  for (const attr of [...root.attributes]) {
+    const name = attr.name.toLowerCase();
+    if (name.startsWith('on') || /javascript:|expression\\(/i.test(attr.value)) root.removeAttribute(attr.name);
+  }
+  let vb = (root.getAttribute('viewBox') || '').trim().split(/[ ,]+/).map(Number);
+  if (vb.length !== 4 || !vb.every(Number.isFinite) || vb[2] <= 0 || vb[3] <= 0) {
+    const w = parseFloat(root.getAttribute('width')) || 100, h = parseFloat(root.getAttribute('height')) || 100;
+    vb = [0, 0, w, h];
+  }
+  const inner = [...root.childNodes].map(n => new XMLSerializer().serializeToString(n)).join('');
+  // A fixed outer viewBox lets the existing editor scale the artwork consistently; the nested SVG
+  // preserves the source's original coordinate system and aspect ratio.
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><svg x="0" y="0" width="100" height="100" viewBox="' + vb.join(' ') + '" preserveAspectRatio="xMidYMid meet">' + inner + '</svg></svg>';
+  return { svg, ratio: vb[3] / vb[2] };
+}
+function isSVGFile(file) {
+  return file?.type === 'image/svg+xml' || /\\.svg$/i.test(file?.name || '');
+}
 /** Replace a logo's picture (keeps its width and position). */
 async function replaceLogo(el, file) {
   if (!el || !file) return;
   try {
-    const { url, ih, iw } = await readLogo(file);
+    const vector = isSVGFile(file) ? await readVector(file) : null;
+    const raster = vector ? null : await readLogo(file);
     // The user may delete the layer while the file is decoding; never resurrect or mutate a stale object.
     if (!state.elements.includes(el) || el.type !== 'logo') return;
-    change(() => { el.props.image = url; el._tint = null; el._cache = null; el.h = el.w * ih / iw; el.base = { w: el.w, h: el.h, size: el.props.size }; });
+    change(() => {
+      if (vector) { el.type = 'graphic'; el.props = { svg: vector.svg }; el.h = el.w * vector.ratio; }
+      else { el.props.image = raster.url; el._tint = null; el.h = el.w * raster.ih / raster.iw; }
+      el._cache = null; el.base = { w: el.w, h: el.h, size: el.props.size };
+    });
     toast('Logo replaced.', 'ok');
   } catch (e) { toast(friendly(e, 'That logo could not be used. Try a PNG or JPG.'), 'error', 5000); }
 }
@@ -462,15 +502,19 @@ export async function addLogo(file) {
   const V = activeView();
   if (!V.current) { toast('Load a garment first.', 'info'); return; }
   try {
-    const { url, ih, iw } = await readLogo(file);
+    const vector = isSVGFile(file) ? await readVector(file) : null;
+    const raster = vector ? null : await readLogo(file);
     // Keep the upload attached to the view where it was started; don't silently place it on a newly selected view.
     if (state.activeView !== viewName || activeView() !== V) {
       toast('The view changed while the logo was loading. Select the original view and upload it again.', 'info', 5000);
       return;
     }
     const b = V.seg?.bbox, pos = b ? { x: b.x + b.w / 2, y: b.y + b.h * 0.4 } : { x: SIZE / 2, y: SIZE / 2 };
-    const el = createElement('logo', { image: url, view: viewName, ...pos });
-    el.w = 200; el.h = 200 * ih / iw; el.base = { w: el.w, h: el.h, size: undefined };
+    const el = vector
+      ? createElement('graphic', { svg: vector.svg, view: viewName, ...pos })
+      : createElement('logo', { image: raster.url, view: viewName, ...pos });
+    el.w = 200; el.h = vector ? 200 * vector.ratio : 200 * raster.ih / raster.iw;
+    el.base = { w: el.w, h: el.h, size: undefined };
     change(() => { state.elements.push(el); state.selectedId = el.id; state.ui.tool = 'move'; });
     markFlow('refined');
   } catch (e) { toast(friendly(e, 'That logo could not be added. Try a PNG or JPG.'), 'error', 5000); }
