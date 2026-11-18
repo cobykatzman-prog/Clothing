@@ -218,10 +218,12 @@ export function fabricBlock() {
 
 /* ------------------------------------------------------------------ per-view tools */
 // Copy the look (shape, presets, whole-garment colour, fabric and fabric tint) to other views, and reset this view.
-export function copyLook(targets) {
+export async function copyLook(targets) {
   const from = state.activeView, src = activeView();
+  // a sample design builds its other views when they are first opened: do the same for the targets
+  for (const n of targets) if (n !== from && !state.views[n].base) await A.ensureView(n);
   const ok = targets.filter(n => n !== from && state.views[n].base);
-  if (!ok.length) { toast('Choose a view that already has a garment in it.', 'info'); return false; }
+  if (!ok.length) { toast('None of the chosen views has a garment to copy onto.', 'info'); return false; }
   snapshot();
   for (const n of ok) {
     const V = state.views[n];
@@ -253,16 +255,16 @@ export function viewTools() {
     return h('label', { 'aria-disabled': 'false', tip: 'Copy the look to this view' }, cb, VIEW_LABELS[n]);
   });
   const doCopy = h('button', { class: 'btn primary sm', type: 'button', tip: 'Copy the current view’s shape, colour and fabric to the ticked views',
-    onclick: () => { const picked = VIEWS.filter(n => copyChecks[n].checked); if (!picked.length) { toast('Tick at least one view to copy to.', 'info'); return; } if (copyLook(picked)) { VIEWS.forEach(n => { copyChecks[n].checked = false; }); det.open = false; } } }, 'Copy look');
+    onclick: async () => { const picked = VIEWS.filter(n => copyChecks[n].checked); if (!picked.length) { toast('Tick at least one view to copy to.', 'info'); return; } if (await copyLook(picked)) { VIEWS.forEach(n => { copyChecks[n].checked = false; }); det.open = false; } } }, 'Copy look');
   const pop = h('div', { class: 'lk-pop' }, h('span', { class: 'lbl' }, 'Copy this view’s look to:'), ...checkRows, doCopy);
   const det = h('details', { tip: 'Copy this view’s shape, colour and fabric to other views' }, h('summary', {}, 'Copy look to…'), pop);
   const reset = h('button', { class: 'btn ghost sm', type: 'button', tip: 'Set this view’s shape, colour, fabric and per-part colours back to its base. Undo brings them back.', onclick: resetView }, 'Reset this view');
   const el = h('div', { class: 'lk-tools' }, det, reset);
   const sync = () => {
     VIEWS.forEach(n => {
-      const cb = copyChecks[n], row = cb.closest('label'), has = !!state.views[n].base, isHere = n === state.activeView;
-      cb.disabled = !has || isHere; row.setAttribute('aria-disabled', String(!has || isHere));
-      row.dataset.tip = isHere ? 'This view' : has ? 'Copy the look to this view' : 'This view has no garment yet';
+      const cb = copyChecks[n], row = cb.closest('label'), isHere = n === state.activeView;
+      cb.disabled = isHere; row.setAttribute('aria-disabled', String(isHere));
+      row.dataset.tip = isHere ? 'This view (the one you are copying from)' : 'Copy the look to this view';
       if (cb.disabled) cb.checked = false;
     });
     doCopy.disabled = !VIEWS.some(n => copyChecks[n].checked);
