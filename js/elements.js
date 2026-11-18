@@ -156,8 +156,11 @@ function resolveSVG(el) {
   if (!src && lib) src = lib.svg;
   if (!src) return null;
   const cols = Object.assign({}, lib ? lib.colors : {}, p.colors || {});
-  if (p.color) cols.c1 = p.color; if (p.color2) cols.c2 = p.color2; if (p.color3) cols.c3 = p.color3;
-  return src.replace(/\{\{c([123])\}\}/g, (_, n) => cols['c' + n] || '#888');
+  for (let i = 1; i <= 6; i++) {
+    const key = i === 1 ? 'color' : 'color' + i;
+    if (p[key]) cols['c' + i] = p[key];
+  }
+  return src.replace(/\{\{c([1-6])\}\}/g, (_, n) => cols['c' + n] || '#888');
 }
 
 /* ------------------------------------------------------------------ asset loading (SVG & image) */
@@ -660,7 +663,7 @@ function innerSVG(el) {
 const SAFE_COLOR = /^(#[0-9a-f]{3,8}|(rgb|hsl)a?\(\s*[0-9.,%\s/-]+\)|[a-z]{3,20})$/i;
 const safeCol = (c, d = '#000000') => (typeof c === 'string' && SAFE_COLOR.test(c.trim()) ? c.trim() : d);
 const safeNum = (v, d = 0) => (Number.isFinite(Number(v)) && v !== '' && v !== null ? Number(v) : d);
-const SVG_COLOR_KEYS = ['color', 'color2', 'color3', 'bg', 'border', 'textColor', 'outlineColor', 'tint'];
+const SVG_COLOR_KEYS = ['color', 'color2', 'color3', 'color4', 'color5', 'color6', 'bg', 'border', 'textColor', 'outlineColor', 'tint'];
 const SVG_NUM_KEYS = ['size', 'thickness', 'opacity', 'letterSpacing', 'outline', 'count', 'gapRatio', 'curve', 'tintAmount', 'gap', 'width', 'height', 'bend'];
 function svgSafeElement(el) {
   const out = Object.assign(Object.create(Object.getPrototypeOf(el)), el);
