@@ -227,7 +227,7 @@ export async function generateFromPrompt(text, { defaultKind = 'tee', defaultCol
   } finally { generating = false; }
 }
 
-// AI "Generate garment": the server returns one picture, which becomes the front view (segmented like an upload).
+// AI "Generate garment": the server makes the front; Threadform builds matching procedural back, side and detail views.
 // Returns {result} on success, {cancelled:true} when the person cancelled, or {} after showing a friendly message (caller falls back).
 async function generateWithAi(prompt, spec, options = {}) {
   const task = startTask({ title: 'Generating garment with AI', hint: 'This can take up to a minute. You can keep working or cancel.' });
@@ -251,10 +251,10 @@ async function generateWithAi(prompt, spec, options = {}) {
         } catch (e) { console.warn('bg removal failed', e); }
       }
       if (task.closed) return { cancelled: true };
+      const matchingViews = makeGarmentViews(spec);
       snapshot();
       await installBase('front', c, { sample: spec.sample, label: 'AI front' });
       applyGarmentLook(state.views.front, spec);
-      const matchingViews = makeGarmentViews(spec);
       for (const view of GEN_VIEWS) {
         if (view === 'front') continue;
         await installBase(view, matchingViews[view], { sample: spec.sample, label: 'Matching ' + view });
@@ -268,7 +268,7 @@ async function generateWithAi(prompt, spec, options = {}) {
     } finally { done(); }
     const message = 'AI front generated. Matching back, side and detail views were built from the same garment specification and are ready to edit.';
     task.succeed(message);
-    return { result: { ok: true, message, ai: true } };
+    return { result: { ok: true, message, ai: true, spec } };
   } catch (e) {
     if (e instanceof AiError && e.kind === 'aborted') return { cancelled: true };
     if (!(e instanceof AiError)) console.error(e);
