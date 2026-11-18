@@ -3,7 +3,7 @@ import { state, activeView, subscribe, notify, snapshot, markFlow, hasMask } fro
 import { h, icon, thumbOf, toast } from './util.js';
 import * as A from './ui-actions.js';
 import { REGION_NAMES } from './segment.js';
-import { createElement, updateElement, GRAPHIC_LIBRARY, FONTS } from './elements.js';
+import { createElement, GRAPHIC_LIBRARY, FONTS } from './elements.js';
 import { createLayers } from './manual.js';
 import { SAMPLE_KINDS } from './samples.js';
 

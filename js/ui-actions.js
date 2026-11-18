@@ -333,10 +333,6 @@ export async function combineVariation(i) {
   } catch (e) { toast('Could not combine: ' + e.message, 'error'); } finally { done(); }
 }
 
-// ---------- elements ----------
-export function selectedElement() { return state.elements.find(e => e.id === state.selectedId) || null; }
-export function removeElement(id) { snapshot(); state.elements = state.elements.filter(e => e.id !== id); if (state.selectedId === id) state.selectedId = null; notify('elements'); }
-
 // ---------- engine ----------
 export async function refreshEngine() {
   try { const s = await aiStatus(); state.engine.available = !!s.available; state.engine.provider = s.provider || (s.available ? 'ai' : 'local'); }

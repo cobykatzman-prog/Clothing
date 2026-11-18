@@ -10,6 +10,7 @@ body.view-home{overflow:auto}
 .home-filters{display:flex;gap:8px;flex-wrap:wrap;flex:1 1 320px;justify-content:flex-end}
 .home-search,.home-sort{border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:#fff;font:inherit;color:var(--ink);height:38px}
 .home-search{flex:1 1 200px;max-width:320px}
+.home-sort{width:auto;flex:0 0 auto}
 .home-search:focus,.home-sort:focus{outline:2px solid var(--accent);outline-offset:1px}
 .home-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px}
 .home-nomatch{color:var(--muted);margin:12px 0;grid-column:1/-1}
