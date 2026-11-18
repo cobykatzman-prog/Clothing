@@ -247,7 +247,7 @@ async function generateWithAi(prompt) {
     if (e instanceof AiError && e.kind === 'aborted') return { cancelled: true };
     if (!(e instanceof AiError)) console.error(e);
     const err = e instanceof AiError ? e : new AiError('upstream');
-    task.fail(err, { note: 'The built-in engine will be used instead.', actions: [{ label: 'Try AI again', retry: true, primary: true, fn: () => generateFromPrompt(prompt) }] });
+    task.fail(err, { note: 'Using the built-in engine instead.', actions: [{ label: 'Try AI again', retry: true, primary: true, fn: () => generateFromPrompt(prompt) }] });
     return {};
   }
 }

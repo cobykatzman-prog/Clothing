@@ -14,7 +14,7 @@ const MESSAGES = {
   auth: 'Your login has expired. Reload the page and log in again.',
   ratelimit: 'The AI service is busy right now. Wait a moment and try again.',
   toolarge: 'That image is too large to send. Try a smaller image or a simpler selection.',
-  upstream: 'The AI service did not answer properly. Try again in a moment, or use the built-in engine instead.',
+  upstream: 'The AI service did not answer properly. Try again in a moment.',
   offline: 'Could not reach the server. Check your internet connection and try again.',
   aborted: 'Cancelled.',
   bad: 'The AI service could not use that request. Try different wording or a smaller selection.',
@@ -90,7 +90,7 @@ function rawFetch(url, init, timeoutMs, outer) {
   return fetch(url, { ...init, signal: ctl.signal, credentials: 'same-origin', cache: 'no-store', redirect: 'follow' })
     .catch(e => {
       if (outer && outer.aborted) throw new AiError('aborted');
-      if (timedOut) throw new AiError('upstream', { message: 'The AI service took too long to answer. Try again, or use the built-in engine instead.' });
+      if (timedOut) throw new AiError('upstream', { message: 'The AI service took too long to answer. Try again in a moment.' });
       throw new AiError('offline', { message: null, status: 0, cause: e });
     })
     .finally(() => { clearTimeout(timer); if (outer) outer.removeEventListener('abort', onAbort); });
