@@ -4,7 +4,9 @@ import { REGION_NAMES, alphaOf, canvasFromAlpha, mkCanvas, readRGBA, segmentGarm
 import { applyShape, DEFAULT_PARAMS, FIT_PRESETS, SLEEVE_PRESETS } from './warp.js';
 import { applyColor, applyFabric, mergeChanged, commitPixels } from './fabric.js';
 
-const LEVELS = [['Subtle', 0.35], ['Medium', 0.7], ['Bold', 1]];
+// Share of the requested change applied at each option. Bold is the full request (capped at the slider range);
+// Medium and Subtle are clearly smaller so the three options look different.
+const LEVELS = [['Subtle', 0.4], ['Medium', 0.75], ['Bold', 1]];
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 function regionAlpha(seg, name) { const c = seg && seg.regions && seg.regions[name]; return c ? alphaOf(c) : null; }
@@ -84,13 +86,15 @@ function removeCuffs(canvas, seg, strength) {
 }
 
 function buildParams(ops, s) {
+  // Sum the requested change, cap it at the slider range, THEN scale per option. Scaling before capping
+  // made Medium and Bold identical whenever a preset and a prompt delta stacked past 100.
   const p = { ...DEFAULT_PARAMS };
-  const add = (obj, f = s) => { if (obj) for (const k of Object.keys(DEFAULT_PARAMS)) if (obj[k]) p[k] += obj[k] * f; };
+  const add = obj => { if (obj) for (const k of Object.keys(DEFAULT_PARAMS)) if (obj[k]) p[k] += obj[k]; };
   add(FIT_PRESETS[ops.fitPreset]);
   add(SLEEVE_PRESETS[ops.sleevePreset]);
   add(ops.paramDeltas);
-  if (ops.garmentKind === 'longSleeve' && !(ops.paramDeltas && ops.paramDeltas.sleeveLength > 0)) p.sleeveLength += 100 * s;
-  for (const k of Object.keys(p)) p[k] = clamp(p[k], -100, 100);
+  if (ops.garmentKind === 'longSleeve' && !(ops.paramDeltas && ops.paramDeltas.sleeveLength > 0)) p.sleeveLength += 100;
+  for (const k of Object.keys(p)) p[k] = clamp(clamp(p[k], -100, 100) * s, -100, 100);
   return p;
 }
 
@@ -127,9 +131,9 @@ export async function localVariations(canvas, seg, mask, ops = {}) {
     if (!mask && (ops.regions || ops.keep) && cseg !== seg) {
       const t = targetMasks(cseg, null, ops); pm = t.paint ? canvasFromAlpha(t.paint, w, h) : null;
     }
-    if (hasFabric) cur = applyFabric(cur, pm, ops.fabric, clamp((ops.fabricAmount == null ? 0.6 : ops.fabricAmount) * s / 0.7, 0.1, 1));
+    if (hasFabric) cur = applyFabric(cur, pm, ops.fabric, clamp((ops.fabricAmount == null ? 0.6 : ops.fabricAmount) * s, 0.1, 1));
     if (col && (col.hue || col.sat || col.light || col.tint)) {
-      cur = applyColor(cur, pm, { hue: (col.hue || 0) * s, sat: (col.sat || 0) * s, light: (col.light || 0) * s, tint: col.tint || null, tintAmount: (col.tintAmount == null ? 1 : col.tintAmount) * s });
+      cur = applyColor(cur, pm, { hue: clamp((col.hue || 0) * s, -180, 180), sat: clamp((col.sat || 0) * s, -100, 100), light: clamp((col.light || 0) * s, -100, 100), tint: col.tint || null, tintAmount: clamp((col.tintAmount == null ? 1 : col.tintAmount) * s, 0, 1) });
     }
     const out = cur === canvas ? (() => { const c = mkCanvas(w, h); c.getContext('2d').drawImage(canvas, 0, 0); return c; })() : mergeChanged(canvas, cur);
     results.push({ label, canvas: out, seg: cseg });

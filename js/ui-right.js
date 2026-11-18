@@ -41,7 +41,7 @@ export function initRight(root) {
   const S = state;
   // ---- Describe ----
   const prompt = h('textarea', { rows: 3, id: 'prompt', placeholder: 'e.g. make the sleeves flared and remove the cuffs', 'aria-label': 'Describe your changes', oninput: e => { S.ui.prompt = e.target.value; if (e.target.value.trim()) markFlow('described'); } });
-  const genBtn = h('button', { class: 'btn primary block', id: 'btn-variations', onclick: () => A.generateVariations(prompt.value) }, icon('sparkles', 16), 'Generate variations');
+  const genBtn = h('button', { class: 'btn primary block', id: 'btn-variations', onclick: () => A.generateVariations(prompt.value) }, icon('sparkles', 16), 'Create 3 options');
   const examples = h('div', { class: 'chips small' }, EXAMPLES.map(t => h('button', { class: 'chip', onclick: () => { prompt.value = t; S.ui.prompt = t; markFlow('described'); prompt.focus(); } }, t)));
   const cards = h('div', { class: 'cards', id: 'variation-cards' });
   const keepNote = h('div', { class: 'muted small', id: 'mask-note' });
@@ -105,6 +105,8 @@ export function initRight(root) {
 
   root.append(secInspector, secDescribe, secPresets, secShape, secColor, secFabric);
 
+  const sumOf = (o, i) => (o.ops && o.ops.summary) || ['A small change to what you asked for', 'The change exactly as you described it', 'A stronger version of your change'][i] || '';
+  const shorten = t => (t.length > 60 ? t.slice(0, 58).trimEnd() + '…' : t);
   function renderCards() {
     const v = S.variations;
     if (!v) { cards.replaceChildren(h('div', { class: 'muted small empty-cards' }, 'Your three options will appear here.')); return; }
@@ -113,7 +115,7 @@ export function initRight(root) {
       const applied = S.applied && S.applied.index === i;
       return h('div', { class: 'vcard' + (applied ? ' applied' : '') },
         h('div', { class: 'vthumb' }, th, h('span', { class: 'vsrc ' + o.source }, o.source === 'ai' ? 'AI' : 'Local')),
-        h('div', { class: 'vmeta' }, h('b', {}, o.label), h('span', { class: 'muted small' }, ['Gentle', 'Balanced', 'Dramatic'][i])),
+        h('div', { class: 'vmeta' }, h('b', {}, ['Light', 'Medium', 'Strong'][i] || o.label), h('span', { class: 'muted small', tip: sumOf(o, i) }, shorten(sumOf(o, i)))),
         h('div', { class: 'row gap' },
           h('button', { class: 'btn primary sm', onclick: () => A.acceptVariation(i) }, applied ? icon('check', 14) : null, applied ? 'Applied' : 'Use this'),
           h('button', { class: 'btn ghost sm', disabled: !S.applied, tip: S.applied ? 'Apply this option on top of the one you picked' : 'Pick an option first, then add another on top', onclick: () => A.combineVariation(i) }, 'Combine')));

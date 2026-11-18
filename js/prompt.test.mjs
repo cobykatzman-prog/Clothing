@@ -6,7 +6,7 @@ let n = 0;
 const t = (name, fn) => { try { fn(); n++; } catch (e) { console.error('FAIL:', name, '\n', e.message); process.exitCode = 1; } };
 const SL = ['leftSleeve', 'rightSleeve'];
 
-t('intensity', () => { assert.equal(intensityScale('Subtle'), 0.35); assert.equal(intensityScale('Medium'), 0.7); assert.equal(intensityScale('Bold'), 1); });
+t('intensity', () => { assert.equal(intensityScale('Subtle'), 0.4); assert.equal(intensityScale('Medium'), 0.75); assert.equal(intensityScale('Bold'), 1); });
 
 t('slightly flared', () => {
   const r = parsePrompt('Make the sleeves slightly flared');

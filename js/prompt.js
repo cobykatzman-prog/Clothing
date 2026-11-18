@@ -6,9 +6,9 @@ const SLEEVES = ['leftSleeve', 'rightSleeve'];
 
 export function intensityScale(label) {
   const k = String(label || '').toLowerCase();
-  if (k.startsWith('sub')) return 0.35;
+  if (k.startsWith('sub')) return 0.4;
   if (k.startsWith('bol')) return 1;
-  return 0.7;
+  return 0.75;
 }
 
 /* ------------------------------------------------------------------ lexicons */
