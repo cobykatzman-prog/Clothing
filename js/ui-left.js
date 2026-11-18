@@ -33,7 +33,7 @@ export function initLeft(root) {
   const viewHint = h('div', { class: 'muted small' });
   const sec1 = section(1, 'Upload image', 'Upload a clean photo or flat-lay of a garment. The background is removed automatically.', [
     drop, fileIn, viewHint,
-    h('div', { class: 'row gap' },
+    h('div', { class: 'row gap wrap' },
       h('button', { class: 'btn ghost sm', tip: 'Try the editor with a built-in sample garment', onclick: () => A.loadSample('tee') }, icon('sparkles', 15), 'Try a sample shirt'),
       h('button', { class: 'btn ghost sm', id: 'btn-removebg', tip: 'Cut the garment out of its background again', onclick: () => A.removeBg() }, icon('scissors', 15), 'Remove background')),
   ], true, 'sec-upload');
@@ -66,7 +66,7 @@ export function initLeft(root) {
   const sec3 = section(3, 'Select garment areas', 'Choose the part you want to change. Only the selected pixels will be edited by Generate variations.', [
     h('div', { class: 'tools' }, toolBtn('region', 'pick', 'Pick on canvas', 'Click a part of the garment on the canvas to select it'), toolBtn('brush', 'brush', 'Brush', 'Paint the exact area you want to change')),
     h('div', { class: 'chips' }, regionBtns),
-    h('div', { class: 'row gap' },
+    h('div', { class: 'row gap wrap' },
       h('button', { class: 'btn ghost sm', onclick: A.selectWhole }, 'Whole garment'),
       h('button', { class: 'btn ghost sm', tip: 'Expand the selection outward so a part can get bigger (e.g. wider sleeves)', onclick: () => A.growMask() }, 'Grow'),
       h('button', { class: 'btn ghost sm', onclick: A.invertMask }, 'Invert'),
