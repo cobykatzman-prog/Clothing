@@ -232,13 +232,19 @@ export function autoSelectLogo(seg, image) {
   if (!bin.some(v => v)) bin = chestContrast(seg, image);
   if (!bin || !bin.some(v => v)) return null;
   const { labels, count, areas } = labelComponents(bin, w, h);
+  // per-component bounds in one pass (compactness test: aspect and fill ratio of the bounding box)
+  const bx0 = new Int32Array(count + 1).fill(w), by0 = new Int32Array(count + 1).fill(h), bx1 = new Int32Array(count + 1).fill(-1), by1 = new Int32Array(count + 1).fill(-1);
+  for (let i = 0; i < n; i++) {
+    const c = labels[i]; if (!c) continue;
+    const x = i % w, y = (i - x) / w;
+    if (x < bx0[c]) bx0[c] = x; if (x > bx1[c]) bx1[c] = x; if (y < by0[c]) by0[c] = y; if (y > by1[c]) by1[c] = y;
+  }
   let best = -1, bestArea = 0;
   for (let c = 1; c <= count; c++) {
     const a = areas[c];
     if (a < 40 || a <= bestArea) continue;
-    const b = boundsOf(labels.map((v, i) => (v === c ? 255 : 0)), w, h); // only for compactness check on the chosen candidate
-    if (!b) continue;
-    const aspect = b.w / b.h, fill = a / (b.w * b.h);
+    const bw = bx1[c] - bx0[c] + 1, bh = by1[c] - by0[c] + 1;
+    const aspect = bw / bh, fill = a / (bw * bh);
     if (aspect < 0.3 || aspect > 3.3 || fill < 0.18) continue;
     best = c; bestArea = a;
   }
