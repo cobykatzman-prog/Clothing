@@ -68,6 +68,7 @@ export function initLeft(root) {
     h('div', { class: 'chips' }, regionBtns),
     h('div', { class: 'row gap' },
       h('button', { class: 'btn ghost sm', onclick: A.selectWhole }, 'Whole garment'),
+      h('button', { class: 'btn ghost sm', tip: 'Expand the selection outward so a part can get bigger (e.g. wider sleeves)', onclick: () => A.growMask() }, 'Grow'),
       h('button', { class: 'btn ghost sm', onclick: A.invertMask }, 'Invert'),
       h('button', { class: 'btn ghost sm', onclick: A.clearMask }, 'Clear')),
     h('div', { class: 'brushbox' },

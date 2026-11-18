@@ -218,10 +218,17 @@ export function invertMask() {
   const x = V.mask.getContext('2d'); x.clearRect(0, 0, SIZE, SIZE); x.drawImage(t, 0, 0);
   V.regionSel = []; touchMask(V); notify('mask');
 }
-/** mask handed to engines: selection ∩ garment, or null when nothing is selected */
+/** mask handed to engines: the selection as drawn (it may include empty space so shapes can grow), or null when nothing is selected */
 export function effectiveMask(V = activeView()) {
   if (!hasMask(V)) return null;
-  return intersectMask(V.mask, V.seg?.mask);
+  return cloneCanvas(V.mask);
+}
+export function growMask(px = 28) {
+  const V = activeView(); if (!hasMask(V)) { toast('Select an area first.', 'info'); return; }
+  snapshot();
+  const src = cloneCanvas(V.mask), x = V.mask.getContext('2d');
+  for (const r of [px, px * 0.5]) for (let i = 0; i < 20; i++) { const a = i / 20 * Math.PI * 2; x.drawImage(src, Math.cos(a) * r, Math.sin(a) * r); }
+  touchMask(V); notify('mask');
 }
 
 // ---------- variations ----------
@@ -258,7 +265,7 @@ export async function generateVariations(promptText) {
         out.push({ label: r.label || labels[i], canvas: c, seg: null, source: 'ai' });
       } else {
         local = local || await localVariations(src, seg, mask, ops);
-        const l = local[i]; out.push({ label: l.label, canvas: l.canvas, seg: l.seg || null, source: 'local' });
+        const l = local[i]; out.push({ label: l.label, canvas: mask ? enforceMask(src, l.canvas, mask) : l.canvas, seg: mask ? null : (l.seg || null), source: 'local' });
       }
     }
     state.variations = out.map(o => ({ ...o, ops }));
@@ -290,7 +297,7 @@ export async function combineVariation(i) {
     const mask = effectiveMask(V);
     const lv = await localVariations(V.current, V.seg, mask, o.ops);
     const r = lv[i];
-    await bake(r.canvas, r.seg, `Combined + ${o.label}`);
+    await bake(mask ? enforceMask(V.current, r.canvas, mask) : r.canvas, mask ? null : r.seg, `Combined + ${o.label}`);
     markFlow('compared'); notify('applied'); toast(`Added the ${o.label} option on top.`, 'ok');
   } catch (e) { toast('Could not combine: ' + e.message, 'error'); } finally { done(); }
 }
