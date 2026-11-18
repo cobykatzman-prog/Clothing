@@ -9,19 +9,10 @@ import { measureSection } from './ui-measure.js';
 
 const EXAMPLES = ['make the sleeves flared', 'boxy oversized fit', 'remove the cuffs', 'cropped hem', 'heavyweight cotton', 'red piping on the collar', 'vintage Greek island style'];
 
-export function engineLabel() {
-  const e = state.engine;
-  const aiName = /gpt|image/i.test(e.provider || '') ? e.provider : 'gpt-image-1';
-  if (e.used === 'ai') return { txt: `AI (${aiName})`, cls: 'ai' };
-  if (e.used === 'mixed') return { txt: 'AI + local fallback', cls: 'ai' };
-  if (e.used === 'local') return { txt: 'Local engine (offline)', cls: 'local' };
-  return e.available ? { txt: `AI (${aiName})`, cls: 'ai' } : { txt: 'Local engine (offline)', cls: 'local' };
-}
-export function engineBadge() {
-  const b = h('span', { class: 'badge', tip: 'AI = server-side image model. Local engine = free in-browser edits that run offline. The local engine is used automatically when AI is not configured.' });
-  const upd = () => { const l = engineLabel(); b.className = 'badge ' + l.cls; b.replaceChildren(h('i', { class: 'dot' }), l.txt); };
-  subscribe(r => { if (r === 'engine' || r === 'variations') upd(); }); upd();
-  return b;
+/** Neutral privacy note shown in the header and next to the options. */
+export function localNote(cls = '') {
+  return h('span', { class: 'badge local ' + cls, tip: 'Threadform reshapes, recolours and generates garments right here in your browser. Your images and designs are never uploaded.' },
+    h('i', { class: 'dot' }), 'Runs in your browser');
 }
 
 export function initRight(root) {
@@ -33,7 +24,7 @@ export function initRight(root) {
   const cards = h('div', { class: 'cards', id: 'variation-cards' });
   const keepNote = h('div', { class: 'muted small', id: 'mask-note' });
   const secDescribe = section(1, 'Describe your changes', 'Say what you want in plain words. You will get three options: Subtle, Medium and Bold. Pick one to apply it.', [
-    prompt, examples, keepNote, genBtn, h('div', { class: 'row between center engine-row' }, h('span', { class: 'muted small' }, 'Engine'), engineBadge()), cards,
+    prompt, examples, keepNote, genBtn, h('div', { class: 'muted small engine-row' }, 'Runs entirely in your browser - nothing is uploaded.'), cards,
   ], true, 'sec-describe');
 
   // ---- Fit / sleeve presets (ui-look.js: one-click presets, active-preset status, clear) ----
@@ -75,7 +66,7 @@ export function initRight(root) {
       const th = thumbOf(o.canvas, 200, '#f3f2ef');
       const applied = S.applied && S.applied.index === i;
       return h('div', { class: 'vcard' + (applied ? ' applied' : '') },
-        h('div', { class: 'vthumb' }, th, h('span', { class: 'vsrc ' + o.source }, o.source === 'ai' ? 'AI' : 'Local')),
+        h('div', { class: 'vthumb' }, th),
         h('div', { class: 'vmeta' }, h('b', {}, ['Light', 'Medium', 'Strong'][i] || o.label), h('span', { class: 'muted small', tip: sumOf(o, i) }, shorten(sumOf(o, i)))),
         h('div', { class: 'row gap' },
           h('button', { class: 'btn primary sm', onclick: () => A.acceptVariation(i) }, applied ? icon('check', 14) : null, applied ? 'Applied' : 'Use this'),

@@ -7,7 +7,6 @@ import { applyColor, applyFabric } from './fabric.js';
 import { applyParts, partsActive } from './manual.js';
 import { localVariations } from './variations.js';
 import { parsePrompt } from './prompt.js';
-import { requestVariations, generateGarment, aiStatus } from './ai.js';
 import { sampleGarment } from './samples.js';
 import { parseGarmentText, makeGarmentViews, GEN_VIEWS } from './generate.js';
 
@@ -153,8 +152,7 @@ export async function removeBg() {
   catch (e) { toast('Background removal failed: ' + e.message, 'error'); } finally { done(); }
 }
 
-// Generate garment: AI image for the front when the server has a key, otherwise the offline generator.
-// Either way all four views (front, back, side, detail) are installed as one design and made editable.
+// Generate garment: the in-browser generator builds front, back, side and detail views as one design.
 let generating = false;
 const applyGarmentLook = (V, spec) => {
   V.params = { ...DEFAULT_PARAMS, ...(FIT_PRESETS[spec.fit] || {}), ...(SLEEVE_PRESETS[spec.sleeve] || {}) };
@@ -174,40 +172,25 @@ export async function generateFromPrompt(text, { defaultKind = 'tee' } = {}) {
   try {
     await tick();
     const spec = parseGarmentText(prompt, { defaultKind });
-    let ai = null;
-    try { ai = await generateGarment({ prompt, refs: state.references, view: 'front' }); } catch (e) { console.warn(e); }
-    let aiCanvas = null;
-    if (ai?.canvas) {
-      aiCanvas = ai.canvas.width === SIZE && ai.canvas.height === SIZE ? ai.canvas : (() => { const n = makeCanvas(); n.getContext('2d').drawImage(ai.canvas, 0, 0, SIZE, SIZE); return n; })();
-      if (!hasTransparentBorder(aiCanvas)) aiCanvas = cropToContent(await removeBackground(aiCanvas));
-    }
     const views = makeGarmentViews(spec);
     snapshot();
     for (const v of GEN_VIEWS) {
-      const V = state.views[v];
-      if (v === 'front' && aiCanvas) {
-        await installBase(v, aiCanvas);
-      } else {
-        await installBase(v, views[v], { sample: spec.sample });
-        applyGarmentLook(V, spec);
-      }
+      await installBase(v, views[v], { sample: spec.sample });
+      applyGarmentLook(state.views[v], spec);
     }
     for (const v of GEN_VIEWS) await recompute(v);
     state.activeView = 'front';
     state.variations = null;
-    state.engine.used = aiCanvas ? 'ai' : 'local';
     state.name = spec.title;
-    pushVersion(aiCanvas ? 'Generated with AI' : 'Generated offline');
+    pushVersion('Generated');
     markFlow('generated'); notify('loaded');
-    const message = aiCanvas
-      ? `Generated with AI for the front. Back, side and detail use the offline engine for a ${spec.summary}.`
-      : `Generated offline: ${spec.summary}. Front, back, side and detail are ready to edit.`;
-    toast(aiCanvas ? 'Generated with AI (front). Other views are offline.' : 'Generated offline. Front, back, side and detail are ready.', 'ok', 4500);
-    return { ok: true, message, spec, engine: aiCanvas ? 'ai' : 'local' };
+    const message = `Generated: ${spec.summary}. Front, back, side and detail are ready to edit.`;
+    toast('Generated. Front, back, side and detail are ready to edit.', 'ok', 4500);
+    return { ok: true, message, spec };
   } catch (e) {
     console.error(e);
-    const msg = 'Generate failed: ' + e.message;
-    toast(msg, 'error');
+    const msg = 'That garment could not be generated. Try a simpler description, such as "red hoodie", or pick a sample.';
+    toast(msg, 'error', 5000);
     return { ok: false, message: msg };
   } finally { generating = false; done(); }
 }
@@ -290,26 +273,10 @@ export async function generateVariations(promptText) {
     state.lastOps = ops;
     const mask = effectiveMask(V);
     const src = V.current, seg = V.seg;
-    let res = [];
-    try {
-      res = await requestVariations({ imageCanvas: src, maskCanvas: mask, prompt: promptText, refs: state.references, view: state.activeView, ops });
-    } catch (e) { console.warn('AI request failed', e); }
-    const labels = ['Subtle', 'Medium', 'Bold'];
-    let local = null;
-    const out = [];
-    for (let i = 0; i < 3; i++) {
-      const r = res[i];
-      if (r && r.canvas && r.source === 'ai') {
-        const c = mask ? enforceMask(src, r.canvas, mask) : r.canvas;
-        out.push({ label: r.label || labels[i], canvas: c, seg: null, source: 'ai' });
-      } else {
-        local = local || await localVariations(src, seg, mask, ops);
-        const l = local[i]; out.push({ label: l.label, canvas: mask ? enforceMask(src, l.canvas, mask) : l.canvas, seg: mask ? null : (l.seg || null), source: 'local' });
-      }
-    }
+    const local = await localVariations(src, seg, mask, ops);
+    const out = local.slice(0, 3).map(l => ({ label: l.label, canvas: mask ? enforceMask(src, l.canvas, mask) : l.canvas, seg: mask ? null : (l.seg || null) }));
     state.variations = out.map(o => ({ ...o, ops }));
     state.applied = null;
-    state.engine.used = out.every(o => o.source === 'ai') ? 'ai' : out.some(o => o.source === 'ai') ? 'mixed' : 'local';
     markFlow('generated'); notify('variations');
     if (!mask) toast('No area selected: changes may touch any matching part of the garment.', 'info', 3800);
   } catch (e) { console.error(e); toast('Could not generate variations: ' + e.message, 'error'); } finally { done(); }
@@ -341,12 +308,6 @@ export async function combineVariation(i) {
   } catch (e) { toast('Could not combine: ' + e.message, 'error'); } finally { done(); }
 }
 
-// ---------- engine ----------
-export async function refreshEngine() {
-  try { const s = await aiStatus(); state.engine.available = !!s.available; state.engine.provider = s.provider || (s.available ? 'ai' : 'local'); }
-  catch { state.engine.available = false; state.engine.provider = 'local'; }
-  notify('engine');
-}
 export const undo = () => { sUndo(); };
 export const redo = () => { sRedo(); };
 export { REGION_NAMES, FIT_PRESETS, SLEEVE_PRESETS, DEFAULT_PARAMS };

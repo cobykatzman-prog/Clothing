@@ -13,7 +13,7 @@ export function newColor() { return { hue: 0, sat: 0, light: 0, tint: null, tint
 export function newView() {
   return {
     original: null,   // untouched upload / generated image
-    base: null,       // what sliders are derived from (original, or an accepted AI result)
+    base: null,       // what sliders are derived from (original, or an accepted option)
     baseSeg: null,
     current: null,    // base + shape + fabric + colour  (what is displayed)
     seg: null,        // segmentation of `current`
@@ -45,7 +45,6 @@ export const state = {
   undoStack: [], redoStack: [],
   variations: null,      // [{label, canvas, seg, source, ops}]
   lastOps: null,
-  engine: { available: false, provider: 'local', used: null },
   flow: { described: false, generated: false, compared: false, refined: false, exported: false, skippedSelect: false },
   ui: { tool: 'move', brushSize: 48, brushMode: 'add', showMask: true, compare: false, comparePos: 0.5, limitToSelection: false, busy: 0, prompt: '', notes: '' },
 };

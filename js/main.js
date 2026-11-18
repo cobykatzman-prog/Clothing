@@ -4,9 +4,9 @@ import { initTooltips, h, icon, thumbOf, debounce, toast } from './util.js';
 import { initHeader } from './ui-header.js';
 import { initLeft } from './ui-left.js';
 import { initStage } from './ui-stage.js';
-import { initRight, engineLabel } from './ui-right.js';
+import { initRight } from './ui-right.js';
 import { initBottom } from './ui-bottom.js';
-import { refreshEngine, busy } from './ui-actions.js';
+import { busy } from './ui-actions.js';
 import { state, subscribe, serializeDesign, hydrateDesign, VIEWS } from './state.js';
 import * as store from './storage.js';
 import { initHome, refreshHome } from './home.js';
@@ -18,7 +18,6 @@ initLeft($('left'));
 initStage($('centre'));
 initRight($('right'));
 initBottom($('bottom'));
-refreshEngine();
 window.__threadform = { state };   // handy for debugging / tests
 
 const app = document.querySelector('.app'), home = $('home'), header = $('header');
@@ -34,7 +33,7 @@ header.addEventListener('input', e => { if (e.target.classList?.contains('name')
 // ---- state of the open design ----
 let currentId = null, loaded = false, loading = false, dirty = false, createdAt = 0, nav = 0;
 let queue = Promise.resolve(), lastStatus = '';
-const NON_CONTENT = new Set(['render', 'zoom', 'processing', 'busy', 'compare', 'tool', 'view', 'engine', 'selection', 'history']);
+const NON_CONTENT = new Set(['render', 'zoom', 'processing', 'busy', 'compare', 'tool', 'view', 'selection', 'history']);
 
 function setStatus(kind, t) {
   lastStatus = kind;
@@ -52,17 +51,25 @@ const pickThumb = () => {
   return n ? thumbOf(state.views[n].current, 240, '#f3f2ef').toDataURL('image/jpeg', 0.82) : '';
 };
 
+const KIND_NAMES = { tee: 'T-shirt', longSleeve: 'Long-sleeve top', polo: 'Polo', hoodie: 'Hoodie' };
+/** short description of the garment for the home card, e.g. "Hoodie" or "Uploaded photo" */
+function garmentKindLabel() {
+  const sample = VIEWS.map(n => state.views[n].sample).find(Boolean);
+  if (sample?.kind && KIND_NAMES[sample.kind]) return KIND_NAMES[sample.kind];
+  return VIEWS.some(n => state.views[n].base) ? 'Uploaded photo' : '';
+}
+
 async function doSave() {
   if (!dirty || !currentId || loading) return;
   dirty = false;
   const id = currentId;
   setStatus('saving');
   try {
-    const thumb = pickThumb(), views = VIEWS.filter(n => state.views[n].base).length, engine = engineLabel().txt;
+    const thumb = pickThumb(), views = VIEWS.filter(n => state.views[n].base).length, kind = garmentKindLabel();
     const { doc, assets } = await serializeDesign();
     const now = Date.now(), name = state.name || 'Untitled design';
     doc.name = name; doc.createdAt = createdAt; doc.updatedAt = now;
-    await store.putDesign({ id, meta: { id, name, createdAt, updatedAt: now, thumb, views, engine }, doc, assets });
+    await store.putDesign({ id, meta: { id, name, createdAt, updatedAt: now, thumb, views, kind }, doc, assets });
     setStatus('saved', now);
   } catch (e) {
     dirty = true;   // the next change retries

@@ -62,7 +62,7 @@ export function initLeft(root) {
     } finally { genBtn.disabled = false; genLabel.textContent = 'Generate garment'; }
   };
   genPrompt.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runGenerate(); });
-  const sec2 = section(2, 'Generate garment', 'Describe a garment and the editor builds front, back, side and detail views of it at once. With an AI key on the server the front is drawn by the AI; otherwise the offline engine draws it.', [
+  const sec2 = section(2, 'Generate garment', 'Describe a garment and the editor builds front, back, side and detail views of it at once, right here in your browser.', [
     h('div', { class: 'chips' }, kindBtns),
     h('div', { class: 'row gap center' }, field('Colour', colorIn), h('label', { class: 'check' }, stripeIn, 'Stripes')),
     genPrompt,
@@ -144,9 +144,9 @@ export function initLeft(root) {
   // ---- 6 References ----
   const refIn = h('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true, onchange: e => { A.addReferences([...e.target.files]); e.target.value = ''; } });
   const refGrid = h('div', { class: 'refs' });
-  const sec6 = section(6, 'References', 'Upload mood-board images (a fabric, a hem, a colour palette). The AI engine uses them as style references.', [
+  const sec6 = section(6, 'References', 'Keep mood-board images (a fabric, a hem, a colour palette) next to your design. They are saved with the design in this browser and never uploaded.', [
     h('button', { class: 'btn ghost sm', onclick: () => refIn.click() }, icon('plus', 15), 'Add reference images'), refIn, refGrid,
-    h('div', { class: 'muted small' }, 'Used by the AI engine only; the local engine ignores them.'),
+    h('div', { class: 'muted small' }, 'For your own reference while you design; they do not change the garment.'),
   ], false, 'sec-refs');
 
   root.append(sec1, sec2, sec3, sec4, sec5, secEl, sec6);

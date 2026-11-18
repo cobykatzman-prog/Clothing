@@ -1,7 +1,7 @@
-// Header: brand, design name, workflow stepper, engine badge.
+// Header: brand, design name, workflow stepper, privacy note.
 import { state, subscribe, hasMask, VIEWS } from './state.js';
 import { h, icon } from './util.js';
-import { engineBadge } from './ui-right.js';
+import { localNote } from './ui-right.js';
 
 const STEPS = [
   ['upload', 'Upload', 'Add a garment photo or try a sample', () => { const d = document.getElementById('sec-upload'); open(d); }],
@@ -20,7 +20,7 @@ export function initHeader(root) {
     h('li', { 'data-k': k }, h('button', { class: 'step', tip, onclick: fn }, h('span', { class: 'sn' }, i + 1), h('span', { class: 'sl' }, label)))));
   root.append(
     h('div', { class: 'brand' }, h('span', { class: 'logo' }, icon('layers', 18)), h('b', {}, 'Threadform')),
-    name, steps, h('div', { class: 'head-right' }, engineBadge()));
+    name, steps, h('div', { class: 'head-right' }, localNote()));
   function sync() {
     const f = state.flow;
     const done = {

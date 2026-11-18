@@ -1,4 +1,4 @@
-// Threadform - offline "local engine": turns parsed prompt ops into three graded variations
+// Threadform - in-browser garment-shape engine: turns parsed prompt ops into three graded variations
 // (Subtle / Medium / Bold) using the real warp, fabric and colour engines.
 import { REGION_NAMES, alphaOf, canvasFromAlpha, mkCanvas, readRGBA, segmentGarment } from './segment.js';
 import { applyShape, DEFAULT_PARAMS, FIT_PRESETS, SLEEVE_PRESETS } from './warp.js';

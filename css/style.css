@@ -94,7 +94,7 @@ input[type=range]{width:100%;accent-color:var(--accent);height:18px;margin:0}
 .vcard.applied{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .vthumb{grid-row:1/3;position:relative;width:96px;height:96px;border-radius:9px;overflow:hidden;background:repeating-conic-gradient(#f0eee9 0 25%,#fff 0 50%) 0 0/14px 14px}
 .vthumb canvas{width:100%;height:100%;display:block}
-.vsrc{position:absolute;left:4px;bottom:4px;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;background:rgba(20,20,30,.7);color:#fff}.vsrc.ai{background:#16a34a}
+
 .vmeta{display:flex;flex-direction:column}.vcard .row{grid-column:2;flex-wrap:wrap}.vcard .btn{padding:5px 9px}
 
 /* stage */

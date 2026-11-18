@@ -1,6 +1,6 @@
 // Design storage (owner: home/gallery).
 // IndexedDB first; localStorage if IndexedDB is unavailable; an in-memory map as a last resort.
-// Record: { id, meta: {id,name,createdAt,updatedAt,thumb,views,engine}, doc, assets: {key: Blob|dataURL} }
+// Record: { id, meta: {id,name,createdAt,updatedAt,thumb,views,kind}, doc, assets: {key: Blob|dataURL} }
 // Every call is async and reports failures as StorageError (quota errors flagged with .quota).
 
 const DB_NAME = 'threadform', DB_VERSION = 1;

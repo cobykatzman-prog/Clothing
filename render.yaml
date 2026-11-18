@@ -1,6 +1,5 @@
 # Render Blueprint: deploys Threadform as a static site with security headers.
-# Static sites run no server code, so /api (the optional OpenAI endpoints) is not served here and the
-# app uses its built-in local engine. Everything the studio does by default runs in the browser.
+# Threadform has no server code and makes no network requests: everything runs in the visitor's browser.
 services:
   - type: web
     name: threadform
@@ -11,7 +10,7 @@ services:
     headers:
       - path: /*
         name: Content-Security-Policy
-        value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; worker-src 'self' blob:; upgrade-insecure-requests"
+        value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; worker-src 'self' blob:; upgrade-insecure-requests"
       - path: /*
         name: X-Content-Type-Options
         value: nosniff
