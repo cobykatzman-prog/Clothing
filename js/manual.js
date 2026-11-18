@@ -547,7 +547,7 @@ export async function addLogo(file) {
     }
     const b = V.seg?.bbox, pos = b ? { x: b.x + b.w / 2, y: b.y + b.h * 0.4 } : { x: SIZE / 2, y: SIZE / 2 };
     const el = vector
-      ? createElement('graphic', { svg: vector.svg, view: viewName, ...pos })
+      ? createElement('graphic', { svg: vector.svg, ...(Object.keys(vector.colors).length ? { colors: vector.colors } : {}), view: viewName, ...pos })
       : createElement('logo', { image: raster.url, view: viewName, ...pos });
     el.w = 200; el.h = vector ? 200 * vector.ratio : 200 * raster.ih / raster.iw;
     el.base = { w: el.w, h: el.h, size: undefined };
