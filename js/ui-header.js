@@ -1,5 +1,5 @@
 // Header: brand, design name, workflow stepper, engine badge.
-import { state, subscribe, hasMask, notify, VIEWS } from './state.js';
+import { state, subscribe, hasMask, VIEWS } from './state.js';
 import { h, icon } from './util.js';
 import { engineBadge } from './ui-right.js';
 

@@ -1,6 +1,6 @@
 // Pipeline + actions shared by all UI panels (owner: shell).
 import { state, VIEWS, activeView, snapshot, notify, pushVersion, markFlow, touchMask, hasMask, newColor, undo as sUndo, redo as sRedo } from './state.js';
-import { SIZE, makeCanvas, cloneCanvas, loadImageToCanvas, debounce, intersectMask, hasTransparentBorder, cropToContent, toast } from './util.js';
+import { SIZE, makeCanvas, cloneCanvas, loadImageToCanvas, debounce, hasTransparentBorder, cropToContent, toast } from './util.js';
 import { segmentGarment, removeBackground, REGION_NAMES } from './segment.js';
 import { applyShape, DEFAULT_PARAMS, FIT_PRESETS, SLEEVE_PRESETS } from './warp.js';
 import { applyColor, applyFabric } from './fabric.js';

@@ -1,5 +1,5 @@
 // Right panel: describe + variations, fit/sleeve presets, shape sliders, colour, fabric.
-import { state, activeView, subscribe, notify, markFlow, hasMask } from './state.js';
+import { state, activeView, subscribe, markFlow, hasMask } from './state.js';
 import { h, icon, thumbOf } from './util.js';
 import * as A from './ui-actions.js';
 import { section } from './ui-left.js';

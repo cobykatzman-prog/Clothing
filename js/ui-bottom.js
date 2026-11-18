@@ -1,5 +1,5 @@
 // Bottom bar: undo/redo, version history drawer, compare, export menu.
-import { state, VIEWS, VIEW_LABELS, activeView, subscribe, notify, markFlow, pushVersion, restoreVersion } from './state.js';
+import { state, VIEWS, activeView, subscribe, notify, markFlow, pushVersion, restoreVersion } from './state.js';
 import { h, icon, toast, makeCanvas, SIZE, canvasToBlob } from './util.js';
 import * as A from './ui-actions.js';
 import { exportPNG, exportSVG, exportDesignSheet, download } from './export.js';

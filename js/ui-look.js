@@ -88,7 +88,7 @@ export function shapeBlock() {
     get: V => (V || activeView()).params[s.k] || 0,
     set: v => A.setParam(s.k, v),
   }));
-  const resetAll = h('button', { class: 'btn ghost sm', tip: 'Set every shape slider back to 0 (original). Undo brings them back.', onclick: () => { A.beginEdit(); A.resetParams(); A.endEdit(); } }, 'Reset shape');
+  const resetAll = h('button', { class: 'btn ghost sm', tip: 'Set every shape slider back to 0 (original). Undo brings them back.', onclick: () => { A.endEdit(); A.resetParams(); } }, 'Reset shape');
   const el = h('div', { class: 'stack-col' }, ...ctls.map(c => c.el), resetAll);
   return {
     el,

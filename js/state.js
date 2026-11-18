@@ -78,7 +78,7 @@ export function capture() {
       regionSel: [...v.regionSel], sample: v.sample, parts: { ...v.parts },
     };
   }
-  return { views, elements: state.elements.map(cloneElement), activeView: state.activeView, name: state.name };
+  return { views, elements: state.elements.map(cloneElement), activeView: state.activeView, name: state.name, measure: { ...state.measure } };
 }
 function apply(s) {
   for (const n of VIEWS) {
@@ -92,6 +92,7 @@ function apply(s) {
   state.elements = s.elements.map(cloneElement);
   state.activeView = s.activeView;
   state.name = s.name;
+  if (s.measure) state.measure = { ...s.measure };
   state.selectedId = null;
 }
 /** Call BEFORE a mutation: records the current state as an undo step. */

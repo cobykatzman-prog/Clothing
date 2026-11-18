@@ -1,16 +1,17 @@
 // Right-panel "Measurements" section: size, unit, live table (now / original / change), calibration, canvas dimension lines.
 // All numbers come from measure.js; the per-design settings live in state.measure (saved with the design).
-import { state, subscribe, notify } from './state.js';
+import { state, subscribe, notify, snapshot } from './state.js';
 import { h, toast } from './util.js';
 import { section } from './ui-left.js';
 import {
-  SIZES, KINDS, KIND_LABELS, MEASURES, CALIBRATE_KEYS, NOTE, designMeasure, formatMeasure, fromUnit, toUnit, visibleDelta, calibrationText, normalizeMeasureState,
+  SIZES, KINDS, KIND_LABELS, CALIBRATE_KEYS, NOTE, designMeasure, formatMeasure, fromUnit, toUnit, visibleDelta, calibrationText, normalizeMeasureState,
 } from './measure.js';
 
 const CAL_LABEL = { chest: 'chest', length: 'body length', shoulder: 'shoulder width', hem: 'hem width' };
 const SKIP = new Set(['render', 'zoom', 'elements-live', 'busy']);
 
 function setMeasure(patch) {
+  snapshot();   // size / unit / scale changes are undoable like every other edit
   state.measure = normalizeMeasureState({ ...state.measure, ...patch });
   notify('measure');
 }
