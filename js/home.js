@@ -3,6 +3,7 @@
 // Tags and order are stored on the design record (meta.tags, meta.order, and doc.tags for the document).
 import { h, icon, toast, friendly, userError, logoutForm } from './util.js';
 import * as store from './storage.js';
+import * as R from './remote.js';
 import * as A from './ui-actions.js';
 
 const MAX_TAGS = 12, MAX_TAG_LEN = 24;
@@ -11,6 +12,8 @@ let metas = [];
 let activeTags = new Set();   // tag filter, lower-case keys (a design must have every selected tag)
 const SORT_KEY = 'threadform.home.sort';   // remembered in this browser only (a convenience, not design data)
 let dragId = null;
+let sharedEl, badgeEl, badgeTxt, moveEl, movable = [], refreshing = false, tick = 0;   // shared-library mode only
+const SHARED = () => store.shared();
 
 export function initHome(el, actions) {
   root = el; api = actions;
@@ -29,27 +32,39 @@ export function initHome(el, actions) {
   emptyEl = h('div', { class: 'home-empty', hidden: true },
     h('div', { class: 'empty-ico' }, icon('layers', 34)),
     h('h2', {}, 'Design your first garment'),
-    h('p', {}, 'Upload a photo, describe one in words, or start from a sample shirt. Every change is saved here automatically.'),
+    h('p', {}, SHARED()
+      ? 'Upload a photo, describe one in words, or start from a sample shirt. Every change is saved automatically, and these designs are shared with everyone who has the password.'
+      : 'Upload a photo, describe one in words, or start from a sample shirt. Every change is saved here automatically.'),
     h('div', { class: 'home-choices' }, choiceButtons()));
+  if (SHARED()) buildSharedStrip();
   root.replaceChildren(
     h('div', { class: 'home-top' },
       h('div', { class: 'brand' }, h('span', { class: 'logo' }, icon('layers', 18)), h('b', {}, 'Threadform')),
       h('div', { class: 'home-actions' }, h('button', { class: 'btn primary', id: 'home-new', onclick: () => chooser() }, icon('plus', 16), 'New design'), logoutForm())),
     h('div', { class: 'home-body' },
       h('div', { class: 'home-tools' },
-        h('div', {}, h('h1', {}, 'Your designs'), countEl),
+        h('div', {}, h('h1', {}, SHARED() ? 'Shared designs' : 'Your designs'), countEl),
         h('div', { class: 'home-filters' }, qEl, sortEl)),
-      chipsEl, listEl, emptyEl, noteEl));
+      sharedEl || null, chipsEl, listEl, emptyEl, noteEl));
+  if (SHARED()) startSharedRefresh();
 }
 
 /** Reloads the list from storage and shows it. */
 export async function refreshHome() {
   const mode = await store.initStorage();
-  noteEl.textContent = mode === 'memory' ? 'Browser storage is unavailable, so designs will be lost when you close this page.'
+  if (SHARED()) {
+    noteEl.textContent = 'Designs are saved in the shared library: everyone who has the password sees and edits the same designs.'
+      + (api.unsavedCount?.() ? ' Some changes are still waiting to be sent and will be saved as soon as the connection is back.' : '');
+    checkStatus(false); loadMovable();
+  } else noteEl.textContent = mode === 'memory' ? 'Browser storage is unavailable, so designs will be lost when you close this page.'
     : mode === 'localstorage' ? 'Designs are saved in this browser. Space is limited, so delete old designs if saving fails.'
     : 'Designs are saved in this browser.';
   try { metas = await store.listDesigns(); }
-  catch (e) { toast(friendly(e, 'Your saved designs could not be read. Reload the page to try again.'), 'error', 5000); metas = []; }
+  catch (e) {
+    toast(friendly(e, 'Your saved designs could not be read. Reload the page to try again.'), 'error', 5000);
+    if (!SHARED()) metas = [];   // shared mode keeps showing the last list it had
+    else setBadge('bad', 'Cannot reach the shared library right now');
+  }
   render();
 }
 
@@ -201,10 +216,7 @@ function rename(m) {
   return guarded(async () => {
     const name = await ask({ title: 'Rename design', label: 'Design name', value: m.name, ok: 'Rename' });
     if (!name) return;
-    const rec = await store.getDesign(m.id);
-    if (!rec) throw userError('That design no longer exists. It may have been deleted in another tab.');
-    rec.meta.name = name; rec.doc.name = name;
-    await store.putDesign(rec);
+    await store.patchDesign(m.id, { meta: { name }, doc: { name } });
     toast('Renamed.', 'ok');
   });
 }
@@ -233,19 +245,12 @@ function editTags(m) {
 
 function duplicate(m) {
   return guarded(async () => {
-    const rec = await store.getDesign(m.id);
-    if (!rec) throw userError('That design no longer exists. It may have been deleted in another tab.');
-    const now = Date.now(), id = store.newId(), name = (m.name || 'Untitled design') + ' copy';
-    await store.putDesign({
-      id,
-      meta: { ...rec.meta, id, name, createdAt: now, updatedAt: now, order: undefined },
-      doc: { ...rec.doc, name, createdAt: now, updatedAt: now },
-      assets: rec.assets,
-    });
+    const name = (m.name || 'Untitled design') + ' copy', now = Date.now();
+    const id = await store.duplicateDesign(m.id, name);
     // the copy goes right after the original in the custom order
     const ordered = customSorted(metas).filter(x => x.id !== id);
     const at = ordered.findIndex(x => x.id === m.id);
-    const copy = { ...rec.meta, id, order: undefined, createdAt: now };
+    const copy = { ...m, id, name, order: undefined, createdAt: now };
     ordered.splice(at + 1, 0, copy);
     await persistOrder(ordered);
     toast('Duplicated “' + m.name + '”.', 'ok');
@@ -256,7 +261,9 @@ function remove(m) {
   return guarded(async () => {
     const yes = await ask({
       title: `Delete “${m.name}”?`,
-      text: 'This removes the design, its views and its saved versions from this browser. You can undo it straight after.',
+      text: SHARED()
+        ? 'This removes the design, its views and its saved versions for everyone who has the password. You can undo it straight after.'
+        : 'This removes the design, its views and its saved versions from this browser. You can undo it straight after.',
       ok: 'Delete design', danger: true,
     });
     if (!yes) return;
@@ -354,4 +361,109 @@ function chooser(preset) {
     genForm);
   if (preset === 'generate') openGenerate(dlg);
   dlg.querySelector('.choice').focus();
+}
+
+
+/* ------------------------------------------------------------------ shared library: status, live refresh, moving old local designs */
+function setBadge(state, text) {
+  if (!badgeEl) return;
+  badgeEl.dataset.state = state;
+  badgeTxt.textContent = 'Shared library: ' + text;
+}
+async function checkStatus(announce = true) {
+  if (!badgeEl) return;
+  if (announce) setBadge('checking', 'checking...');
+  try {
+    const st = await R.status();
+    if (!st.enabled) setBadge('bad', 'switched off on the server');
+    else if (st.ok) setBadge('ok', 'Connected');
+    else setBadge('bad', st.error || 'not connected');
+  } catch (e) { setBadge('bad', e.kind === 'auth' ? 'log in again to connect' : 'cannot reach the server'); }
+  if (announce) toast(badgeTxt.textContent.replace('Shared library: ', ''), badgeEl.dataset.state === 'ok' ? 'ok' : 'error', 3000);
+}
+
+function buildSharedStrip() {
+  badgeTxt = h('span', {}, 'Shared library: checking...');
+  badgeEl = h('span', { class: 'badge shared', role: 'status', 'aria-live': 'polite', 'data-state': 'checking' }, h('i', { class: 'dot' }), badgeTxt);
+  moveEl = h('div', { class: 'move-note', hidden: true });
+  sharedEl = h('div', { class: 'shared-strip' },
+    h('div', { class: 'shared-row' }, badgeEl,
+      h('button', { type: 'button', class: 'btn ghost sm', onclick: () => checkStatus(true) }, 'Check connection'),
+      h('span', { class: 'muted small' }, 'Everyone who has the password sees and edits these designs.')),
+    moveEl);
+}
+
+async function loadMovable() {
+  movable = await store.movableLocalDesigns();
+  if (!moveEl) return;
+  if (!movable.length) { moveEl.hidden = true; moveEl.replaceChildren(); return; }
+  const n = movable.length;
+  moveEl.replaceChildren(
+    h('span', {}, `This browser still has ${n} design${n === 1 ? '' : 's'} saved only here (from before the shared library).`),
+    h('button', { type: 'button', class: 'btn primary sm', id: 'move-local', onclick: moveLocal }, 'Move my local designs to the shared library'));
+  moveEl.hidden = false;
+}
+
+let moving = false;
+async function moveLocal() {
+  if (moving || !movable.length) return;
+  const list = movable.slice(), n = list.length;
+  const yes = await ask({
+    title: 'Move your local designs?',
+    text: `This copies ${n} design${n === 1 ? '' : 's'} saved in this browser to the shared library, where everyone who has the password can see and edit ${n === 1 ? 'it' : 'them'}. Nothing is removed from this browser yet.`,
+    ok: 'Move to shared library',
+  });
+  if (!yes) return;
+  moving = true;
+  const btn = moveEl.querySelector('button');
+  const done = [];
+  let failed = 0;
+  try {
+    for (const [i, m] of list.entries()) {
+      if (btn) { btn.disabled = true; btn.textContent = `Moving ${i + 1} of ${n}...`; }
+      try {
+        const r = await store.moveLocalDesign(m.id);
+        if (r !== 'missing') { done.push(m.id); await store.local.patch(m.id, { meta: { sharedCopy: true } }).catch(() => { }); }
+      } catch (e) { console.error(e); failed++; }
+    }
+  } finally { moving = false; }
+  await refreshHome();
+  if (failed) toast(`${failed} design${failed === 1 ? '' : 's'} could not be moved. Check the connection and press the button again.`, 'error', 6000);
+  if (!done.length) return;
+  toast(`Moved ${done.length} design${done.length === 1 ? '' : 's'} to the shared library.`, 'ok');
+  const del = await ask({
+    title: 'Remove the copies from this browser?',
+    text: 'Your designs are now in the shared library. Removing the old copies frees space in this browser, and you can undo it straight after.',
+    ok: 'Remove local copies',
+  });
+  if (!del) return;
+  const kept = [];
+  for (const id of done) { try { const rec = await store.local.get(id); if (rec) { kept.push(rec); await store.local.delete(id); } } catch (e) { console.error(e); } }
+  await refreshHome();
+  toast('Removed the local copies.', 'ok', 5000, kept.length ? { label: 'Undo', fn: async () => { for (const rec of kept) { try { await store.local.put(rec); } catch (e) { console.error(e); } } toast('Local copies restored.', 'ok'); await refreshHome(); } } : null);
+}
+
+/** Quiet refresh: no spinner, no toast, and the page is only touched when something changed. */
+async function softRefresh() {
+  if (!root || root.hidden || document.hidden || refreshing || moving || dragId) return;
+  if (document.querySelector('dialog[open]')) return;
+  refreshing = true;
+  try {
+    const next = await store.listDesigns();
+    if (JSON.stringify(next) !== JSON.stringify(metas)) {
+      const ae = document.activeElement, art = ae && listEl.contains(ae) ? ae.closest('article') : null;
+      const at = art ? { id: art.dataset.id, i: [...art.querySelectorAll('button')].indexOf(ae) } : null;
+      metas = next; render();
+      if (at) { const b = listEl.querySelector(`article[data-id="${CSS.escape(at.id)}"]`)?.querySelectorAll('button')[at.i]; b?.focus(); }
+    }
+    if (badgeEl?.dataset.state === 'bad') checkStatus(false);
+  } catch (e) { setBadge('bad', 'cannot reach the server right now'); }
+  finally { refreshing = false; }
+}
+let started = false;
+function startSharedRefresh() {
+  if (started) return; started = true;
+  setInterval(() => { softRefresh(); if (++tick % 3 === 0 && !root.hidden && !document.hidden) checkStatus(false); }, 20000);
+  window.addEventListener('focus', softRefresh);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) softRefresh(); });
 }

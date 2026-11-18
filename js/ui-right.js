@@ -12,6 +12,10 @@ const EXAMPLES = ['make the sleeves flared', 'boxy oversized fit', 'remove the c
 
 /** Neutral privacy note shown in the header and next to the options. */
 export function localNote(cls = '') {
+  if (document.querySelector('meta[name="threadform-shared"][content="1"]')) {
+    return h('span', { class: 'badge local ' + cls, tip: 'Threadform edits garments right here in your browser. Saved designs go to your shared library, so everyone who has the password sees them.' },
+      h('i', { class: 'dot' }), 'Shared library');
+  }
   return h('span', { class: 'badge local ' + cls, tip: 'Threadform reshapes, recolours and generates garments right here in your browser. Your images and designs are never uploaded.' },
     h('i', { class: 'dot' }), 'Runs in your browser');
 }
