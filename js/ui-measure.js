@@ -41,7 +41,7 @@ export function measureBlock() {
     setMeasure({ manual: { key, cm } });
     toast(`Scale set: ${CAL_LABEL[key]} = ${formatMeasure(cm, S.measure.unit)}.`, 'ok');
   }
-  const calRow = h('div', { class: 'row gap center wrap mcal' }, h('span', { class: 'small' }, 'My'), calKey, h('span', { class: 'small' }, 'measures'), calIn, calUnit, calBtn, calReset);
+  const calRow = h('div', { class: 'row gap center wrap mcal', 'data-level': 'advanced' }, h('span', { class: 'small' }, 'My'), calKey, h('span', { class: 'small' }, 'measures'), calIn, calUnit, calBtn, calReset);
 
   const show = h('input', { type: 'checkbox', id: 'measure-show', onchange: e => setMeasure({ show: e.target.checked }) });
   const showRow = h('label', { class: 'check', tip: 'Draws dimension lines on the canvas only. They are never part of the garment picture.' }, show, 'Show dimensions on canvas');
@@ -51,9 +51,9 @@ export function measureBlock() {
     h('div', { class: 'lbl' }, 'Size'), h('div', { class: 'chips xs', role: 'group', 'aria-label': 'Size' }, sizeBtns),
     h('div', { class: 'row gap center between wrap' },
       h('div', { class: 'row gap center' }, h('span', { class: 'lbl' }, 'Units'), h('div', { class: 'chips xs', role: 'group', 'aria-label': 'Units' }, unitBtns)),
-      h('label', { class: 'row gap center small' }, h('span', { class: 'lbl' }, 'Garment'), kindSel)),
+      h('label', { class: 'row gap center small', 'data-level': 'advanced' }, h('span', { class: 'lbl' }, 'Garment'), kindSel)),
     table, basis,
-    h('div', { class: 'lbl' }, 'Know a real measurement?'), calRow, calMsg,
+    h('div', { class: 'lbl', 'data-level': 'advanced' }, 'Know a real measurement?'), calRow, calMsg,
     showRow, note);
 
   function paintCal() {

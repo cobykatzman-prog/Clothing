@@ -16,20 +16,20 @@ const MAX_UPLOAD_PIXELS = 100e6;             // ~10000x10000: bigger images can 
 export async function loadImageToCanvas(src, margin = 0.94) {
   let url = src, revoke = false;
   if (typeof src !== 'string') {
-    if (src.type && !/^image\/(png|jpe?g|webp|gif|bmp|avif|svg\+xml)$/i.test(src.type)) throw new Error('Please choose an image file (PNG, JPG, WebP or GIF).');
-    if (src.size > MAX_UPLOAD_BYTES) throw new Error('That image is larger than 25 MB. Please choose a smaller one.');
+    if (src.type && !/^image\/(png|jpe?g|webp|gif|bmp|avif|svg\+xml)$/i.test(src.type)) throw userError('Please choose an image file (PNG, JPG, WebP or GIF).');
+    if (src.size > MAX_UPLOAD_BYTES) throw userError('That image is larger than 25 MB. Please choose a smaller one.');
     url = URL.createObjectURL(src); revoke = true;
   }
   const img = new Image();
   img.crossOrigin = 'anonymous';
   await new Promise((res, rej) => {
     img.onload = res;
-    img.onerror = () => rej(new Error('That file could not be read as an image.'));
+    img.onerror = () => rej(userError('That file could not be read as an image. Try saving it as a PNG or JPG and upload it again.'));
     img.src = url;
   });
   if (revoke) URL.revokeObjectURL(url);
   const w = img.naturalWidth || img.width || SIZE, h = img.naturalHeight || img.height || SIZE;
-  if (w * h > MAX_UPLOAD_PIXELS) throw new Error('That image has too many pixels. Please choose one under about 10,000 x 10,000.');
+  if (w * h > MAX_UPLOAD_PIXELS) throw userError('That image has too many pixels. Please choose one under about 10,000 x 10,000.');
   const s = Math.min(SIZE / w, SIZE / h) * margin;
   const dw = w * s, dh = h * s;
   const c = makeCanvas();
@@ -166,12 +166,41 @@ export function icon(name, size = 18) {
   return s;
 }
 
-export function toast(msg, kind = 'info', ms = 3200) {
+/**
+ * Short message at the bottom of the screen. `action` = { label, fn } adds a button (e.g. Undo);
+ * toasts with an action stay a little longer so there is time to press it.
+ */
+export function toast(msg, kind = 'info', ms = 3200, action = null) {
   let box = document.getElementById('toasts');
-  if (!box) { box = h('div', { id: 'toasts', 'aria-live': 'polite' }); document.body.append(box); }
-  const t = h('div', { class: 'toast ' + kind }, msg);
+  if (!box) { box = h('div', { id: 'toasts', role: 'status', 'aria-live': 'polite' }); document.body.append(box); }
+  const t = h('div', { class: 'toast ' + kind }, h('span', {}, msg));
+  const close = () => { t.classList.add('out'); setTimeout(() => t.remove(), 300); };
+  if (action) {
+    t.append(h('button', { type: 'button', class: 'toast-act', onclick: () => { close(); action.fn(); } }, action.label));
+    ms = Math.max(ms, 7000);
+  }
   box.append(t);
-  setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, ms);
+  setTimeout(close, ms);
+  return close;
+}
+
+/** Errors we raise for the user carry a plain-language message; anything else gets the friendly fallback. */
+export function userError(msg) { const e = new Error(msg); e.user = true; return e; }
+export const friendly = (e, fallback) => (e && e.user && e.message ? e.message : fallback);
+
+/** localStorage that never throws (private windows, blocked storage). */
+export const prefs = {
+  get(k, def = null) { try { const v = localStorage.getItem('threadform.' + k); return v == null ? def : v; } catch { return def; } },
+  set(k, v) { try { localStorage.setItem('threadform.' + k, String(v)); } catch { /* not remembered: fine */ } },
+};
+
+/** Disables a control and explains why in its tooltip; restores the normal tooltip when enabled again. */
+export function setDisabled(el, off, why) {
+  if (!el) return;
+  if (el.dataset.tipNormal === undefined) el.dataset.tipNormal = el.getAttribute('data-tip') || '';
+  el.disabled = !!off;
+  const tip = off && why ? why : el.dataset.tipNormal;
+  if (tip) el.setAttribute('data-tip', tip); else el.removeAttribute('data-tip');
 }
 
 /** One floating tooltip for every [data-tip] element */
@@ -188,4 +217,8 @@ export function initTooltips() {
   };
   document.addEventListener('mouseover', e => { const el = e.target.closest?.('[data-tip]'); if (el && el !== cur) show(el); else if (!el) { cur = null; tip.classList.remove('on'); } });
   document.addEventListener('pointerdown', () => { cur = null; tip.classList.remove('on'); });
+  // keyboard users get the same explanation when a control receives focus
+  document.addEventListener('focusin', e => { const el = e.target.closest?.('[data-tip]'); if (el && el.matches(':focus-visible')) show(el); });
+  document.addEventListener('focusout', () => { cur = null; tip.classList.remove('on'); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { cur = null; tip.classList.remove('on'); } });
 }

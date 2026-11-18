@@ -1,6 +1,6 @@
 // Left panel: upload, generate, select areas, text, graphics, references.
 import { state, activeView, subscribe, notify, snapshot, markFlow, hasMask } from './state.js';
-import { h, icon, thumbOf, toast } from './util.js';
+import { h, icon, thumbOf, toast, setDisabled } from './util.js';
 import * as A from './ui-actions.js';
 import { REGION_NAMES } from './segment.js';
 import { createElement, GRAPHIC_LIBRARY, FONTS } from './elements.js';
@@ -110,7 +110,7 @@ export function initLeft(root) {
   const lib = GRAPHIC_LIBRARY;
   const gcol = h('input', { type: 'color', value: '#c0392b', 'aria-label': 'Trim colour' });
   const libGrid = h('div', { class: 'gfx' }, lib.map(g => {
-    const b = h('button', { class: 'gfx-item', tip: g.name, onclick: () => {
+    const b = h('button', { class: 'gfx-item', tip: g.name, 'aria-label': 'Add ' + g.name, onclick: () => {
       const type = g.category === 'crest' ? 'crest' : g.category === 'patch' ? 'patch' : 'graphic';
       addEl(type, g.category === 'stripes' ? { graphicId: g.id, w: 360, h: 170 } : { graphicId: g.id });
     } });
@@ -149,6 +149,7 @@ export function initLeft(root) {
     h('div', { class: 'muted small' }, 'For your own reference while you design; they do not change the garment.'),
   ], false, 'sec-refs');
 
+  sec3.dataset.level = sec6.dataset.level = secEl.dataset.level = 'advanced';   // Basic mode hides them (CSS), Advanced shows them
   root.append(sec1, sec2, sec3, sec4, sec5, secEl, sec6);
 
   function sync(reason) {
@@ -156,7 +157,7 @@ export function initLeft(root) {
     const has = !!V.base;
     if (reason === 'loaded') { document.getElementById('sec-upload').open = false; document.getElementById('sec-select').open = true; }
     viewHint.textContent = has ? `Editing the ${state.activeView} view. Use the tabs above the canvas for other views.` : `Uploading to the ${state.activeView} view.`;
-    root.querySelector('#btn-removebg').disabled = !has;
+    setDisabled(root.querySelector('#btn-removebg'), !has, 'Load a garment first, then you can cut it out of its background again.');
     root.querySelectorAll('.tool').forEach(b => b.classList.toggle('on', b.dataset.tool === S.ui.tool));
     regionBtns.forEach(b => { b.classList.toggle('on', V.regionSel.includes(b.dataset.r)); b.disabled = !has || !V.seg?.regions?.[b.dataset.r]; });
     modeBtns.forEach(b => b.classList.toggle('on', b.dataset.m === S.ui.brushMode));

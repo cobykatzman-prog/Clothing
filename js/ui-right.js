@@ -1,6 +1,7 @@
 // Right panel: describe + variations, fit/sleeve presets, shape sliders, colour, fabric.
-import { state, activeView, subscribe, markFlow, hasMask } from './state.js';
-import { h, icon, thumbOf } from './util.js';
+import { state, activeView, subscribe, markFlow, hasMask, notify } from './state.js';
+import { h, icon, thumbOf, setDisabled } from './util.js';
+import { getMode } from './ui-guide.js';
 import * as A from './ui-actions.js';
 import { section } from './ui-left.js';
 import { createPartPanel, createInspector } from './manual.js';
@@ -13,6 +14,51 @@ const EXAMPLES = ['make the sleeves flared', 'boxy oversized fit', 'remove the c
 export function localNote(cls = '') {
   return h('span', { class: 'badge local ' + cls, tip: 'Threadform reshapes, recolours and generates garments right here in your browser. Your images and designs are never uploaded.' },
     h('i', { class: 'dot' }), 'Runs in your browser');
+}
+
+let tabs = null;
+/** Shows the right-panel tab that holds section `id` (and opens that section). Returns false when `id` is not on the right. */
+export function revealSection(id) { return tabs ? tabs.reveal(id) : false; }
+export function showTab(key) { tabs?.show(key); }
+
+/** Accessible tabs (arrow keys, Home / End). Each tab holds a few collapsible sections. */
+function createTabs(root, defs) {
+  const list = h('div', { class: 'rtabs', role: 'tablist', id: 'right-tabs', 'aria-label': 'Edit controls' });
+  const btns = [], panels = [];
+  defs.forEach(d => {
+    const b = h('button', { type: 'button', class: 'rtab', role: 'tab', id: 'rtab-' + d.key, 'aria-controls': 'rpanel-' + d.key, 'aria-selected': 'false', tabindex: '-1', tip: d.tip, 'data-k': d.key, onclick: () => show(d.key, true) }, d.label);
+    const p = h('div', { class: 'rpanel', role: 'tabpanel', id: 'rpanel-' + d.key, 'aria-labelledby': 'rtab-' + d.key, 'data-k': d.key, hidden: true }, d.secs);
+    if (d.level) { b.dataset.level = d.level; p.dataset.level = d.level; }
+    btns.push(b); panels.push(p); list.append(b);
+  });
+  root.append(list, ...panels);
+  let cur = null;
+  const visible = () => btns.filter(b => b.offsetParent !== null || !b.dataset.level || getMode() === 'advanced');
+  function show(key, focus = false) {
+    if (!btns.some(b => b.dataset.k === key)) return;
+    const changed = cur !== key; cur = key;
+    btns.forEach(b => { const on = b.dataset.k === key; b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; if (on && focus) b.focus(); });
+    panels.forEach(p => { p.hidden = p.dataset.k !== key; });
+    if (changed) { root.scrollTop = 0; notify('tab'); }
+  }
+  list.addEventListener('keydown', e => {
+    const vis = visible(), i = vis.indexOf(document.activeElement);
+    if (i < 0) return;
+    const n = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: vis.length - 1 }[e.key];
+    if (n === undefined) return;
+    e.preventDefault();
+    show(vis[(n + vis.length) % vis.length].dataset.k, true);
+  });
+  function reveal(id) {
+    const sec = document.getElementById(id), p = sec?.closest('.rpanel');
+    if (!p) return false;
+    if (p.dataset.level === 'advanced' || sec.dataset.level === 'advanced') { if (getMode() !== 'advanced') return false; }
+    show(p.dataset.k);
+    if (sec.tagName === 'DETAILS') sec.open = true;
+    return true;
+  }
+  show(defs[0].key);
+  return { show, reveal, current: () => cur };
 }
 
 export function initRight(root) {
@@ -55,7 +101,25 @@ export function initRight(root) {
   const secFabric = section(5, 'Fabric', 'Applies a procedural weave and shading while keeping the original folds and shadows.', [fab.el], false, 'sec-fabric');
 
   const secMeasure = measureSection().sec;   // approximate garment measurements (ui-measure.js)
-  root.append(secInspector, secDescribe, secPresets, secShape, secMeasure, secColor, secFabric);
+  // ---- tabs: one group of sections at a time instead of one long scroll ----
+  secPresets.dataset.level = secShape.dataset.level = secFabric.dataset.level = 'advanced';
+  const layersSec = document.getElementById('sec-layers');   // built by the left panel; it belongs with the items
+  if (layersSec) layersSec.dataset.level = 'advanced';
+  tabs = createTabs(root, [
+    { key: 'look', label: 'Look', tip: 'Describe a change, compare options and colour the garment', secs: [secDescribe, secColor] },
+    { key: 'shape', label: 'Shape', tip: 'Fit and sleeve presets, shape sliders and fabric (Advanced)', secs: [secPresets, secShape, secFabric], level: 'advanced' },
+    { key: 'items', label: 'Items', tip: 'Edit the text and graphics you added', secs: [secInspector, layersSec].filter(Boolean) },
+    { key: 'measure', label: 'Measure', tip: 'Approximate garment measurements', secs: [secMeasure] },
+  ]);
+  // open the tab that fits what the person is doing
+  let lastSel = null;
+  subscribe(r => {
+    if (r === 'mode' && getMode() === 'basic' && tabs.current() === 'shape') tabs.show('look');
+    if ((r === 'selection' || r === 'elements') && state.selectedId && state.selectedId !== lastSel) tabs.show('items');
+    if (r === 'selection' || r === 'elements' || r === 'restore' || r === 'loaded') lastSel = state.selectedId;
+    if (r === 'part') tabs.reveal('sec-color');
+    if (r === 'variations') tabs.reveal('sec-describe');
+  });
 
   const sumOf = (o, i) => (o.ops && o.ops.summary) || ['A small change to what you asked for', 'The change exactly as you described it', 'A stronger version of your change'][i] || '';
   const shorten = t => (t.length > 60 ? t.slice(0, 58).trimEnd() + '…' : t);
@@ -78,13 +142,16 @@ export function initRight(root) {
     partPanel.sync();
     if (document.activeElement !== prompt && prompt.value !== S.ui.prompt) prompt.value = S.ui.prompt;
     const has = !!V.base;
-    [genBtn, ...root.querySelectorAll('.chip, .slider input')].forEach(b => { b.disabled = !has; });
+    [...root.querySelectorAll('.chip, .slider input')].forEach(b => { b.disabled = !has; });
+    setDisabled(genBtn, !has, 'Load a garment first: pick a sample, upload a photo or generate one on the left.');
     // look controls redraw from the active view and set their own disabled state (after the loop above)
     presets.sync(V); shape.sync(V); whole.sync(V); fab.sync(V);
     const sel = hasMask(V);
-    keepNote.textContent = sel ? 'Only your selected area will change. Everything else is kept exactly. To make a part bigger, use Grow so there is room.' : 'No area selected: the change applies to the whole garment. Optional: select an area on the left to limit it.';
+    keepNote.textContent = sel ? 'Only your selected area will change. Everything else is kept exactly. To make a part bigger, use Grow so there is room.'
+      : getMode() === 'basic' ? 'The change applies to the whole garment. To change just one area, switch to Advanced and select it.'
+      : 'No area selected: the change applies to the whole garment. Optional: select an area on the left to limit it.';
     if (!reason || ['variations', 'applied', 'restore', 'loaded', 'history'].includes(reason)) renderCards();
   }
-  subscribe(r => { if (!['render', 'zoom', 'processing', 'busy', 'elements-live'].includes(r)) sync(r); });
+  subscribe(r => { if (!['render', 'zoom', 'processing', 'busy', 'elements-live', 'tab'].includes(r)) sync(r); });
   sync();
 }

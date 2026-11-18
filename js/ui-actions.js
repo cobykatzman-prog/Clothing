@@ -1,6 +1,6 @@
 // Pipeline + actions shared by all UI panels (owner: shell).
 import { state, VIEWS, activeView, snapshot, notify, pushVersion, markFlow, touchMask, hasMask, newColor, undo as sUndo, redo as sRedo } from './state.js';
-import { SIZE, makeCanvas, cloneCanvas, loadImageToCanvas, debounce, hasTransparentBorder, cropToContent, toast } from './util.js';
+import { SIZE, makeCanvas, cloneCanvas, loadImageToCanvas, debounce, hasTransparentBorder, cropToContent, toast, friendly } from './util.js';
 import { segmentGarment, removeBackground, REGION_NAMES } from './segment.js';
 import { applyShape, DEFAULT_PARAMS, FIT_PRESETS, SLEEVE_PRESETS } from './warp.js';
 import { applyColor, applyFabric } from './fabric.js';
@@ -56,7 +56,7 @@ export async function recompute(name = state.activeView) {
     }
     V.current = canvas; V.seg = seg;
   } catch (err) {
-    console.error(err); toast('Could not apply that change: ' + err.message, 'error');
+    console.error(err); toast('That change could not be applied. Undo it, or try a smaller value.', 'error', 5000);
   } finally {
     if (tok === V.job) { state.ui.processing = false; notify('render'); }
   }
@@ -118,7 +118,7 @@ export async function loadFile(file, viewName = state.activeView) {
     pushVersion('Uploaded ' + viewName);
     notify('loaded');
     toast('Image loaded. Now choose an area to change, or describe your idea.', 'ok');
-  } catch (e) { toast(e.message, 'error'); } finally { done(); }
+  } catch (e) { console.error(e); toast(friendly(e, 'That image could not be loaded. Try a PNG or JPG, or pick a sample.'), 'error', 5000); } finally { done(); }
 }
 export function drawSample(kind, view, opts) { return sampleGarment(kind, view, opts || {}); }
 export async function loadSample(kind = 'tee', opts = null, viewName = null) {
@@ -136,7 +136,7 @@ export async function loadSample(kind = 'tee', opts = null, viewName = null) {
     state.variations = null;
     pushVersion('Sample ' + kind);
     notify('loaded');
-  } catch (e) { console.error(e); toast('Sample failed: ' + e.message, 'error'); } finally { done(); }
+  } catch (e) { console.error(e); toast('The sample could not be drawn. Reload the page and try again.', 'error', 5000); } finally { done(); }
 }
 /** Switching to an empty tab of a sample design builds the matching view automatically */
 export async function ensureView(name) {
@@ -149,7 +149,7 @@ export async function removeBg() {
   const V = activeView(); if (!V.base) return;
   const done = busy('Removing background…');
   try { await tick(); snapshot(); const c = cropToContent(await removeBackground(V.original)); await installBase(state.activeView, c, { sample: V.sample }); notify('loaded'); pushVersion('Background removed'); }
-  catch (e) { toast('Background removal failed: ' + e.message, 'error'); } finally { done(); }
+  catch (e) { console.error(e); toast('The background could not be removed. Try a photo on a plain, light background.', 'error', 5000); } finally { done(); }
 }
 
 // Generate garment: the in-browser generator builds front, back, side and detail views as one design.
@@ -198,7 +198,7 @@ export async function generateFromPrompt(text, { defaultKind = 'tee' } = {}) {
 // ---------- references ----------
 export async function addReferences(files) {
   for (const f of files) {
-    try { state.references.push(await loadImageToCanvas(f)); } catch (e) { toast(e.message, 'error'); }
+    try { state.references.push(await loadImageToCanvas(f)); } catch (e) { toast(friendly(e, 'That reference image could not be read. Try a PNG or JPG.'), 'error', 5000); }
   }
   notify('references');
 }
@@ -279,7 +279,7 @@ export async function generateVariations(promptText) {
     state.applied = null;
     markFlow('generated'); notify('variations');
     if (!mask) toast('No area selected: changes may touch any matching part of the garment.', 'info', 3800);
-  } catch (e) { console.error(e); toast('Could not generate variations: ' + e.message, 'error'); } finally { done(); }
+  } catch (e) { console.error(e); toast('The options could not be created. Try different words, for example "make the sleeves longer".', 'error', 5000); } finally { done(); }
 }
 async function bake(canvas, seg, label) {
   const V = activeView();
@@ -305,7 +305,7 @@ export async function combineVariation(i) {
     const r = lv[i];
     await bake(mask ? enforceMask(V.current, r.canvas, mask) : r.canvas, mask ? null : r.seg, `Combined + ${o.label}`);
     markFlow('compared'); notify('applied'); toast(`Added the ${o.label} option on top.`, 'ok');
-  } catch (e) { toast('Could not combine: ' + e.message, 'error'); } finally { done(); }
+  } catch (e) { console.error(e); toast('Those options could not be combined. Use one option on its own, then describe the next change.', 'error', 5000); } finally { done(); }
 }
 
 export const undo = () => { sUndo(); };

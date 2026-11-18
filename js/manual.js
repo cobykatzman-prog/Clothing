@@ -7,7 +7,7 @@
 // Every manual change goes through state.snapshot() so undo/redo covers it. Continuous controls (sliders,
 // typing, arrow-key nudges) share one undo step via editGate(), so dragging stays smooth.
 import { state, activeView, snapshot, notify, subscribe, markFlow, VIEWS, VIEW_LABELS } from './state.js';
-import { h, icon, toast, SIZE } from './util.js';
+import { h, icon, toast, SIZE, friendly, userError } from './util.js';
 import { REGION_NAMES } from './segment.js';
 import { applyColor } from './fabric.js';
 import { FONTS, WEIGHTS, GRAPHIC_LIBRARY, getGraphic, fitElement, updateElement, resetElement, copyToView, createElement, onElementAssetsLoaded } from './elements.js';
@@ -313,6 +313,7 @@ export function duplicateToViews(el, views) {
 export function deleteElement(el) {
   if (!el || el.locked) return;
   change(() => { state.elements = state.elements.filter(x => x.id !== el.id); if (state.selectedId === el.id) state.selectedId = null; });
+  toast(`${TYPE_LABEL[el.type] || 'Item'} deleted.`, 'ok', 4000, { label: 'Undo', fn: () => A.undo() });
 }
 export function toggleLock(el) { if (el) change(() => { el.locked = !el.locked; }); }
 export function toggleVisible(el) { if (el) change(() => { el.visible = el.visible === false; }); }
@@ -403,10 +404,10 @@ export function createLayers() {
 function readLogo(file) {
   return new Promise((res, rej) => {
     const fr = new FileReader();
-    fr.onerror = () => rej(new Error('That file could not be read.'));
+    fr.onerror = () => rej(userError('That file could not be read. Try another image.'));
     fr.onload = () => {
       const img = new Image();
-      img.onerror = () => rej(new Error('That file could not be read as an image.'));
+      img.onerror = () => rej(userError('That file could not be read as an image. Try a PNG or JPG.'));
       img.onload = () => {
         const iw = img.naturalWidth || 1, ih = img.naturalHeight || 1, k = Math.min(1, SIZE / Math.max(iw, ih));
         const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(iw * k)); c.height = Math.max(1, Math.round(ih * k));
@@ -425,7 +426,7 @@ async function replaceLogo(el, file) {
     const { url, ih, iw } = await readLogo(file);
     change(() => { el.props.image = url; el._tint = null; el._cache = null; el.h = el.w * ih / iw; el.base = { w: el.w, h: el.h, size: el.props.size }; });
     toast('Logo replaced.', 'ok');
-  } catch (e) { toast(e.message, 'error'); }
+  } catch (e) { toast(friendly(e, 'That logo could not be used. Try a PNG or JPG.'), 'error', 5000); }
 }
 /** Adds an uploaded picture as a logo on the active view, centred on the garment's body. */
 async function addLogo(file) {
@@ -438,7 +439,7 @@ async function addLogo(file) {
     el.w = 200; el.h = 200 * ih / iw; el.base = { w: el.w, h: el.h, size: undefined };
     change(() => { state.elements.push(el); state.selectedId = el.id; state.ui.tool = 'move'; });
     markFlow('refined');
-  } catch (e) { toast(e.message, 'error'); }
+  } catch (e) { toast(friendly(e, 'That logo could not be added. Try a PNG or JPG.'), 'error', 5000); }
 }
 /** Shadow settings are replaced as a whole object (never mutated) so undo snapshots keep their own copy. */
 function setShadow(el, patch) {

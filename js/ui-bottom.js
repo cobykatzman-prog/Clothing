@@ -1,6 +1,6 @@
 // Bottom bar: undo/redo, version history drawer, compare, export menu.
 import { state, VIEWS, activeView, subscribe, notify, markFlow, pushVersion, restoreVersion } from './state.js';
-import { h, icon, toast, makeCanvas, SIZE, canvasToBlob } from './util.js';
+import { h, icon, toast, makeCanvas, SIZE, canvasToBlob, friendly, userError, setDisabled } from './util.js';
 import * as A from './ui-actions.js';
 import { exportPNG, exportSVG, exportDesignSheet, download } from './export.js';
 import { exportMeasureData, measurementsCSV } from './measure.js';
@@ -11,24 +11,24 @@ const ago = t => { const s = (Date.now() - t) / 1000; return s < 60 ? 'just now'
 
 export function initBottom(root) {
   const S = state;
-  const undoB = h('button', { class: 'btn ghost', tip: 'Undo (Ctrl+Z)', onclick: () => A.undo() }, icon('undo'), 'Undo');
-  const redoB = h('button', { class: 'btn ghost', tip: 'Redo (Ctrl+Shift+Z)', onclick: () => A.redo() }, icon('redo'), 'Redo');
-  const histB = h('button', { class: 'btn ghost', tip: 'See every saved version and go back to any of them', onclick: () => toggleDrawer() }, icon('history'), 'Version history');
+  const undoB = h('button', { class: 'btn ghost', id: 'btn-undo', tip: 'Undo (Ctrl+Z)', onclick: () => A.undo() }, icon('undo'), 'Undo');
+  const redoB = h('button', { class: 'btn ghost', id: 'btn-redo', tip: 'Redo (Ctrl+Shift+Z)', onclick: () => A.redo() }, icon('redo'), 'Redo');
+  const histB = h('button', { class: 'btn ghost', 'data-level': 'advanced', 'aria-expanded': 'false', 'aria-controls': 'drawer', tip: 'See every saved version and go back to any of them', onclick: () => toggleDrawer() }, icon('history'), 'Version history');
   const cmpB = h('button', { class: 'btn ghost', id: 'btn-compare', tip: 'Drag the slider to compare the original (left) with your edit (right)', onclick: () => { S.ui.compare = !S.ui.compare; if (S.ui.compare) markFlow('compared'); notify('compare'); } }, icon('compare'), 'Compare before / after');
-  const saveB = h('button', { class: 'btn ghost', tip: 'Save a named checkpoint you can return to', onclick: () => { const n = prompt('Name this version', 'My checkpoint'); if (n) { pushVersion(n); toast('Version saved.', 'ok'); } } }, icon('save'), 'Save version');
+  const saveB = h('button', { class: 'btn ghost', 'data-level': 'advanced', tip: 'Save a named checkpoint you can return to', onclick: () => { const n = prompt('Name this version', 'My checkpoint'); if (n) { pushVersion(n); toast('Version saved.', 'ok'); } } }, icon('save'), 'Save version');
 
   // export menu
   const menu = h('div', { class: 'menu', role: 'menu', hidden: true });
-  const item = (label, sub, fn) => h('button', { class: 'menu-item', role: 'menuitem', onclick: async () => { menu.hidden = true; try { await fn(); markFlow('exported'); } catch (e) { console.error(e); toast('Export failed: ' + e.message, 'error'); } } }, h('b', {}, label), h('span', {}, sub));
+  const item = (label, sub, fn) => h('button', { class: 'menu-item', role: 'menuitem', onclick: async () => { menu.hidden = true; try { await fn(); markFlow('exported'); } catch (e) { console.error(e); toast(friendly(e, 'The export did not work. Try another format, or use Custom export with a smaller size.'), 'error', 5000); } } }, h('b', {}, label), h('span', {}, sub));
   const V = () => activeView();
   const png = (scale, transparent, suffix) => async () => {
-    if (!V().current) throw new Error('Nothing to export yet');
+    if (!V().current) throw userError('Nothing to export yet. Pick a sample, upload or generate a garment first.');
     const blob = await exportPNG({ baseCanvas: V().current, elements: S.elements, view: S.activeView, scale, transparent });
     download(blob, `${slug()}-${S.activeView}${suffix}.png`);
   };
   async function frontBack() {
     const names = ['front', 'back'].filter(n => S.views[n].current);
-    if (!names.length) throw new Error('Nothing to export yet');
+    if (!names.length) throw userError('Nothing to export yet. Pick a sample, upload or generate a garment first.');
     const c = makeCanvas(SIZE * names.length, SIZE); const x = c.getContext('2d');
     for (let i = 0; i < names.length; i++) {
       const b = await exportPNG({ baseCanvas: S.views[names[i]].current, elements: S.elements, view: names[i], scale: 1, transparent: true });
@@ -45,7 +45,7 @@ export function initBottom(root) {
     item('SVG graphics', 'Editable vector text, logos, trims', async () => { download(exportSVG({ elements: S.elements, view: S.activeView }), `${slug()}-${S.activeView}.svg`); }),
     item('Front + back', 'Both views side by side', frontBack),
     item('Measurements (CSV)', 'Approximate flat measurements: original, edited, change', async () => {
-      const d = exportMeasureData(S, S.activeView); if (!d) throw new Error('Nothing to measure yet');
+      const d = exportMeasureData(S, S.activeView); if (!d) throw userError('Nothing to measure yet. Load a garment first.');
       download(new Blob([measurementsCSV(d, { design: S.name, view: S.activeView })], { type: 'text/csv' }), `${slug()}-${S.activeView}-measurements.csv`);
     }),
     item('Design sheet', 'Specs, swatches, all views', async () => {
@@ -54,8 +54,22 @@ export function initBottom(root) {
       const blob = await exportDesignSheet({ views, elements: S.elements, params: params[S.activeView], paramsByView: params, notes: S.ui.notes || S.ui.prompt || '', name: S.name, fabric: V().fabric.name, measurements: exportMeasureData(S, S.activeView) });
       download(blob, `${slug()}-design-sheet.png`);
     }));
-  const expB = h('button', { class: 'btn primary', id: 'btn-export', 'aria-haspopup': 'menu', onclick: e => { e.stopPropagation(); menu.hidden = !menu.hidden; } }, icon('download'), 'Export', icon('chevron', 14));
+  const expB = h('button', { class: 'btn primary', id: 'btn-export', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-controls': 'export-menu', tip: 'Download your design', onclick: e => { e.stopPropagation(); setMenu(menu.hidden); } }, icon('download'), 'Export', icon('chevron', 14));
+  menu.id = 'export-menu';
+  function setMenu(open, focusBtn = false) {
+    menu.hidden = !open; expB.setAttribute('aria-expanded', String(open));
+    if (open) menu.querySelector('.menu-item')?.focus();
+    else if (focusBtn) expB.focus();
+  }
+  new MutationObserver(() => expB.setAttribute('aria-expanded', String(!menu.hidden))).observe(menu, { attributes: true, attributeFilter: ['hidden'] });
   document.addEventListener('click', () => { menu.hidden = true; });
+  // keyboard: arrows move through the menu, Escape closes it and returns to the Export button
+  menu.addEventListener('keydown', e => {
+    const items = [...menu.querySelectorAll('.menu-item')], i = items.indexOf(document.activeElement);
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setMenu(false, true); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus(); }
+    else if (e.key === 'Tab') setMenu(false);
+  });
   const expWrap = h('div', { class: 'menu-wrap' }, expB, menu);
 
   // history drawer
@@ -63,7 +77,12 @@ export function initBottom(root) {
   const drawer = h('aside', { class: 'drawer', id: 'drawer', 'aria-label': 'Version history' },
     h('div', { class: 'drawer-head' }, h('b', {}, 'Version history'), h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => toggleDrawer(false) }, icon('x'))),
     h('div', { class: 'muted small' }, 'Every upload and accepted option is saved. Click one to restore it (you can undo that too).'), list);
-  function toggleDrawer(on) { drawer.classList.toggle('open', on ?? !drawer.classList.contains('open')); renderVersions(); }
+  function toggleDrawer(on) {
+    const open = on ?? !drawer.classList.contains('open');
+    drawer.classList.toggle('open', open); histB.setAttribute('aria-expanded', String(open)); renderVersions();
+    if (open) drawer.querySelector('button')?.focus();
+  }
+  drawer.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); toggleDrawer(false); histB.focus(); } });
   function renderVersions() {
     list.replaceChildren(...(S.versions.length ? S.versions.map(v => h('button', { class: 'vitem', onclick: () => { restoreVersion(v.id); toast('Restored “' + v.label + '”', 'ok'); } },
       v.thumb ? h('img', { src: v.thumb, alt: '' }) : h('span', { class: 'ph' }), h('span', { class: 'vt' }, h('b', {}, v.label), h('span', { class: 'muted small' }, `${v.view} · ${ago(v.time)}`)))) : [h('div', { class: 'muted small' }, 'No versions yet.')]));
@@ -72,9 +91,12 @@ export function initBottom(root) {
 
   root.append(h('div', { class: 'bar-left' }, undoB, redoB, h('span', { class: 'sep' }), histB, saveB), h('div', { class: 'bar-mid' }, cmpB), h('div', { class: 'bar-right' }, expWrap));
   function sync() {
-    undoB.disabled = !S.undoStack.length; redoB.disabled = !S.redoStack.length;
+    setDisabled(undoB, !S.undoStack.length, 'Nothing to undo yet');
+    setDisabled(redoB, !S.redoStack.length, 'Nothing to redo: redo brings back a step you undid');
     const has = !!activeView().current;
-    cmpB.classList.toggle('on', S.ui.compare); cmpB.disabled = !has; expB.disabled = !has;
+    cmpB.classList.toggle('on', S.ui.compare); cmpB.setAttribute('aria-pressed', String(!!S.ui.compare));
+    setDisabled(cmpB, !has, 'Load a garment first, then compare the original with your edit');
+    setDisabled(expB, !has, 'Nothing to export yet: pick a sample, upload a photo or generate a garment first');
     if (drawer.classList.contains('open')) renderVersions();
   }
   subscribe(r => { if (!['render', 'zoom', 'processing', 'busy', 'elements-live'].includes(r)) sync(); }); sync();

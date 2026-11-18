@@ -6,6 +6,7 @@ import { h, toast } from './util.js';
 import * as A from './ui-actions.js';
 import { DEFAULT_PARAMS, FIT_PRESETS, SLEEVE_PRESETS } from './warp.js';
 import { FABRICS } from './fabric.js';
+import { confirmAction } from './ui-dialog.js';
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const pretty = s => s.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
@@ -88,7 +89,7 @@ export function shapeBlock() {
     get: V => (V || activeView()).params[s.k] || 0,
     set: v => A.setParam(s.k, v),
   }));
-  const resetAll = h('button', { class: 'btn ghost sm', tip: 'Set every shape slider back to 0 (original). Undo brings them back.', onclick: () => { A.endEdit(); A.resetParams(); } }, 'Reset shape');
+  const resetAll = h('button', { class: 'btn ghost sm', tip: 'Set every shape slider back to 0 (original). Undo brings them back.', onclick: () => { A.endEdit(); A.resetParams(); toast('Shape reset to the original.', 'ok', 4000, { label: 'Undo', fn: () => A.undo() }); } }, 'Reset shape');
   const el = h('div', { class: 'stack-col' }, ...ctls.map(c => c.el), resetAll);
   return {
     el,
@@ -168,7 +169,7 @@ export function wholeColourBlock() {
     set: v => A.setColor({ tint: activeView().color.tint || tintInput.value, tintAmount: v / 100 }),
     reset: { value: 0 } });
   const reset = h('button', { class: 'btn ghost sm', type: 'button', tip: 'Set hue, saturation, lightness and tint back to the original colours. Undo brings them back.',
-    onclick: () => { A.beginEdit(); const V = activeView(); V.color = newColor(); A.endEdit(); notify('color'); A.recompute(); } }, 'Reset whole garment');
+    onclick: () => { A.endEdit(); A.beginEdit(); const V = activeView(); V.color = newColor(); A.endEdit(); notify('color'); A.recompute(); toast('Whole-garment colour reset.', 'ok', 4000, { label: 'Undo', fn: () => A.undo() }); } }, 'Reset whole garment');
   const el = h('details', { class: 'subdet', open: true },
     h('summary', { class: 'lbl', tip: 'Colour every part of the garment at once. Parts you colour separately keep their own colour.' }, 'Whole garment'),
     h('div', { class: 'stack-col' }, ...ctls.map(c => c.el),
@@ -236,14 +237,18 @@ export async function copyLook(targets) {
   return true;
 }
 
-export function resetView() {
+export async function resetView() {
   const V = activeView(); if (!V.base) return;
+  const name = VIEW_LABELS[state.activeView];
+  const yes = await confirmAction({ title: `Reset the ${name.toLowerCase()} view?`, ok: 'Reset view', danger: true,
+    text: `This sets the shape, colour, fabric and part colours of the ${name.toLowerCase()} view back to how it started. Your text and graphics stay. You can undo it straight after.` });
+  if (!yes || activeView() !== V) return;
   snapshot();
   V.params = { ...DEFAULT_PARAMS }; V.color = newColor();
   V.fabric = { name: null, amount: 0.6, tint: null, tintAmount: 0.5 };
   V.presets = { fit: null, sleeve: null }; V.parts = {};
   notify('params'); A.recompute();
-  toast(`${VIEW_LABELS[state.activeView]} view reset to its base. Undo brings the look back.`, 'ok', 4000);
+  toast(`${name} view reset.`, 'ok', 4000, { label: 'Undo', fn: () => A.undo() });
 }
 
 export function viewTools() {

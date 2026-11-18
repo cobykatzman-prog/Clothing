@@ -1,7 +1,7 @@
 // Home gallery (owner: home/gallery): design grid, search, tag filters, custom order (drag or up/down),
 // new-design chooser, open / rename / tags / duplicate / delete. Storage lives in storage.js; the studio is driven by main.js.
 // Tags and order are stored on the design record (meta.tags, meta.order, and doc.tags for the document).
-import { h, icon, toast } from './util.js';
+import { h, icon, toast, friendly, userError } from './util.js';
 import * as store from './storage.js';
 import * as A from './ui-actions.js';
 
@@ -49,7 +49,7 @@ export async function refreshHome() {
     : mode === 'localstorage' ? 'Designs are saved in this browser. Space is limited, so delete old designs if saving fails.'
     : 'Designs are saved in this browser.';
   try { metas = await store.listDesigns(); }
-  catch (e) { toast(e.message, 'error'); metas = []; }
+  catch (e) { toast(friendly(e, 'Your saved designs could not be read. Reload the page to try again.'), 'error', 5000); metas = []; }
   render();
 }
 
@@ -160,7 +160,7 @@ function card(m, orderList, canDrag) {
 
 async function guarded(fn) {
   try { await fn(); }
-  catch (e) { console.error(e); toast(e.message || 'Something went wrong.', 'error'); }
+  catch (e) { console.error(e); toast(friendly(e, 'That did not work. Reload the page and try again.'), 'error', 5000); }
   await refreshHome();
 }
 
@@ -202,7 +202,7 @@ function rename(m) {
     const name = await ask({ title: 'Rename design', label: 'Design name', value: m.name, ok: 'Rename' });
     if (!name) return;
     const rec = await store.getDesign(m.id);
-    if (!rec) throw new Error('That design no longer exists.');
+    if (!rec) throw userError('That design no longer exists. It may have been deleted in another tab.');
     rec.meta.name = name; rec.doc.name = name;
     await store.putDesign(rec);
     toast('Renamed.', 'ok');
@@ -234,7 +234,7 @@ function editTags(m) {
 function duplicate(m) {
   return guarded(async () => {
     const rec = await store.getDesign(m.id);
-    if (!rec) throw new Error('That design no longer exists.');
+    if (!rec) throw userError('That design no longer exists. It may have been deleted in another tab.');
     const now = Date.now(), id = store.newId(), name = (m.name || 'Untitled design') + ' copy';
     await store.putDesign({
       id,
@@ -256,12 +256,13 @@ function remove(m) {
   return guarded(async () => {
     const yes = await ask({
       title: `Delete “${m.name}”?`,
-      text: 'This permanently removes the design, its views and its saved versions. This cannot be undone.',
+      text: 'This removes the design, its views and its saved versions from this browser. You can undo it straight after.',
       ok: 'Delete design', danger: true,
     });
     if (!yes) return;
+    const rec = await store.getDesign(m.id);   // kept in memory so Undo can put it back
     await store.deleteDesign(m.id);
-    toast('Design deleted.', 'ok');
+    toast('Design deleted.', 'ok', 4000, rec ? { label: 'Undo', fn: () => guarded(async () => { await store.putDesign(rec); toast('Design restored.', 'ok'); }) } : null);
   });
 }
 

@@ -12,7 +12,7 @@ const memory = new Map();
 
 export class StorageError extends Error {
   constructor(message, { quota = false, cause = null } = {}) {
-    super(message); this.name = 'StorageError'; this.quota = quota; this.cause = cause;
+    super(message); this.name = 'StorageError'; this.quota = quota; this.cause = cause; this.user = true;
   }
 }
 export const isQuotaError = e => !!e && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22 || e.code === 1014);
@@ -72,7 +72,7 @@ export async function listDesigns() {
     if (m === 'indexeddb') { const db = await openDB(); return await reqP(db.transaction(STORE_META).objectStore(STORE_META).getAll()); }
     if (m === 'localstorage') return lsIndex();
     return [...memory.values()].map(r => r.meta);
-  } catch (e) { throw new StorageError('Could not read your saved designs.', { cause: e }); }
+  } catch (e) { throw new StorageError('Your saved designs could not be read. Reload the page to try again.', { cause: e }); }
 }
 
 /** Full record or null. */
@@ -82,7 +82,7 @@ export async function getDesign(id) {
     if (m === 'indexeddb') { const db = await openDB(); return (await reqP(db.transaction(STORE_FULL).objectStore(STORE_FULL).get(id))) || null; }
     if (m === 'localstorage') { const s = localStorage.getItem(LS_PREFIX + id); return s ? JSON.parse(s) : null; }
     return memory.get(id) || null;
-  } catch (e) { throw new StorageError('Could not read that design.', { cause: e }); }
+  } catch (e) { throw new StorageError('That design could not be opened. Reload the page to try again.', { cause: e }); }
 }
 
 /**
@@ -126,7 +126,7 @@ export async function putDesign(rec) {
     }
   } catch (e) {
     const quota = isQuotaError(e);
-    throw new StorageError(quota ? 'Storage is full.' : 'Could not save the design.', { quota, cause: e });
+    throw new StorageError(quota ? 'Browser storage is full. Delete a design you no longer need, then try again.' : 'The design could not be saved. Try again in a moment.', { quota, cause: e });
   }
 }
 
@@ -136,7 +136,7 @@ export async function putDesign(rec) {
  */
 export async function patchDesign(id, { meta = {}, doc = {} } = {}) {
   const rec = await getDesign(id);
-  if (!rec) throw new StorageError('That design no longer exists.');
+  if (!rec) throw new StorageError('That design no longer exists. It may have been deleted in another tab.');
   rec.meta = { ...rec.meta, ...meta };
   rec.doc = { ...(rec.doc || {}), ...doc };
   await putDesign(rec);
@@ -155,5 +155,5 @@ export async function deleteDesign(id) {
       localStorage.removeItem(LS_PREFIX + id);
       localStorage.setItem(LS_INDEX, JSON.stringify(lsIndex().filter(x => x.id !== id)));
     } else memory.delete(id);
-  } catch (e) { throw new StorageError('Could not delete that design.', { cause: e }); }
+  } catch (e) { throw new StorageError('That design could not be deleted. Reload the page and try again.', { cause: e }); }
 }

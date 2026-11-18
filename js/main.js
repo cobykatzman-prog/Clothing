@@ -1,10 +1,11 @@
 // Threadform bootstrap (owner: shell; routing + autosave wiring: home/gallery).
 // Routes: #/ = home gallery, #/design/<id> = studio.
-import { initTooltips, h, icon, thumbOf, debounce, toast } from './util.js';
+import { initTooltips, h, icon, thumbOf, debounce, toast, friendly } from './util.js';
 import { initHeader } from './ui-header.js';
 import { initLeft } from './ui-left.js';
 import { initStage } from './ui-stage.js';
-import { initRight } from './ui-right.js';
+import { initRight, revealSection } from './ui-right.js';
+import { initMode, initGuide, maybeStartTour, getMode } from './ui-guide.js';
 import { initBottom } from './ui-bottom.js';
 import { busy } from './ui-actions.js';
 import { state, subscribe, serializeDesign, hydrateDesign, VIEWS } from './state.js';
@@ -13,12 +14,22 @@ import { initHome, refreshHome } from './home.js';
 
 const $ = id => document.getElementById(id);
 initTooltips();
+initMode();   // Basic (default) or Advanced, remembered in this browser
 initHeader($('header'));
 initLeft($('left'));
 initStage($('centre'));
 initRight($('right'));
 initBottom($('bottom'));
-window.__threadform = { state };   // handy for debugging / tests
+initGuide($('header'));   // Basic / Advanced toggle, "?" help, tour, keyboard shortcuts
+/** Shows a section wherever it lives (right-panel tab or left panel). False when hidden by Basic mode. */
+function reveal(id) {
+  if (revealSection(id)) return true;
+  const sec = document.getElementById(id);
+  if (!sec || (sec.dataset.level === 'advanced' && getMode() !== 'advanced')) return false;
+  if (sec.tagName === 'DETAILS') sec.open = true;
+  return true;
+}
+window.__threadform = { state, reveal };   // handy for debugging / tests
 
 const app = document.querySelector('.app'), home = $('home'), header = $('header');
 
@@ -33,7 +44,7 @@ header.addEventListener('input', e => { if (e.target.classList?.contains('name')
 // ---- state of the open design ----
 let currentId = null, loaded = false, loading = false, dirty = false, createdAt = 0, nav = 0;
 let queue = Promise.resolve(), lastStatus = '';
-const NON_CONTENT = new Set(['render', 'zoom', 'processing', 'busy', 'compare', 'tool', 'view', 'selection', 'history']);
+const NON_CONTENT = new Set(['render', 'zoom', 'processing', 'busy', 'compare', 'tool', 'view', 'selection', 'history', 'mode', 'tab', 'part']);
 
 function setStatus(kind, t) {
   lastStatus = kind;
@@ -93,6 +104,7 @@ subscribe(r => { if (!NON_CONTENT.has(r)) markDirty(); });
 // ---- views ----
 function showStudio() {
   home.hidden = true; app.hidden = false; document.body.classList.remove('view-home');
+  maybeStartTour();   // first visit only
 }
 async function goHome() {
   const my = ++nav;
@@ -109,10 +121,10 @@ async function openDesign(id) {
   if (my !== nav) return;
   showStudio();   // visible before hydrating so the canvas gets its size
   let rec = null;
-  try { rec = await store.getDesign(id); } catch (e) { toast(e.message, 'error'); }
+  try { rec = await store.getDesign(id); } catch (e) { toast(friendly(e, 'That design could not be opened. Reload the page to try again.'), 'error', 5000); }
   if (my !== nav) return;
   if (!rec) {
-    toast('That design could not be found.', 'error');
+    toast('That design could not be found, so you are back on the home page. Open another design or start a new one.', 'error', 5000);
     history.replaceState(null, '', '#/');
     return goHome();
   }
@@ -124,7 +136,7 @@ async function openDesign(id) {
     createdAt = rec.meta?.createdAt || rec.doc?.createdAt || Date.now();
   } catch (e) {
     console.error(e);
-    toast('This design could not be opened.', 'error');
+    toast('This design could not be opened. Try again, or start a new design from the home page.', 'error', 5000);
     currentId = null; loaded = false;
     return goHome();
   } finally { loading = false; dirty = false; done(); }
@@ -144,7 +156,7 @@ async function newDesign(action) {
   dirty = true; setStatus('pending');   // saved after the first change, or when leaving the studio
   if (action) {
     try { await action(); }
-    catch (e) { console.error(e); toast('Something went wrong: ' + e.message, 'error'); }
+    catch (e) { console.error(e); toast(friendly(e, 'That did not work. Try again, or pick a sample to start.'), 'error', 5000); }
   }
   markDirty();
 }

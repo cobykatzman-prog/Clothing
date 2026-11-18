@@ -3,7 +3,7 @@
 // (transparent, white or any colour), design elements on/off, and design-sheet options (views, title, notes, specs).
 // A live preview shows the garment as it will export, the pixel size and an estimated file size.
 import { state, VIEWS, VIEW_LABELS, markFlow } from './state.js';
-import { h, icon, toast, SIZE, canvasToBlob } from './util.js';
+import { h, icon, toast, SIZE, canvasToBlob, friendly, userError } from './util.js';
 import { exportMeasureData } from './measure.js';
 import { exportPNG, exportSVG, exportDesignSheet, exportViewImages, previewCanvas, download, downloadAll, sheetSize, SHEET_SECTIONS } from './export.js';
 
@@ -223,10 +223,10 @@ async function doExport(btn) {
     } else if (f === 'fb') {
       const views = { front: S.views.front.current, back: S.views.back.current };
       const items = await exportViewImages({ views, elements: els, scale: scaleValue(), background: bgValue(), only: ['front', 'back'], name: slug, measurements: last.measure ? { front: exportMeasureData(S, 'front'), back: exportMeasureData(S, 'back') } : null });
-      if (!items.length) throw new Error('Nothing to export yet');
+      if (!items.length) throw userError('Nothing to export yet. Pick a sample, upload or generate a garment first.');
       await downloadAll(items);
     } else {
-      const v = activeOrFirst(); if (!v) throw new Error('Nothing to export yet');
+      const v = activeOrFirst(); if (!v) throw userError('Nothing to export yet. Pick a sample, upload or generate a garment first.');
       const views = {}; for (const n of VIEWS) if (S.views[n].current && last.sheetViews[n]) views[n] = S.views[n].current;
       const fabric = S.views[v].fabric?.name;
       const blob = await exportDesignSheet({
@@ -239,7 +239,7 @@ async function doExport(btn) {
     markFlow('exported');
     dlg?.close();
   } catch (e) {
-    console.error(e); toast('Export failed: ' + e.message, 'error');
+    console.error(e); toast(friendly(e, 'The export did not work. Try a smaller size or another format.'), 'error', 5000);
   } finally {
     btn.disabled = false; btn.textContent = label;
   }

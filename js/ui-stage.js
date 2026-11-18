@@ -5,6 +5,7 @@ import * as A from './ui-actions.js';
 import { createStage } from './canvas.js';
 import { stageHint } from './manual.js';
 import { viewTools } from './ui-look.js';
+import { nextStepHint } from './ui-guide.js';
 
 export function initStage(root) {
   const S = state;
@@ -33,18 +34,21 @@ export function initStage(root) {
     toolBtn('region', 'pick', 'Pick region', 'Pick a garment region by clicking it'),
     toolBtn('brush', 'brush', 'Brush', 'Brush: paint the area to change'),
     h('button', { class: 'tool-i', 'aria-label': 'Eraser', 'data-tool': 'erase', tip: 'Eraser: remove parts of the selection', onclick: () => { S.ui.tool = 'brush'; S.ui.brushMode = 'erase'; notify('tool'); } }, icon('eraser', 18)),
-    h('span', { class: 'sep' }),
+    h('span', { class: 'sep', 'data-level': 'advanced' }),
     act('zoomOut', 'Zoom out', () => stage.zoomBy(1 / 1.2)), zoomLbl, act('zoomIn', 'Zoom in', () => stage.zoomBy(1.2)),
     act('fit', 'Fit to screen', () => stage.fit(), 'Fit to screen'),
     act('rotate', 'Rotate view', () => stage.rotateBy(15), 'Rotate the view 15° (does not change the design)'),
-    h('button', { class: 'tool-i txt', tip: 'Reset the view rotation', onclick: () => stage.resetRotation() }, '0°'),
+    h('button', { class: 'tool-i txt', 'aria-label': 'Reset the view rotation', tip: 'Reset the view rotation', onclick: () => stage.resetRotation() }, '0°'),
     h('span', { class: 'sep' }),
     act('undo', 'Undo', () => A.undo()), act('redo', 'Redo', () => A.redo()));
 
   // short, context-sensitive hint over the canvas (what the current tool / selection can do)
   const hintEl = h('div', { class: 'stage-hint', id: 'stage-hint', role: 'status', style: { position: 'absolute', left: '12px', bottom: '10px', maxWidth: 'calc(100% - 24px)', pointerEvents: 'none', background: 'rgba(255,255,255,.9)', color: '#4b4b55', fontSize: '12px', padding: '6px 10px', borderRadius: '8px', boxShadow: '0 1px 4px rgba(0,0,0,.08)' }, hidden: true });
   wrap.append(hintEl);
-  root.append(h('div', { class: 'stage-top' }, tabs, tools), h('div', { class: 'stage-look', style: { padding: '0 16px 6px' } }, viewTools()), wrap);
+  // selection tools, rotation and copy look are Advanced; Basic keeps move, zoom, fit and undo / redo
+  tools.querySelectorAll('[data-tool="region"],[data-tool="brush"],[data-tool="erase"]').forEach(b => { b.dataset.level = 'advanced'; });
+  [...tools.querySelectorAll('[aria-label="Rotate view"],[aria-label="Reset the view rotation"]')].forEach(b => { b.dataset.level = 'advanced'; });
+  root.append(h('div', { class: 'stage-top' }, tabs, tools), nextStepHint(), h('div', { class: 'stage-look', 'data-level': 'advanced', style: { padding: '0 16px 6px' } }, viewTools()), wrap);
   stage = createStage(cv, wrap);
   window.__stage = stage;
 
@@ -52,10 +56,17 @@ export function initStage(root) {
   window.addEventListener('dragover', e => e.preventDefault());
   window.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer?.files?.[0]; if (f && f.type.startsWith('image/')) A.loadFile(f); });
 
+  tabs.setAttribute('aria-label', 'Garment views');
+  tabs.addEventListener('keydown', e => {
+    const all = [...tabs.querySelectorAll('.tab')], i = all.indexOf(document.activeElement);
+    const n = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: all.length - 1 }[e.key];
+    if (i < 0 || n === undefined) return;
+    e.preventDefault(); const t = all[(n + all.length) % all.length]; t.focus(); t.click();
+  });
   function sync(r) {
     const V = activeView();
     empty.hidden = !!V.current;
-    tabs.querySelectorAll('.tab').forEach(t => { t.classList.toggle('on', t.dataset.v === S.activeView); t.classList.toggle('has', !!S.views[t.dataset.v].current); t.setAttribute('aria-selected', t.dataset.v === S.activeView); });
+    tabs.querySelectorAll('.tab').forEach(t => { t.classList.toggle('on', t.dataset.v === S.activeView); t.classList.toggle('has', !!S.views[t.dataset.v].current); t.setAttribute('aria-selected', t.dataset.v === S.activeView); t.tabIndex = t.dataset.v === S.activeView ? 0 : -1; });
     tools.querySelectorAll('[data-tool]').forEach(b => { const t = b.dataset.tool; b.classList.toggle('on', t === 'erase' ? (S.ui.tool === 'brush' && S.ui.brushMode === 'erase') : t === 'brush' ? (S.ui.tool === 'brush' && S.ui.brushMode !== 'erase') : S.ui.tool === t); });
     busyEl.hidden = !S.ui.busy; busyEl.querySelector('span').textContent = S.ui.busyMsg || '';
     procEl.hidden = !S.ui.processing;
