@@ -13,6 +13,7 @@ import * as store from './storage.js';
 import * as R from './remote.js';
 import { initHome, refreshHome } from './home.js';
 import { aiStatus } from './ai.js';
+import * as sel from './selection.js';
 import { showBanner, hideBanner, bannerShown, lastEditedLine } from './sync.js';
 
 const $ = id => document.getElementById(id);
@@ -33,7 +34,7 @@ function reveal(id) {
   if (sec.tagName === 'DETAILS') sec.open = true;
   return true;
 }
-window.__threadform = { state, reveal };   // handy for debugging / tests
+window.__threadform = { state, reveal, sel };   // handy for debugging / tests
 
 const app = document.querySelector('.app'), home = $('home'), header = $('header');
 
@@ -54,7 +55,7 @@ let queue = Promise.resolve(), lastStatus = '';
 let saving = false, conflict = null;   // conflict: null | 'changed' | 'deleted' (shared mode: waiting for the user's choice)
 const unsynced = new Map();            // id -> record that could not reach the shared library yet (retried with backoff)
 let retryTimer = 0, retryN = 0;
-const NON_CONTENT = new Set(['render', 'zoom', 'processing', 'busy', 'compare', 'tool', 'view', 'selection', 'history', 'mode', 'tab', 'part']);
+const NON_CONTENT = new Set(['render', 'zoom', 'processing', 'busy', 'compare', 'tool', 'view', 'selection', 'history', 'mode', 'tab', 'part', 'refine']);
 
 function setStatus(kind, t) {
   lastStatus = kind;

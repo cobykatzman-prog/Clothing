@@ -6,6 +6,7 @@ import { createStage } from './canvas.js';
 import { stageHint } from './manual.js';
 import { viewTools } from './ui-look.js';
 import { nextStepHint } from './ui-guide.js';
+import { selectionBar, initSelectionKeys } from './ui-select.js';
 
 export function initStage(root) {
   const S = state;
@@ -25,18 +26,16 @@ export function initStage(root) {
   wrap.append(empty, busyEl, procEl);
 
   const tabs = h('div', { class: 'tabs', role: 'tablist' }, VIEWS.map(v => h('button', { class: 'tab', role: 'tab', 'data-v': v, tip: v === 'detail' ? 'A close-up (cuff, collar, print…) of the same design' : `${VIEW_LABELS[v]} view of this design`, onclick: async () => { S.activeView = v; S.selectedId = null; notify('view'); await A.ensureView(v); } }, VIEW_LABELS[v], h('i', { class: 'tdot' }))));
-  const toolBtn = (t, ic, label, tip) => h('button', { class: 'tool-i', 'data-tool': t, tip: `${tip}`, 'aria-label': label, onclick: () => { S.ui.tool = t; if (t === 'brush') S.ui.brushMode = 'add'; notify('tool'); } }, icon(ic, 18));
+  const toolBtn = (t, ic, label, tip) => h('button', { class: 'tool-i', 'data-tool': t, tip: `${tip}`, 'aria-label': label, onclick: () => { S.ui.tool = t; notify('tool'); } }, icon(ic, 18));
   let stage;
   const act = (ic, label, fn, tip) => h('button', { class: 'tool-i', 'aria-label': label, tip: tip || label, onclick: () => fn() }, icon(ic, 18));
-  const zoomLbl = h('span', { class: 'zoomlbl' }, '100%');
+  const zoomLbl = h('button', { type: 'button', class: 'zoomlbl', id: 'zoom-label', 'aria-label': 'Zoom level. Press for 100%', tip: 'Zoom level. Press for actual size (100%)', onclick: () => stage.zoomTo(1) }, '100%');
   const tools = h('div', { class: 'toolstrip' },
     toolBtn('move', 'pointer', 'Move', 'Move: select, drag and resize added text and graphics; drag empty space to pan'),
-    toolBtn('region', 'pick', 'Pick region', 'Pick a garment region by clicking it'),
-    toolBtn('brush', 'brush', 'Brush', 'Brush: paint the area to change'),
-    h('button', { class: 'tool-i', 'aria-label': 'Eraser', 'data-tool': 'erase', tip: 'Eraser: remove parts of the selection', onclick: () => { S.ui.tool = 'brush'; S.ui.brushMode = 'erase'; notify('tool'); } }, icon('eraser', 18)),
     h('span', { class: 'sep', 'data-level': 'advanced' }),
     act('zoomOut', 'Zoom out', () => stage.zoomBy(1 / 1.2)), zoomLbl, act('zoomIn', 'Zoom in', () => stage.zoomBy(1.2)),
-    act('fit', 'Fit to screen', () => stage.fit(), 'Fit to screen'),
+    act('fit', 'Fit to screen', () => stage.fit(), 'Fit to screen (0)'),
+    act('zoomSel', 'Zoom to selection', () => stage.zoomToSelection(), 'Zoom in on the selected area (Z)'),
     act('rotate', 'Rotate view', () => stage.rotateBy(15), 'Rotate the view 15° (does not change the design)'),
     h('button', { class: 'tool-i txt', 'aria-label': 'Reset the view rotation', tip: 'Reset the view rotation', onclick: () => stage.resetRotation() }, '0°'),
     h('span', { class: 'sep' }),
@@ -45,10 +44,9 @@ export function initStage(root) {
   // short, context-sensitive hint over the canvas (what the current tool / selection can do)
   const hintEl = h('div', { class: 'stage-hint', id: 'stage-hint', role: 'status', style: { position: 'absolute', left: '12px', bottom: '10px', maxWidth: 'calc(100% - 24px)', pointerEvents: 'none', background: 'rgba(255,255,255,.9)', color: '#4b4b55', fontSize: '12px', padding: '6px 10px', borderRadius: '8px', boxShadow: '0 1px 4px rgba(0,0,0,.08)' }, hidden: true });
   wrap.append(hintEl);
-  // selection tools, rotation and copy look are Advanced; Basic keeps move, zoom, fit and undo / redo
-  tools.querySelectorAll('[data-tool="region"],[data-tool="brush"],[data-tool="erase"]').forEach(b => { b.dataset.level = 'advanced'; });
+  // rotation and copy look are Advanced; Basic keeps move, zoom, fit and undo / redo (the selection tools have their own bar below)
   [...tools.querySelectorAll('[aria-label="Rotate view"],[aria-label="Reset the view rotation"]')].forEach(b => { b.dataset.level = 'advanced'; });
-  root.append(h('div', { class: 'stage-top' }, tabs, tools), nextStepHint(), h('div', { class: 'stage-look', 'data-level': 'advanced', style: { padding: '0 16px 6px' } }, viewTools()), wrap);
+  root.append(h('div', { class: 'stage-top' }, tabs, tools), nextStepHint(), selectionBar(), h('div', { class: 'stage-look', 'data-level': 'advanced', style: { padding: '0 16px 6px' } }, viewTools()), wrap);
   stage = createStage(cv, wrap);
   window.__stage = stage;
 
@@ -67,15 +65,15 @@ export function initStage(root) {
     const V = activeView();
     empty.hidden = !!V.current;
     tabs.querySelectorAll('.tab').forEach(t => { t.classList.toggle('on', t.dataset.v === S.activeView); t.classList.toggle('has', !!S.views[t.dataset.v].current); t.setAttribute('aria-selected', t.dataset.v === S.activeView); t.tabIndex = t.dataset.v === S.activeView ? 0 : -1; });
-    tools.querySelectorAll('[data-tool]').forEach(b => { const t = b.dataset.tool; b.classList.toggle('on', t === 'erase' ? (S.ui.tool === 'brush' && S.ui.brushMode === 'erase') : t === 'brush' ? (S.ui.tool === 'brush' && S.ui.brushMode !== 'erase') : S.ui.tool === t); });
+    tools.querySelectorAll('[data-tool]').forEach(b => { b.classList.toggle('on', S.ui.tool === b.dataset.tool); });
     busyEl.hidden = !S.ui.busy; busyEl.querySelector('span').textContent = S.ui.busyMsg || '';
     procEl.hidden = !S.ui.processing;
     zoomLbl.textContent = Math.round(stage.zoom * 100) + '%';
     if (r === 'loaded') stage.fit();
-    cv.style.cursor = S.ui.tool === 'brush' ? 'none' : '';
     const hint = stageHint();
     hintEl.hidden = !hint || !V.current; hintEl.textContent = hint;
     stage.draw();
   }
   subscribe(sync); sync();
+  initSelectionKeys();
 }

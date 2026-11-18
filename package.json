@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node server.test.mjs && node server.shared.test.mjs && node server.ai.test.mjs && node js/prompt.test.mjs"
+    "test": "node server.test.mjs && node server.shared.test.mjs && node server.ai.test.mjs && node js/prompt.test.mjs && node js/mask.test.mjs"
   },
   "engines": {
     "node": ">=18"

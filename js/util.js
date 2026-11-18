@@ -59,13 +59,10 @@ export function thumbOf(canvas, size = 96, bg = null) {
   if (canvas) ctx.drawImage(canvas, 0, 0, size, size);
   return c;
 }
-/** true when a canvas has (almost) no visible pixels – cheap, samples a 128px copy */
+/** true when a canvas has no (visible) selected pixel. Exact: a 2 px detail still counts, so a tiny selection is never mistaken for 'nothing selected'. */
 export function maskIsEmpty(c) {
   if (!c) return true;
-  const t = makeCanvas(128, 128);
-  const ctx = t.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(c, 0, 0, 128, 128);
-  const d = ctx.getImageData(0, 0, 128, 128).data;
+  const d = c.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, c.width, c.height).data;
   for (let i = 3; i < d.length; i += 4) if (d[i] > 24) return false;
   return true;
 }
@@ -152,6 +149,22 @@ const ICONS = {
   type: 'M5 6V4h14v2M12 4v16M9 20h6',
   chevron: 'M6 9l6 6 6-6',
   help: 'M12 3a9 9 0 100 18 9 9 0 000-18zM9.5 9.5a2.5 2.5 0 115 0c0 1.7-2.5 2-2.5 4M12 17v.01',
+  lasso: 'M12 4c4.4 0 8 1.8 8 4.2S16.4 12.4 12 12.4 4 10.6 4 8.2 7.6 4 12 4zM8.5 12c-1.6 1.6-2.5 3-2.5 4.6 0 1.7 1.3 3 3 3',
+  polygon: 'M5 9l7-5 8 5-3 10H8zM5 9h.01M12 4h.01M20 9h.01M17 19h.01M8 19h.01',
+  rect: 'M4 5h3M10 5h4M17 5h3M20 8v3M20 14v2M17 19h3M10 19h4M4 19h3M4 16v-3M4 10V8',
+  wand: 'M4 20l11-11M15 3v3M21 9h-3M18.5 4.5l-2 2M18.5 13.5l-2-2M9 4v.01M4 9v.01',
+  component: 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5',
+  color: 'M12 3s6 6.5 6 11a6 6 0 11-12 0c0-4.5 6-11 6-11z',
+  texture: 'M4 4h16v16H4zM4 10l6-6M4 16L16 4M8 20L20 8M14 20l6-6',
+  zoomSel: 'M11 4a7 7 0 100 14 7 7 0 000-14zM21 21l-4.3-4.3M8.5 8.5h5v5h-5z',
+  selall: 'M4 4h16v16H4zM8 8h8v8H8z',
+  invert: 'M12 3a9 9 0 100 18 9 9 0 000-18zM12 3v18M12 3a9 9 0 010 18zM12 8v8',
+  expand: 'M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5',
+  contract: 'M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5',
+  smooth: 'M3 12c3-6 6 6 9 0s6 6 9 0',
+  bookmark: 'M6 3h12v18l-6-4-6 4z',
+  pencil: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4',
+  both: 'M3 8l5-3 3 5-4 6zM21 8l-5-3-3 5 4 6z',
   scissors: 'M6 3a3 3 0 100 6 3 3 0 000-6zM6 15a3 3 0 100 6 3 3 0 000-6zM8.5 8L20 19M8.5 16L20 5',
 };
 export function icon(name, size = 18) {

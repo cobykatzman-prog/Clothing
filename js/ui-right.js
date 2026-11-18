@@ -152,8 +152,8 @@ export function initRight(root) {
     // look controls redraw from the active view and set their own disabled state (after the loop above)
     presets.sync(V); shape.sync(V); whole.sync(V); fab.sync(V);
     const sel = hasMask(V);
-    keepNote.textContent = sel ? 'Only your selected area will change. Everything else is kept exactly. To make a part bigger, use Grow so there is room.'
-      : getMode() === 'basic' ? 'The change applies to the whole garment. To change just one area, switch to Advanced and select it.'
+    keepNote.textContent = sel ? 'Only your selected area will change. Everything else is kept exactly. To make a part bigger, grow the selection (Advanced: Expand) so there is room.'
+      : getMode() === 'basic' ? 'The change applies to the whole garment. To change just one area, select it first with the tools above the canvas (for both sleeves: Click a part, then click each sleeve).'
       : 'No area selected: the change applies to the whole garment. Optional: select an area on the left to limit it.';
     if (!reason || ['variations', 'applied', 'restore', 'loaded', 'history'].includes(reason)) renderCards();
   }

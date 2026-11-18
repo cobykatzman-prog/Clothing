@@ -12,6 +12,7 @@ import { clubEliteViews } from './samples-club.js';
 import { parseGarmentText, makeGarmentViews, GEN_VIEWS } from './generate.js';
 import { aiGenerate, AiError, useAi } from './ai.js';
 import { startTask } from './ai-ui.js';
+import * as SEL from './selection.js';
 
 // ---------- busy overlay ----------
 export function busy(msg = 'Working…') {
@@ -105,6 +106,7 @@ async function installBase(name, canvas, { sample = null, keepSeg = null, label 
   V.params = { ...DEFAULT_PARAMS }; V.color = newColor(); V.fabric = { name: null, amount: 0.6 };
   V.regionSel = []; V.sample = sample; V.parts = {}; V.presets = { fit: null, sleeve: null };
   const x = V.mask.getContext('2d'); x.clearRect(0, 0, SIZE, SIZE); touchMask(V);
+  V.saved = [];   // saved selections belong to the image they were made on
 }
 export async function loadFile(file, viewName = state.activeView) {
   const done = busy('Reading image…');
@@ -271,52 +273,16 @@ export async function addReferences(files) {
 export function removeReference(i) { state.references.splice(i, 1); notify('references'); }
 
 // ---------- selection (mask) ----------
-export function toggleRegion(name) {
-  const V = activeView(); if (!V.seg?.regions?.[name]) { toast(`No "${name}" area was found on this garment.`, 'info'); return; }
-  snapshot();
-  const x = V.mask.getContext('2d');
-  const on = V.regionSel.includes(name);
-  if (on) {
-    V.regionSel = V.regionSel.filter(n => n !== name);
-    x.save(); x.globalCompositeOperation = 'destination-out'; x.drawImage(V.seg.regions[name], 0, 0); x.restore();
-  } else {
-    V.regionSel.push(name);
-    const t = makeCanvas(), tx = t.getContext('2d');
-    tx.drawImage(V.seg.regions[name], 0, 0); tx.globalCompositeOperation = 'source-in'; tx.fillStyle = 'rgb(79,70,229)'; tx.fillRect(0, 0, SIZE, SIZE);
-    x.drawImage(t, 0, 0);
-  }
-  touchMask(V); state.flow.skippedSelect = false; notify('mask');
-}
-export function selectWhole() {
-  const V = activeView(); if (!V.seg) return; snapshot();
-  const t = makeCanvas(), tx = t.getContext('2d');
-  tx.drawImage(V.seg.mask, 0, 0); tx.globalCompositeOperation = 'source-in'; tx.fillStyle = 'rgb(79,70,229)'; tx.fillRect(0, 0, SIZE, SIZE);
-  const x = V.mask.getContext('2d'); x.clearRect(0, 0, SIZE, SIZE); x.drawImage(t, 0, 0);
-  V.regionSel = []; touchMask(V); notify('mask');
-}
-export function clearMask() {
-  const V = activeView(); snapshot();
-  V.mask.getContext('2d').clearRect(0, 0, SIZE, SIZE); V.regionSel = []; touchMask(V); notify('mask');
-}
-export function invertMask() {
-  const V = activeView(); if (!V.seg) return; snapshot();
-  const t = makeCanvas(), tx = t.getContext('2d');
-  tx.drawImage(V.seg.mask, 0, 0); tx.globalCompositeOperation = 'destination-out'; tx.drawImage(V.mask, 0, 0);
-  tx.globalCompositeOperation = 'source-in'; tx.fillStyle = 'rgb(79,70,229)'; tx.fillRect(0, 0, SIZE, SIZE);
-  const x = V.mask.getContext('2d'); x.clearRect(0, 0, SIZE, SIZE); x.drawImage(t, 0, 0);
-  V.regionSel = []; touchMask(V); notify('mask');
-}
+// The selection itself lives in selection.js (undoable, selection history, saved selections). These names are kept for the panels.
+export const toggleRegion = name => SEL.toggleRegion(name);
+export const selectWhole = () => SEL.selectEntireGarment();
+export const clearMask = () => SEL.clearSelection();
+export const invertMask = () => SEL.invertSelection();
+export const growMask = (px = 28) => SEL.expandSelection(px);
 /** mask handed to engines: the selection as drawn (it may include empty space so shapes can grow), or null when nothing is selected */
 export function effectiveMask(V = activeView()) {
   if (!hasMask(V)) return null;
   return cloneCanvas(V.mask);
-}
-export function growMask(px = 28) {
-  const V = activeView(); if (!hasMask(V)) { toast('Select an area first.', 'info'); return; }
-  snapshot();
-  const src = cloneCanvas(V.mask), x = V.mask.getContext('2d');
-  for (const r of [px, px * 0.5]) for (let i = 0; i < 20; i++) { const a = i / 20 * Math.PI * 2; x.drawImage(src, Math.cos(a) * r, Math.sin(a) * r); }
-  touchMask(V); notify('mask');
 }
 
 // ---------- variations ----------

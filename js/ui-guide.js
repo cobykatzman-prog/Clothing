@@ -1,7 +1,8 @@
 // Making the studio easier to use (owner: shell): Basic / Advanced mode, the "?" help (guided tour,
 // keyboard shortcuts, how it works), the plain-language "Next step" hint and a few keyboard shortcuts.
 // Every text here is inserted as text, never as HTML.
-import { state, VIEWS, activeView, subscribe, notify } from './state.js';
+import { state, VIEWS, activeView, subscribe, notify, hasMask } from './state.js';
+import { isSelTool, selectionStats } from './selection.js';
 import { h, icon, prefs, clamp } from './util.js';
 import { openDialog } from './ui-dialog.js';
 
@@ -19,7 +20,7 @@ function modeToggle() {
   const btn = (m, label, tip) => h('button', { type: 'button', class: 'mode-btn', 'data-m': m, 'aria-pressed': 'false', tip, onclick: () => setMode(m) }, label);
   const el = h('div', { class: 'mode-toggle', role: 'group', 'aria-label': 'Amount of controls shown' },
     btn('basic', 'Basic', 'Basic: just the essentials - start a garment, describe a change, colour, text and graphics, measurements and export.'),
-    btn('advanced', 'Advanced', 'Advanced: everything - shape sliders, presets, fabric, layers, references, the selection brush and copy look.'));
+    btn('advanced', 'Advanced', 'Advanced: everything - shape sliders, presets, fabric, layers, references, every selection tool, saved selections and copy look.'));
   const sync = () => el.querySelectorAll('.mode-btn').forEach(b => { const on = b.dataset.m === getMode(); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
   subscribe(r => { if (r === 'mode') sync(); }); sync();
   return el;
@@ -28,7 +29,7 @@ function modeToggle() {
 /* ------------------------------------------------------------------ help: tour, how it works, shortcuts */
 const HOW = [
   ['Upload', 'Pick a sample, upload a photo of a garment, or describe one under "Generate garment".'],
-  ['Select', 'Optional (Advanced): choose the part to change, like the sleeves or the collar. With nothing selected the whole garment can change.'],
+  ['Select', 'Optional: mark the part to change with the tools above the canvas (Brush, Lasso, Click a part, Smart select). To change both sleeves, click each sleeve, then describe the change. With nothing selected the whole garment can change.'],
   ['Describe', 'Write what you want in plain words, for example "make the sleeves flared".'],
   ['Generate', 'Press "Create 3 options" to get a light, a medium and a strong version.'],
   ['Compare', 'Look at the three options, press "Use this" on your favourite, and use "Compare before / after" to check it.'],
@@ -40,7 +41,14 @@ const KEYS = [
   ['Delete  or  Backspace', 'Delete the selected text or graphic'], ['Ctrl + D', 'Duplicate the selected text or graphic'],
   ['Arrow keys', 'Nudge the selected item by 1 px (hold Shift for 10 px)'],
   ['+  /  -', 'Zoom in / out (or use the mouse wheel over the canvas)'], ['0', 'Fit the garment to the screen'],
-  ['Hold Space and drag', 'Move around the canvas'], ['Esc', 'Deselect, or close a dialog or menu'], ['?', 'Open this help'],
+  ['Hold Space and drag', 'Move around the canvas (or drag with the middle mouse button, or two fingers on a touch screen)'], ['Esc', 'Deselect, cancel a selection in progress, or close a dialog or menu'], ['?', 'Open this help'],
+  ['Mouse wheel', 'Zoom towards the pointer (up to 1000%)'], ['Z', 'Zoom to the selection'],
+  ['B  E  L  P  M', 'Selection tools: Brush, Eraser, Lasso, Polygon, Rectangle'], ['R  C  S  W  K  T', 'Selection tools: Click a part, Whole part, Smart select, Magic wand, By colour, By material'], ['V', 'Back to the Move tool'],
+  ['[  and  ]', 'Make the brush or eraser smaller / bigger'],
+  ['Shift  /  Alt (Option)  /  Shift + Alt', 'While selecting: add to, subtract from, or intersect with the selection'],
+  ['Ctrl + A  /  Ctrl + I  /  Ctrl + Shift + A', 'Select the whole garment / invert the selection / clear it'],
+  ['Ctrl + Z  (selection tool active)', 'Undo the last selection step (Ctrl + Shift + Z redoes it)'],
+  ['Polygon: Enter  /  Backspace  /  Esc', 'Finish the shape / remove the last point / cancel it'],
 ];
 
 export function openHelp() {
@@ -54,7 +62,7 @@ export function openHelp() {
       tourBtn,
       h('h3', {}, 'How it works'),
       h('ol', { class: 'how' }, HOW.map(([t, d]) => h('li', {}, h('b', {}, t), h('span', {}, d)))),
-      h('p', { class: 'muted small' }, 'Basic shows only the essentials. Switch to Advanced in the header for shape sliders, presets, fabric, layers, references, the selection brush and copy look. Nothing is lost when you switch.'),
+      h('p', { class: 'muted small' }, 'Basic shows only the essentials. Switch to Advanced in the header for shape sliders, presets, fabric, layers, references, the full set of selection tools (wand, colour, material, polygon...), saved selections and copy look. Nothing is lost when you switch.'),
       h('h3', {}, 'Keyboard shortcuts'),
       h('table', { class: 'keys' }, h('tbody', {}, KEYS.map(([k, t]) => h('tr', {}, h('th', { scope: 'row' }, h('kbd', {}, k)), h('td', {}, t))))),
       h('p', { class: 'muted small' }, 'On a Mac use Cmd instead of Ctrl.'),
@@ -69,6 +77,7 @@ export function openHelp() {
 const reveal = id => window.__threadform?.reveal?.(id);
 const TOUR = [
   { sel: '#sec-upload', title: 'Start with a garment', text: 'Pick a sample, upload a photo, or describe a garment under "Generate garment". The background is removed for you.' },
+  { sel: '#selbar', title: 'Select the part to change', text: 'Pick a tool above the canvas: Click a part, Brush, Lasso or Smart select. To change both sleeves, click each sleeve (or press "Both sleeves"), then describe the change. Nothing selected means the whole garment can change.' },
   { sel: '#sec-describe', show: () => reveal('sec-describe'), title: 'Describe a change', text: 'Write what you want in plain words, like "make the sleeves flared". Then press "Create 3 options".' },
   { sel: '#variation-cards', show: () => reveal('sec-describe'), title: 'Pick the one you like', text: 'You get a light, a medium and a strong version. Press "Use this" on your favourite. You can always undo.' },
   { sel: '#right-tabs', title: 'Colour, items and measurements', text: 'These tabs hold the colour of each part, your text and graphics, and the garment\'s measurements. The right tab opens by itself when you need it.' },
@@ -154,7 +163,10 @@ export function nextStepText() {
   if (!VIEWS.some(n => state.views[n].base)) return 'Next: pick a sample or upload a photo of a garment (left panel), or describe one under Generate garment.';
   if (!V.base) return 'This view is still empty. Switch to a view that has a garment, or upload a photo for this one.';
   if (state.variations && !state.applied) return 'Next: look at the three options in the Look tab and press "Use this" on the one you like.';
+  const sel = hasMask(V);
   if (!(f.refined || f.compared || state.applied)) {
+    if (sel) { const st = selectionStats(V); return `Selected${st.pct != null ? ' ' + Math.round(st.pct) + '% of the garment' : ''}. Next: describe what to change in the selected area (Look tab) and press "Create 3 options".`; }
+    if (isSelTool(state.ui.tool)) return 'Next: mark the part to change. Choose Click a part, then click each sleeve to select both, then describe the change.';
     return basic ? 'Next: describe a change in the Look tab and press "Create 3 options", or change a colour.'
       : 'Next: describe a change and press "Create 3 options", or move a shape slider.';
   }

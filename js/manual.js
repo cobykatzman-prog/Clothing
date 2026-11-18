@@ -9,6 +9,7 @@
 import { state, activeView, snapshot, notify, subscribe, markFlow, VIEWS, VIEW_LABELS } from './state.js';
 import { h, icon, toast, SIZE, friendly, userError } from './util.js';
 import { REGION_NAMES } from './segment.js';
+import { isSelTool, selToolHint } from './selection.js';
 import { applyColor } from './fabric.js';
 import { FONTS, WEIGHTS, GRAPHIC_LIBRARY, getGraphic, fitElement, updateElement, resetElement, copyToView, createElement, onElementAssetsLoaded } from './elements.js';
 import * as A from './ui-actions.js';
@@ -608,7 +609,7 @@ export function createInspector() {
 /* ------------------------------------------------------------------ canvas hint (stage) */
 export function stageHint() {
   const V = activeView();
-  if (state.ui.tool === 'region') return 'Click a part of the garment to choose it for colouring. Click again to add it to the selection.';
+  if (isSelTool(state.ui.tool)) return selToolHint(state.ui.tool);
   const el = selectedElement();
   if (el && el.view === state.activeView) return `${TYPE_LABEL[el.type] || 'Element'} selected: drag to move, corner squares to resize, round handle to rotate, arrow keys to nudge, Delete to remove.`;
   if (V.base) return 'Click a part of the garment (sleeve, collar, cuffs...) to colour it in the Colour section, or click a design element to edit it.';

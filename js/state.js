@@ -25,6 +25,7 @@ export function newView() {
     parts: {},        // per-garment-part colour {[region]: {color, hue, sat, light}} (manual.js)
     fabric: { name: null, amount: 0.6 },
     regionSel: [],
+    saved: [],        // named saved selections [{id, name, canvas (alpha = selection), t}] (selection.js)
     sample: null,     // {kind,color,stripe} when procedural
     job: 0,
   };
@@ -46,7 +47,14 @@ export const state = {
   variations: null,      // [{label, canvas, seg, source, ops}]
   lastOps: null,
   flow: { described: false, generated: false, compared: false, refined: false, exported: false, skippedSelect: false },
-  ui: { tool: 'move', brushSize: 48, brushMode: 'add', showMask: true, compare: false, comparePos: 0.5, limitToSelection: false, busy: 0, prompt: '', notes: '' },
+  ui: {
+    tool: 'move', brushSize: 48, brushHardness: 1, showMask: true, compare: false, comparePos: 0.5, limitToSelection: false, busy: 0, prompt: '', notes: '',
+    // selection tools (selection.js / ui-select.js); none of this is saved with the design
+    selMode: 'add',                                   // add | subtract | intersect | replace
+    wandTol: 20, wandContig: true, colorTol: 20, texTol: 30, pickColor: '#8a6a4a',
+    feather: 4, grow: 4, smoothPx: 3, refine: { radius: 6, strength: 60 }, savedMode: 'replace',
+    ovl: { show: true, style: 'both', opacity: 26, color: '#4f46e5', view: 'normal', animate: true },   // style: both | ants | tint; view: normal | mask | only
+  },
 };
 export const activeView = () => state.views[state.activeView];
 
@@ -54,7 +62,10 @@ export function subscribe(fn) { subs.add(fn); return () => subs.delete(fn); }
 export function notify(reason = 'change') { subs.forEach(fn => { try { fn(reason); } catch (e) { console.error(e); } }); }
 export function markFlow(k) { if (!state.flow[k]) { state.flow[k] = true; notify('flow'); } }
 export function touchMask(v) { v.maskRev++; }
-export function hasMask(v = activeView()) { return !maskIsEmpty(v.mask); }
+export function hasMask(v = activeView()) {   // exact (any selected pixel counts, even on a 2 px detail), cached per mask revision
+  if (!v._has || v._has.rev !== v.maskRev || v._has.c !== v.mask) v._has = { rev: v.maskRev, c: v.mask, val: !maskIsEmpty(v.mask) };
+  return v._has.val;
+}
 
 // ---- snapshots ----
 export function cloneElement(e) {
@@ -74,7 +85,7 @@ export function capture() {
     views[n] = {
       original: v.original, base: v.base, baseSeg: v.baseSeg, current: v.current, seg: v.seg,
       mask: maskClone(v), params: { ...v.params }, presets: { ...(v.presets || {}) }, color: { ...v.color }, fabric: { ...v.fabric },
-      regionSel: [...v.regionSel], sample: v.sample, parts: { ...v.parts },
+      regionSel: [...v.regionSel], sample: v.sample, parts: { ...v.parts }, saved: [...(v.saved || [])],
     };
   }
   return { views, elements: state.elements.map(cloneElement), activeView: state.activeView, name: state.name, measure: { ...state.measure } };
@@ -84,7 +95,7 @@ function apply(s) {
     const v = state.views[n], d = s.views[n];
     v.job++; // cancel pending recomputes
     Object.assign(v, { original: d.original, base: d.base, baseSeg: d.baseSeg, current: d.current, seg: d.seg,
-      params: { ...d.params }, presets: { ...(d.presets || {}) }, color: { ...d.color }, fabric: { ...d.fabric }, regionSel: [...d.regionSel], sample: d.sample, parts: { ...d.parts } });
+      params: { ...d.params }, presets: { ...(d.presets || {}) }, color: { ...d.color }, fabric: { ...d.fabric }, regionSel: [...d.regionSel], sample: d.sample, parts: { ...d.parts }, saved: [...(d.saved || [])] });
     const x = v.mask.getContext('2d'); x.clearRect(0, 0, v.mask.width, v.mask.height); x.drawImage(d.mask, 0, 0);
     v.maskRev++; v._maskCache = { rev: v.maskRev, canvas: d.mask };
   }
@@ -171,6 +182,7 @@ function viewDoc(v, ref) {
     mask: v.mask && !maskIsEmpty(v.mask) ? ref(v.mask) : null,
     params: { ...v.params }, presets: { ...(v.presets || {}) }, color: { ...v.color }, fabric: { ...v.fabric }, parts: JSON.parse(JSON.stringify(v.parts || {})),
     regionSel: [...(v.regionSel || [])], sample: v.sample ? JSON.parse(JSON.stringify(v.sample)) : null,
+    saved: (v.saved || []).filter(x => x.canvas).map(x => ({ id: x.id, name: x.name, t: x.t || 0, canvas: ref(x.canvas) })),
   };
 }
 function snapDoc(s, ref) {   // s has the shape produced by capture()
@@ -186,6 +198,7 @@ function remapRaw(raw, R) {
   for (const n of VIEWS) {
     const d = s.views?.[n]; if (!d) continue;
     for (const f of ['original', 'base', 'current', 'mask']) d[f] = d[f] ? R.raw(raw.assets?.[d[f]] ?? null) : null;
+    d.saved = (d.saved || []).map(x => ({ ...x, canvas: x.canvas ? R.raw(raw.assets?.[x.canvas] ?? null) : null })).filter(x => x.canvas);
   }
   return s;
 }
@@ -229,13 +242,14 @@ function assetLoader(assets = {}) {
 const blankView = () => ({
   original: null, base: null, baseSeg: null, current: null, seg: null, mask: makeCanvas(),
   maskRev: 0, _maskCache: null, params: { ...DEFAULT_PARAMS }, presets: { fit: null, sleeve: null }, color: newColor(), parts: {},
-  fabric: { name: null, amount: 0.6 }, regionSel: [], sample: null, job: 0,
+  fabric: { name: null, amount: 0.6 }, regionSel: [], saved: [], sample: null, job: 0,
 });
 async function hydrateView(vd, load) {
   const f = blankView();
   if (!vd) return f;
   const [original, base, current, mask] = await Promise.all([vd.original, vd.base, vd.current, vd.mask].map(k => load(k)));
-  Object.assign(f, {
+  const saved = (await Promise.all((vd.saved || []).map(async x => ({ id: String(x.id), name: String(x.name || 'Selection').slice(0, 60), t: x.t || 0, canvas: await load(x.canvas) })))).filter(x => x.canvas);
+  Object.assign(f, { saved,
     original, base, current: vd.sameBase ? base : (current || base), mask: mask || makeCanvas(),
     params: { ...DEFAULT_PARAMS, ...(vd.params || {}) }, color: { ...newColor(), ...(vd.color || {}) },
     presets: { ...f.presets, ...(vd.presets || {}) }, parts: { ...(vd.parts || {}) }, fabric: { ...f.fabric, ...(vd.fabric || {}) }, regionSel: [...(vd.regionSel || [])], sample: vd.sample || null,

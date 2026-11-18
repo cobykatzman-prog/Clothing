@@ -1,19 +1,14 @@
 // Left panel: upload, generate, select areas, text, graphics, references.
-import { state, activeView, subscribe, notify, snapshot, markFlow, hasMask } from './state.js';
+import { state, activeView, subscribe, notify, snapshot, markFlow } from './state.js';
 import { h, icon, thumbOf, toast, setDisabled } from './util.js';
 import * as A from './ui-actions.js';
-import { REGION_NAMES } from './segment.js';
+import { selectionSection } from './ui-select.js';
 import { createElement, GRAPHIC_LIBRARY, FONTS } from './elements.js';
 import { createLayers } from './manual.js';
 import { SAMPLE_KINDS } from './samples.js';
 
 const pretty = s => s.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
 const KIND_LABEL = { tee: 'T-shirt', longSleeve: 'Long sleeve', polo: 'Polo', hoodie: 'Hoodie' };
-const REGION_TIPS = {
-  body: 'The main torso panel', leftSleeve: "The garment's left sleeve (right side as you look at it)", rightSleeve: "The garment's right sleeve (left side as you look at it)",
-  collar: 'The collar / neckband', neckline: 'The neck opening', cuffs: 'Cuffs at the end of the sleeves', hem: 'The bottom hem', shoulders: 'Shoulder seams and yoke',
-  sidePanels: 'Side seams and panels', stripes: 'Existing stripes', logos: 'Existing logos or prints', text: 'Existing lettering', fabric: 'Just the fabric surface (no trims)',
-};
 
 export function section(num, title, tip, body, open = true, id) {
   const d = h('details', { class: 'card', id }, h('summary', {}, h('span', { class: 'num' }, num), h('span', { class: 'ttl' }, title), tip ? h('span', { class: 'hint', tip }, icon('help', 14)) : null, h('span', { class: 'chev' }, icon('chevron', 16))), h('div', { class: 'card-body' }, body));
@@ -73,30 +68,8 @@ export function initLeft(root) {
       h('button', { class: 'btn ghost sm', tip: 'Draw the chosen sample shape in the chosen colour', onclick: () => A.loadSample(kind, { color: colorIn.value, stripe: stripeIn.checked }, S.views[S.activeView].base ? S.activeView : null) }, 'Use sample')),
   ], false, 'sec-generate');
 
-  // ---- 3 Select ----
-  const toolBtn = (t, ic, label, tip) => h('button', { class: 'tool', 'data-tool': t, tip, onclick: () => { S.ui.tool = t; if (t === 'brush') S.ui.brushMode = 'add'; notify('tool'); } }, icon(ic, 17), label);
-  const regionBtns = REGION_NAMES.map(n => h('button', { class: 'chip region', 'data-r': n, tip: REGION_TIPS[n] || pretty(n), onclick: () => A.toggleRegion(n) }, pretty(n)));
-  const brush = h('input', { type: 'range', min: 6, max: 160, value: S.ui.brushSize, 'aria-label': 'Brush size', oninput: e => { S.ui.brushSize = +e.target.value; brushVal.textContent = e.target.value + ' px'; notify('tool'); } });
-  const brushVal = h('span', { class: 'val' }, S.ui.brushSize + ' px');
-  const modeBtns = ['add', 'erase'].map(m => h('button', { class: 'seg-btn', 'data-m': m, onclick: () => { S.ui.brushMode = m; S.ui.tool = 'brush'; notify('tool'); } }, m === 'add' ? 'Add' : 'Erase'));
-  const maskTog = h('input', { type: 'checkbox', checked: true, onchange: e => { S.ui.showMask = e.target.checked; notify('tool'); } });
-  const limitTog = h('input', { type: 'checkbox', onchange: e => { S.ui.limitToSelection = e.target.checked; A.recompute(); } });
-  const selInfo = h('div', { class: 'muted small', id: 'sel-info' });
-  const sec3 = section(3, 'Select garment areas', 'Choose the part you want to change. Only the selected pixels will be edited by Generate variations.', [
-    h('div', { class: 'tools' }, toolBtn('region', 'pick', 'Pick on canvas', 'Click a part of the garment on the canvas to select it'), toolBtn('brush', 'brush', 'Brush', 'Paint the exact area you want to change')),
-    h('div', { class: 'chips' }, regionBtns),
-    h('div', { class: 'row gap wrap' },
-      h('button', { class: 'btn ghost sm', onclick: A.selectWhole }, 'Whole garment'),
-      h('button', { class: 'btn ghost sm', tip: 'Expand the selection outward so a part can get bigger (e.g. wider sleeves)', onclick: () => A.growMask() }, 'Grow'),
-      h('button', { class: 'btn ghost sm', onclick: A.invertMask }, 'Invert'),
-      h('button', { class: 'btn ghost sm', onclick: A.clearMask }, 'Clear')),
-    h('div', { class: 'brushbox' },
-      h('div', { class: 'row between' }, h('span', { class: 'lbl' }, 'Brush size'), brushVal), brush,
-      h('div', { class: 'seg', role: 'group', 'aria-label': 'Brush mode' }, modeBtns)),
-    h('label', { class: 'check' }, maskTog, 'Show selection overlay'),
-    h('label', { class: 'check', tip: 'When on, shape sliders, colour and fabric also only change the selected area.' }, limitTog, 'Limit sliders & colour to the selection'),
-    selInfo,
-  ], false, 'sec-select');
+  // ---- 3 Select (tools, modes, modify, refine, history, overlay, saved selections: ui-select.js) ----
+  const sec3 = selectionSection({ section });
 
   // ---- 4 Text ----
   const txt = h('input', { type: 'text', value: 'ATHENS', maxlength: 40, 'aria-label': 'Text to add' });
@@ -159,11 +132,6 @@ export function initLeft(root) {
     if (reason === 'loaded') { document.getElementById('sec-upload').open = false; document.getElementById('sec-select').open = true; }
     viewHint.textContent = has ? `Editing the ${state.activeView} view. Use the tabs above the canvas for other views.` : `Uploading to the ${state.activeView} view.`;
     setDisabled(root.querySelector('#btn-removebg'), !has, 'Load a garment first, then you can cut it out of its background again.');
-    root.querySelectorAll('.tool').forEach(b => b.classList.toggle('on', b.dataset.tool === S.ui.tool));
-    regionBtns.forEach(b => { b.classList.toggle('on', V.regionSel.includes(b.dataset.r)); b.disabled = !has || !V.seg?.regions?.[b.dataset.r]; });
-    modeBtns.forEach(b => b.classList.toggle('on', b.dataset.m === S.ui.brushMode));
-    brush.value = S.ui.brushSize; brushVal.textContent = S.ui.brushSize + ' px';
-    selInfo.textContent = hasMask(V) ? 'Selection active. Only highlighted pixels will change.' : 'Nothing selected yet: the whole garment may change.';
     refGrid.replaceChildren(...S.references.map((c, i) => h('div', { class: 'ref' }, thumbOf(c, 64, '#f3f2ef'), h('button', { class: 'x', 'aria-label': 'Remove reference', onclick: () => A.removeReference(i) }, icon('x', 12)))));
   }
   subscribe(r => { if (r !== 'render' && r !== 'zoom' && r !== 'processing' && r !== 'busy' && r !== 'elements-live') sync(r); });
