@@ -274,10 +274,11 @@ export function colorSlots(el) {
   }
   if (p.graphicId) return graphicSlots(p);
   if (p.svg) return [
-    { key: 'color', label: 'SVG main colour', fallback: p.colors?.c1 },
-    { key: 'color2', label: 'SVG accent colour', fallback: p.colors?.c2 },
-    { key: 'color3', label: 'SVG detail colour', fallback: p.colors?.c3 }
-  ].filter(slot => !!slot.fallback);
+    ['color', 'Main colour', 'c1'], ['color2', 'Accent colour', 'c2'],
+    ['color3', 'Detail colour', 'c3'], ['color4', 'Additional colour 1', 'c4'],
+    ['color5', 'Additional colour 2', 'c5'], ['color6', 'Additional colour 3', 'c6']
+  ].map(([key, label, slot]) => ({ key, label: 'SVG ' + label.toLowerCase(), fallback: p.colors?.[slot] }))
+    .filter(slot => !!slot.fallback);
   if (TEXTY(el)) return [{ key: 'color', label: 'Colour' }];
   return [];
 }
@@ -499,7 +500,7 @@ async function readVector(file) {
     let index = Object.keys(palette).find(key => palette[key].toLowerCase() === colour);
     if (!index) {
       const used = Object.keys(palette).length;
-      if (used >= 3) return null;
+      if (used >= 6) return null;
       index = 'c' + (used + 1);
       palette[index] = colour;
     }
