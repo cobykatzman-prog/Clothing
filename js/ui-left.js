@@ -45,12 +45,29 @@ export function initLeft(root) {
   const colorIn = h('input', { type: 'color', value: '#6f8fb5', 'aria-label': 'Garment colour' });
   const stripeIn = h('input', { type: 'checkbox' });
   const genPrompt = h('textarea', { rows: 2, placeholder: 'e.g. navy hoodie with white stripes', 'aria-label': 'Describe a garment to generate' });
-  const sec2 = section(2, 'Generate garment', 'Start from a sample shape or describe a garment. With an AI key configured this uses the AI engine; otherwise a local sample is drawn.', [
+  const genLabel = h('span', {}, 'Generate garment');
+  const genStatus = h('div', { class: 'muted small gen-status', role: 'status', 'aria-live': 'polite' });
+  const genBtn = h('button', { class: 'btn primary sm', onclick: () => runGenerate() }, icon('sparkles', 15), genLabel);
+  const runGenerate = async () => {
+    if (genBtn.disabled) return;
+    genBtn.disabled = true; genLabel.textContent = 'Generating…'; genStatus.textContent = '';
+    try {
+      const r = await A.generateFromPrompt(genPrompt.value, { defaultKind: kind });
+      genStatus.textContent = r.message;
+      if (r.spec) { // keep "Use sample" in step with what was just generated
+        kind = r.spec.kind; kindBtns.forEach(b => b.classList.toggle('on', b.dataset.k === kind));
+        colorIn.value = r.spec.color;
+      }
+    } finally { genBtn.disabled = false; genLabel.textContent = 'Generate garment'; }
+  };
+  genPrompt.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runGenerate(); });
+  const sec2 = section(2, 'Generate garment', 'Describe a garment and the editor builds front, back, side and detail views of it at once. With an AI key on the server the front is drawn by the AI; otherwise the offline engine draws it.', [
     h('div', { class: 'chips' }, kindBtns),
     h('div', { class: 'row gap center' }, field('Colour', colorIn), h('label', { class: 'check' }, stripeIn, 'Stripes')),
     genPrompt,
+    genStatus,
     h('div', { class: 'row gap wrap' },
-      h('button', { class: 'btn primary sm', onclick: () => A.generateFromPrompt(genPrompt.value, genPrompt.value.trim() ? null : kind, colorIn.value) }, icon('sparkles', 15), 'Generate garment'),
+      genBtn,
       h('button', { class: 'btn ghost sm', tip: 'Draw the chosen sample shape in the chosen colour', onclick: () => A.loadSample(kind, { color: colorIn.value, stripe: stripeIn.checked }, S.views[S.activeView].base ? S.activeView : null) }, 'Use sample')),
   ], false, 'sec-generate');
 
