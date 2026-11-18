@@ -2,13 +2,15 @@
 // 1. Per-part garment colour: each garment region (sleeve, collar, cuffs...) gets its own target colour,
 //    applied as a full-strength tint through fabric.applyColor so folds and shading survive.
 // 2. Element inspector (right panel), layers list (left panel) and keyboard nudging for design elements.
+//    The inspector edits every property of an element: content, font, size, weight, outline, shadow, colours,
+//    logo image and tint, position, scale, rotation, opacity, flip, copies to other views and reset.
 // Every manual change goes through state.snapshot() so undo/redo covers it. Continuous controls (sliders,
 // typing, arrow-key nudges) share one undo step via editGate(), so dragging stays smooth.
-import { state, activeView, snapshot, notify, subscribe, markFlow } from './state.js';
-import { h, icon } from './util.js';
+import { state, activeView, snapshot, notify, subscribe, markFlow, VIEWS, VIEW_LABELS } from './state.js';
+import { h, icon, toast, SIZE } from './util.js';
 import { REGION_NAMES } from './segment.js';
 import { applyColor } from './fabric.js';
-import { FONTS, GRAPHIC_LIBRARY, getGraphic, fitElement, updateElement } from './elements.js';
+import { FONTS, WEIGHTS, GRAPHIC_LIBRARY, getGraphic, fitElement, updateElement, resetElement, copyToView, createElement, onElementAssetsLoaded } from './elements.js';
 import * as A from './ui-actions.js';
 
 /* ------------------------------------------------------------------ small helpers */
@@ -126,7 +128,7 @@ export function clearPart(name) {
   notify('color');
 }
 
-/* ------------------------------------------------------------------ part colour panel (right panel) */
+/* ------------------------------------------------------------------ styles (shared by both panels) */
 let _css = false;
 function ensureCss() {
   if (_css) return; _css = true;
@@ -145,11 +147,20 @@ function ensureCss() {
 .peditor .hex{width:96px}
 .insp{display:flex;flex-direction:column;gap:8px}
 .insp .field{display:flex;flex-direction:column;align-items:stretch;gap:3px}
-.insp .field.inline{flex-direction:row;align-items:center}
+.insp .field.inline{flex-direction:row;align-items:center;justify-content:space-between}
+.insp .field.inline input[type=color]{width:44px;height:28px;padding:2px;border:1px solid var(--line);border-radius:8px;background:#fff}
 .insp .num2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .insp .btns{display:flex;flex-wrap:wrap;gap:6px}
 .insp .btns .btn{padding:5px 9px;font-size:12px}
 .insp input:disabled,.insp textarea:disabled,.insp select:disabled{opacity:.5}
+.insp .igrp{border-top:1px solid var(--line);padding-top:6px}
+.insp .igrp>summary{cursor:pointer;font-weight:650;font-size:12.5px;padding:3px 0 3px 18px;position:relative;list-style:none}
+.insp .igrp>summary::-webkit-details-marker{display:none}
+.insp .igrp>summary::before{content:'';position:absolute;left:4px;top:50%;width:6px;height:6px;border-right:1.6px solid var(--muted);border-bottom:1.6px solid var(--muted);transform:translateY(-70%) rotate(-45deg);transition:transform .12s}
+.insp .igrp[open]>summary::before{transform:translateY(-30%) rotate(45deg)}
+.insp .igrp-body{display:flex;flex-direction:column;gap:8px;padding:6px 0 2px}
+.insp .copyrow{display:flex;flex-wrap:wrap;gap:6px}
+.insp .copyrow .btn{padding:5px 9px;font-size:12px}
 .erow.dropabove{box-shadow:inset 0 2px 0 var(--accent)}
 .erow.dropbelow{box-shadow:inset 0 -2px 0 var(--accent)}
 .erow .mini{font:inherit;font-size:11px;line-height:1;padding:4px 5px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer;color:var(--muted)}
@@ -247,6 +258,7 @@ export function setScalePct(el, pct) {
   else { el.w = Math.max(6, b.w * pct / 100); el.h = Math.max(4, b.h * pct / 100); }
   return el;
 }
+const graphicSlots = p => { const lib = getGraphic(p.graphicId); return [['color', 'Main colour', 'c1'], ['color2', 'Accent colour', 'c2'], ['color3', 'Detail colour', 'c3']].map(([key, label, c]) => ({ key, label, fallback: lib?.colors?.[c] })); };
 /** Colour fields an element exposes in the inspector. */
 export function colorSlots(el) {
   const p = el.props;
@@ -255,19 +267,27 @@ export function colorSlots(el) {
   if (el.type === 'logo') return [];
   if (el.type === 'patch') {
     const s = [{ key: 'bg', label: 'Patch fill' }, { key: 'border', label: 'Edge colour' }];
-    if (p.text != null && !p.graphicId) s.push({ key: 'textColor', label: 'Lettering' });
+    if (p.graphicId) return s.concat(graphicSlots(p));
+    if (p.text != null) s.push({ key: 'textColor', label: 'Lettering' });
     return s;
   }
-  if (p.graphicId) {
-    const lib = getGraphic(p.graphicId);
-    return [['color', 'Main colour', 'c1'], ['color2', 'Accent colour', 'c2'], ['color3', 'Detail colour', 'c3']]
-      .map(([key, label, c]) => ({ key, label, fallback: lib?.colors?.[c] }));
-  }
+  if (p.graphicId) return graphicSlots(p);
   if (TEXTY(el)) return [{ key: 'color', label: 'Colour' }];
   return [];
 }
-const slotHex = (el, s) => { const v = el.props[s.key] ?? s.fallback; return HEX.test(v || '') ? v.toLowerCase() : '#888888'; };
+const hexOr = (v, fallback) => (HEX.test(v || '') ? v.toLowerCase() : fallback);
+const slotHex = (el, s) => hexOr(el.props[s.key] ?? s.fallback, '#888888');
 const sigOf = el => [el.id, el.locked, el.visible, el.type, el.props.graphicId, el.props.text != null, el.props.shape].join('|');
+// fonts: a family counts as installed when the browser measures it differently from its generic fallback
+const _fontOk = new Map();
+export function fontInstalled(family) {
+  if (!family) return true;
+  if (_fontOk.has(family)) return _fontOk.get(family);
+  const ctx = document.createElement('canvas').getContext('2d'), s = 'mmmmmmmmmmlli0Oo@#';
+  const w = f => { ctx.font = `72px ${f}`; return ctx.measureText(s).width; };
+  const ok = w(`"${family}", monospace`) !== w('monospace') || w(`"${family}", serif`) !== w('serif');
+  _fontOk.set(family, ok); return ok;
+}
 
 /* ------------------------------------------------------------------ structural edits (one undo step each) */
 function change(fn) { closeGate(); snapshot(); fn(); notify('elements'); }
@@ -282,12 +302,22 @@ export function duplicateElement(el) {
     state.selectedId = c.id;
   });
 }
+/** Copies an element onto other views (appended on top there). One undo step. Returns how many copies were made. */
+export function duplicateToViews(el, views) {
+  const targets = (views || []).filter(v => v !== el.view && VIEWS.includes(v));
+  if (!el || !targets.length) return 0;
+  change(() => { for (const v of targets) state.elements.push(copyToView(el, v)); });
+  toast(`Copied to ${targets.map(v => VIEW_LABELS[v]).join(', ')}.`, 'ok');
+  return targets.length;
+}
 export function deleteElement(el) {
   if (!el || el.locked) return;
   change(() => { state.elements = state.elements.filter(x => x.id !== el.id); if (state.selectedId === el.id) state.selectedId = null; });
 }
 export function toggleLock(el) { if (el) change(() => { el.locked = !el.locked; }); }
 export function toggleVisible(el) { if (el) change(() => { el.visible = el.visible === false; }); }
+/** Reset one element to the look a new one of its type gets (keeps its text, graphic and logo). One undo step. */
+export function resetItem(el) { if (el) change(() => { resetElement(el); }); toast('Reset to the default look.', 'ok'); }
 /** Layer order within this view. mode: 'up' (forward one), 'down' (back one), 'front', 'back'. */
 export function reorder(el, mode) {
   const arr = state.elements, i = arr.indexOf(el); if (!el || i < 0) return;
@@ -313,6 +343,8 @@ export function handleElementKey(e) {
   editGate(); el.x += d[0]; el.y += d[1]; notify('elements-live');
   return true;
 }
+// logo images decode asynchronously: redraw the stage when one arrives (no autosave: 'render' is not content)
+onElementAssetsLoaded(() => notify('render'));
 
 /* ------------------------------------------------------------------ layers list (left panel) */
 export function createLayers() {
@@ -358,11 +390,61 @@ export function createLayers() {
     const top = items.slice().reverse();   // top of the stack first
     list.replaceChildren(...(top.length ? top.map(e => row(e, top)) : [h('div', { class: 'muted small' }, 'Nothing added yet. Use sections 4 and 5 to add text, crests or stripes.')]));
   }
+  // upload a picture as a new logo on this view
+  const logoIn = h('input', { type: 'file', accept: 'image/*', hidden: true, 'aria-label': 'Logo file', onchange: e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) addLogo(f); } });
+  const addBtn = h('button', { class: 'btn ghost sm', tip: 'Upload a logo or picture to place on the garment (then recolour it in the Selected item section)', onclick: () => logoIn.click() }, icon('plus', 15), 'Add logo…');
+  const wrap = h('div', { class: 'lwrap' }, h('div', { class: 'row gap center' }, addBtn, logoIn), list);
   subscribe(sync); sync();
-  return { el: list, sync };
+  return { el: wrap, sync };
 }
 
 /* ------------------------------------------------------------------ element inspector (right panel) */
+/** Reads a picture file into a PNG data URL, shrunk to 1024 px so the saved design stays small. */
+function readLogo(file) {
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onerror = () => rej(new Error('That file could not be read.'));
+    fr.onload = () => {
+      const img = new Image();
+      img.onerror = () => rej(new Error('That file could not be read as an image.'));
+      img.onload = () => {
+        const iw = img.naturalWidth || 1, ih = img.naturalHeight || 1, k = Math.min(1, SIZE / Math.max(iw, ih));
+        const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(iw * k)); c.height = Math.max(1, Math.round(ih * k));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        res({ url: c.toDataURL('image/png'), iw, ih });
+      };
+      img.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+/** Replace a logo's picture (keeps its width and position). */
+async function replaceLogo(el, file) {
+  if (!el || !file) return;
+  try {
+    const { url, ih, iw } = await readLogo(file);
+    change(() => { el.props.image = url; el._tint = null; el._cache = null; el.h = el.w * ih / iw; el.base = { w: el.w, h: el.h, size: el.props.size }; });
+    toast('Logo replaced.', 'ok');
+  } catch (e) { toast(e.message, 'error'); }
+}
+/** Adds an uploaded picture as a logo on the active view, centred on the garment's body. */
+async function addLogo(file) {
+  const V = activeView();
+  if (!V.current) { toast('Load a garment first.', 'info'); return; }
+  try {
+    const { url, ih, iw } = await readLogo(file);
+    const b = V.seg?.bbox, pos = b ? { x: b.x + b.w / 2, y: b.y + b.h * 0.4 } : { x: SIZE / 2, y: SIZE / 2 };
+    const el = createElement('logo', { image: url, view: state.activeView, ...pos });
+    el.w = 200; el.h = 200 * ih / iw; el.base = { w: el.w, h: el.h, size: undefined };
+    change(() => { state.elements.push(el); state.selectedId = el.id; state.ui.tool = 'move'; });
+    markFlow('refined');
+  } catch (e) { toast(e.message, 'error'); }
+}
+/** Shadow settings are replaced as a whole object (never mutated) so undo snapshots keep their own copy. */
+function setShadow(el, patch) {
+  el.props.shadow = { on: false, color: '#000000', alpha: 0.45, blur: 8, x: 4, y: 4, ...(el.props.shadow || {}), ...patch };
+}
+
 export function createInspector() {
   ensureCss();
   const body = h('div', { class: 'insp' });
@@ -394,54 +476,117 @@ export function createInspector() {
   const rangeIn = (label, get, set, min, max, tip) => row(label, bind(h('input', { type: 'range', min, max, step: 1, 'aria-label': label }), get, (c, v) => set(c, +v)), tip);
   const colorIn = (label, get, set, tip) => row(label, bind(h('input', { type: 'color', 'aria-label': label }), get, set), tip, true);
   const check = (label, get, set, tip) => h('label', { class: 'check', tip }, bind(h('input', { type: 'checkbox' }), get, set), label);
+  const select = (label, options, get, set, tip) => row(label, bind(h('select', { 'aria-label': label }, options), get, set), tip);
   const btn = (txt, tip, fn, cls = 'btn ghost sm') => h('button', { class: cls, tip, onclick: () => { const c = cur(); if (c) fn(c); } }, txt);
+  const group = (title, kids, open = true) => h('details', { class: 'igrp', open: open || null }, h('summary', {}, title), h('div', { class: 'igrp-body' }, kids));
+  const fileIn = h('input', { type: 'file', accept: 'image/*', hidden: true, 'aria-label': 'Replace logo image', onchange: e => { const f = e.target.files?.[0]; e.target.value = ''; const c = cur(); if (c && f) replaceLogo(c, f); } });
 
   function build(c) {
     binders = []; inputs = [];
     const p = c.props, parts = [], lib = getGraphic(p.graphicId);
     parts.push(h('div', { class: 'ptitle' }, (TYPE_LABEL[c.type] || c.type) + (lib ? ' · ' + lib.name : '')));
+    parts.push(textIn('Name', x => x.name, (x, v) => { x.name = v; }, 'A name for this item in the layers list'));
+
+    // ---- content: what the item says or shows
+    const content = [];
     if (TEXTY(c)) {
-      parts.push(textIn('Text', x => x.props.text, (x, v) => updateElement(x, { text: v }), 'The words. Press Enter for a new line.', true));
-      const font = bind(h('select', { 'aria-label': 'Font' }, FONTS.map(f => h('option', { value: f.value }, f.label))), x => x.props.font, (x, v) => updateElement(x, { font: v }));
-      parts.push(row('Font', font, 'Typeface'));
-      parts.push(h('div', { class: 'num2' },
-        numIn('Size', x => Math.round(x.props.size), (x, v) => updateElement(x, { size: clamp(v, 4, 400) }), { min: 4, max: 400, tip: 'Text height (the whole canvas is 1024)' }),
-        numIn('Letter spacing', x => x.props.letterSpacing || 0, (x, v) => updateElement(x, { letterSpacing: clamp(v, -20, 60) }), { min: -20, max: 60, tip: 'Space between letters' })));
-      parts.push(h('div', { class: 'row gap' },
-        check('Bold', x => x.props.weight >= 600, (x, v) => updateElement(x, { weight: v ? 700 : 400 }), 'Bold lettering'),
-        check('Italic', x => !!x.props.italic, (x, v) => updateElement(x, { italic: v }), 'Italic lettering')));
-      parts.push(rangeIn('Arch', x => x.props.curve || 0, (x, v) => updateElement(x, { curve: v }), -100, 100, 'Bend the text into an arch (right) or a smile (left). 0 = straight'));
+      content.push(textIn('Text', x => x.props.text, (x, v) => updateElement(x, { text: v }), 'The words. Press Enter for a new line.', true));
+      const fontOpts = FONTS.map(f => h('option', { value: f.value }, f.label + (fontInstalled(f.family) ? '' : ' · fallback here')));
+      content.push(select('Font', fontOpts, x => x.props.font, (x, v) => updateElement(x, { font: v }), 'Typeface. Fonts not installed on this computer show their fallback.'));
     }
-    if (c.type === 'stripe') {
-      parts.push(numIn('Number of stripes', x => x.props.count || 1, (x, v) => updateElement(x, { count: clamp(Math.round(v), 1, 8) }), { min: 1, max: 8 }));
-      parts.push(check('Alternate colours', x => !!x.props.alternate, (x, v) => updateElement(x, { alternate: v }), 'Use the second colour for every other stripe'));
-    }
-    if (c.type === 'piping') parts.push(rangeIn('Thickness', x => x.props.thickness || 8, (x, v) => updateElement(x, { thickness: clamp(v, 2, 40) }), 2, 40, 'How thick the piping is'));
     if (c.type === 'patch') {
-      parts.push(row('Shape', bind(h('select', { 'aria-label': 'Patch shape' }, ['round', 'oval', 'shield', 'square'].map(s => h('option', { value: s }, s[0].toUpperCase() + s.slice(1)))), x => x.props.shape, (x, v) => updateElement(x, { shape: v })), 'Outline of the patch'));
-      if (p.text != null && !p.graphicId) parts.push(textIn('Lettering', x => x.props.text, (x, v) => updateElement(x, { text: v.slice(0, 6) }), 'Up to 6 characters'));
+      content.push(select('Shape', ['round', 'oval', 'shield', 'square'].map(s => h('option', { value: s }, s[0].toUpperCase() + s.slice(1))), x => x.props.shape, (x, v) => updateElement(x, { shape: v }), 'Outline of the patch'));
+      if (p.text != null && !p.graphicId) content.push(textIn('Lettering', x => x.props.text, (x, v) => updateElement(x, { text: v.slice(0, 6) }), 'Up to 6 characters'));
     }
     if (c.type === 'crest' || c.type === 'graphic' || (c.type === 'patch' && p.graphicId)) {
       const cat = lib?.category || (c.type === 'crest' ? 'crest' : 'graphic');
       const opts = GRAPHIC_LIBRARY.filter(g => g.category === cat);
-      if (opts.length) parts.push(row('Design', bind(h('select', { 'aria-label': 'Design' }, opts.map(g => h('option', { value: g.id }, g.name))), x => x.props.graphicId, (x, v) => updateElement(x, { graphicId: v })), 'Swap for another design from the same group'));
+      if (opts.length) content.push(select('Design', opts.map(g => h('option', { value: g.id }, g.name)), x => x.props.graphicId, (x, v) => updateElement(x, { graphicId: v }), 'Swap for another design from the same group'));
+    }
+    if (c.type === 'logo') {
+      content.push(h('div', { class: 'btns' },
+        btn('Replace image…', 'Upload a picture to use instead of this logo', () => fileIn.click()), fileIn));
+      content.push(colorIn('Tint colour', x => (HEX.test(x.props.tint || '') ? x.props.tint : '#c0392b'), (x, v) => { x.props.tint = v; if (!(x.props.tintAmount > 0)) x.props.tintAmount = 1; }, 'Recolour the logo with this colour'));
+      content.push(rangeIn('Tint strength %', x => Math.round((x.props.tintAmount || 0) * 100), (x, v) => { x.props.tintAmount = v / 100; }, 0, 100, '0 = the logo keeps its own colours'));
+    }
+    if (c.type === 'stripe') {
+      content.push(numIn('Number of stripes', x => x.props.count || 1, (x, v) => updateElement(x, { count: clamp(Math.round(v), 1, 8) }), { min: 1, max: 8 }));
+      content.push(rangeIn('Gap between stripes %', x => Math.round((x.props.gapRatio ?? 0.7) * 100), (x, v) => updateElement(x, { gapRatio: v / 100 }), 0, 200, 'Space between the stripes, as a share of stripe height'));
+      content.push(check('Alternate colours', x => !!x.props.alternate, (x, v) => updateElement(x, { alternate: v }), 'Use the second colour for every other stripe'));
+      content.push(check('Ribbed texture', x => x.props.ribbed !== false, (x, v) => updateElement(x, { ribbed: v }), 'Fine rib lines across the stripes'));
+    }
+    if (c.type === 'piping') {
+      content.push(rangeIn('Thickness', x => x.props.thickness || 8, (x, v) => updateElement(x, { thickness: clamp(v, 2, 40) }), 2, 40, 'How thick the piping is'));
+      content.push(rangeIn('Bend', x => x.props.curve || 0, (x, v) => updateElement(x, { curve: v }), -100, 100, 'Bend the piping. 0 = straight'));
+      content.push(check('Stitch marks', x => x.props.stitch !== false, (x, v) => updateElement(x, { stitch: v }), 'Dashed stitch lines along the piping'));
+    }
+    if (content.length) parts.push(group('Content', content));
+
+    // ---- type (text) and colours
+    const typo = [];
+    if (TEXTY(c)) {
+      typo.push(h('div', { class: 'num2' },
+        numIn('Size', x => Math.round(x.props.size), (x, v) => updateElement(x, { size: clamp(v, 4, 400) }), { min: 4, max: 400, tip: 'Text height (the whole canvas is 1024)' }),
+        numIn('Letter spacing', x => x.props.letterSpacing || 0, (x, v) => updateElement(x, { letterSpacing: clamp(v, -20, 60) }), { min: -20, max: 60, tip: 'Space between letters' })));
+      typo.push(select('Weight', WEIGHTS.map(([w, n]) => h('option', { value: w }, `${n} (${w})`)), x => String(x.props.weight || 700), (x, v) => updateElement(x, { weight: +v }), 'Thickness of the letters'));
+      typo.push(check('Italic', x => !!x.props.italic, (x, v) => updateElement(x, { italic: v }), 'Italic lettering'));
+      typo.push(rangeIn('Arch', x => x.props.curve || 0, (x, v) => updateElement(x, { curve: v }), -100, 100, 'Bend the text into an arch (right) or a smile (left). 0 = straight'));
     }
     const slots = colorSlots(c);
-    for (const s of slots) parts.push(colorIn(s.label, x => slotHex(x, s), (x, v) => updateElement(x, { [s.key]: v }), s.label + ' (click to pick)'));
-    parts.push(h('div', { class: 'num2' },
-      numIn('X', x => Math.round(x.x), (x, v) => { x.x = v; }, { tip: 'Left-right position on the canvas (0 = left edge, 1024 = right edge)' }),
-      numIn('Y', x => Math.round(x.y), (x, v) => { x.y = v; }, { tip: 'Up-down position on the canvas (0 = top, 1024 = bottom)' })));
-    parts.push(h('div', { class: 'num2' },
-      numIn('Scale %', x => Math.round(scalePct(x)), (x, v) => setScalePct(x, v), { min: 2, max: 800, tip: '100 = the size it was added at' }),
-      numIn('Rotation °', x => Math.round(x.rotation), (x, v) => { x.rotation = ((v % 360) + 360) % 360; }, { tip: 'Degrees (0 = upright)' })));
-    parts.push(rangeIn('Opacity %', x => Math.round((x.opacity ?? 1) * 100), (x, v) => { x.opacity = clamp(v, 0, 100) / 100; }, 0, 100, 'See-through amount'));
-    parts.push(h('div', { class: 'btns' },
-      btn(c.locked ? 'Unlock' : 'Lock', c.locked ? 'Allow moving and deleting' : 'Stop it being moved, resized or deleted', x => toggleLock(x)),
-      btn(c.visible === false ? 'Show' : 'Hide', c.visible === false ? 'Show on the design' : 'Hide on the design', x => toggleVisible(x)),
-      btn('Forward', 'Draw over the layer below', x => reorder(x, 'up')),
-      btn('Backward', 'Draw under the layer above', x => reorder(x, 'down')),
-      btn('Duplicate', 'Copy this element (Ctrl/Cmd+D)', x => duplicateElement(x)),
-      btn('Delete', 'Remove this element (Delete key)', x => deleteElement(x), 'btn ghost sm danger')));
+    for (const s of slots) typo.push(colorIn(s.label, x => slotHex(x, s), (x, v) => updateElement(x, { [s.key]: v }), s.label + ' (click to pick)'));
+    if (typo.length) parts.push(group(TEXTY(c) ? 'Type & colour' : 'Colours', typo));
+
+    // ---- outline and shadow
+    if (c.type === 'text' || c.type === 'embroidery') {
+      const edge = [
+        h('div', { class: 'num2' },
+          numIn('Outline width', x => x.props.outline || 0, (x, v) => updateElement(x, { outline: clamp(v, 0, 20) }), { min: 0, max: 20, step: 0.5, tip: '0 = no outline' }),
+          colorIn('Outline colour', x => hexOr(x.props.outlineColor, '#ffffff'), (x, v) => updateElement(x, { outlineColor: v }), 'Colour of the outline')),
+      ];
+      parts.push(group('Outline', edge, !!p.outline));
+    }
+    const shadowRows = [
+      check('Drop shadow', x => !!(x.props.shadow && x.props.shadow.on), (x, v) => setShadow(x, { on: v }), 'Add a shadow behind the item'),
+      h('div', { class: 'num2' },
+        colorIn('Shadow colour', x => hexOr(x.props.shadow?.color, '#000000'), (x, v) => setShadow(x, { color: v }), 'Shadow colour'),
+        rangeIn('Shadow strength %', x => Math.round((x.props.shadow?.alpha ?? 0.45) * 100), (x, v) => setShadow(x, { alpha: v / 100 }), 0, 100, 'How dark the shadow is')),
+      h('div', { class: 'num2' },
+        numIn('Blur', x => x.props.shadow?.blur ?? 8, (x, v) => setShadow(x, { blur: clamp(v, 0, 80) }), { min: 0, max: 80, tip: 'Softness of the shadow (px on the 1024 canvas)' }),
+        numIn('Shadow X', x => x.props.shadow?.x ?? 4, (x, v) => setShadow(x, { x: clamp(v, -120, 120) }), { min: -120, max: 120, tip: 'Shadow offset to the right (negative = left), px' })),
+      numIn('Shadow Y', x => x.props.shadow?.y ?? 4, (x, v) => setShadow(x, { y: clamp(v, -120, 120) }), { min: -120, max: 120, tip: 'Shadow offset down (negative = up), px' }),
+    ];
+    parts.push(group('Shadow', shadowRows, !!(p.shadow && p.shadow.on)));
+
+    // ---- position, size, appearance
+    parts.push(group('Position & size', [
+      h('div', { class: 'num2' },
+        numIn('X', x => Math.round(x.x), (x, v) => { x.x = v; }, { tip: 'Left-right position on the canvas (0 = left edge, 1024 = right edge)' }),
+        numIn('Y', x => Math.round(x.y), (x, v) => { x.y = v; }, { tip: 'Up-down position on the canvas (0 = top, 1024 = bottom)' })),
+      h('div', { class: 'num2' },
+        numIn('Scale %', x => Math.round(scalePct(x)), (x, v) => setScalePct(x, v), { min: 2, max: 800, tip: '100 = the size it was added at' }),
+        numIn('Rotation °', x => Math.round(x.rotation), (x, v) => { x.rotation = ((v % 360) + 360) % 360; }, { tip: 'Degrees (0 = upright)' })),
+      rangeIn('Opacity %', x => Math.round((x.opacity ?? 1) * 100), (x, v) => { x.opacity = clamp(v, 0, 100) / 100; }, 0, 100, 'See-through amount'),
+      h('div', { class: 'row gap' },
+        check('Flip horizontally', x => !!x.flipX, (x, v) => { x.flipX = v; }, 'Mirror left to right'),
+        check('Flip vertically', x => !!x.flipY, (x, v) => { x.flipY = v; }, 'Mirror top to bottom')),
+    ]));
+
+    // ---- layer and copies
+    const others = VIEWS.filter(v => v !== c.view);
+    parts.push(group('Copy & layers', [
+      h('div', { class: 'btns' },
+        btn(c.locked ? 'Unlock' : 'Lock', c.locked ? 'Allow moving and deleting' : 'Stop it being moved, resized or deleted', x => toggleLock(x)),
+        btn(c.visible === false ? 'Show' : 'Hide', c.visible === false ? 'Show on the design' : 'Hide on the design', x => toggleVisible(x)),
+        btn('Forward', 'Draw over the layer below', x => reorder(x, 'up')),
+        btn('Backward', 'Draw under the layer above', x => reorder(x, 'down')),
+        btn('Duplicate', 'Copy this element (Ctrl/Cmd+D)', x => duplicateElement(x)),
+        btn('Delete', 'Remove this element (Delete key)', x => deleteElement(x), 'btn ghost sm danger')),
+      h('div', { class: 'muted small' }, 'Duplicate to other views (same place and look):'),
+      h('div', { class: 'copyrow' },
+        others.map(v => btn('To ' + VIEW_LABELS[v], `Put a copy of this element on the ${VIEW_LABELS[v].toLowerCase()} view`, x => duplicateToViews(x, [v]))),
+        others.length > 1 ? btn('To all other views', 'Put a copy on every other view', x => duplicateToViews(x, others)) : null),
+      h('div', { class: 'btns' }, btn('Reset this item', 'Back to the default look for this type. Keeps its text, graphic and logo, and its position.', x => resetItem(x), 'btn ghost sm danger')),
+    ], false));
     parts.push(h('div', { class: 'muted small' }, 'Drag on the canvas to move. Corner squares resize, the round handle rotates. Arrow keys nudge (Shift = 10 px).'));
     body.replaceChildren(...parts);
   }

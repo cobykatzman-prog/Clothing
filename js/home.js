@@ -1,21 +1,29 @@
-// Home gallery (owner: home/gallery): design grid, search + sort, new-design chooser,
-// open / rename / duplicate / delete. Storage lives in storage.js; the studio is driven by main.js.
+// Home gallery (owner: home/gallery): design grid, search, tag filters, custom order (drag or up/down),
+// new-design chooser, open / rename / tags / duplicate / delete. Storage lives in storage.js; the studio is driven by main.js.
+// Tags and order are stored on the design record (meta.tags, meta.order, and doc.tags for the document).
 import { h, icon, toast } from './util.js';
 import * as store from './storage.js';
 import * as A from './ui-actions.js';
 
-let root, api, qEl, sortEl, countEl, listEl, emptyEl, noteEl;
+const MAX_TAGS = 12, MAX_TAG_LEN = 24;
+let root, api, qEl, sortEl, countEl, listEl, emptyEl, noteEl, chipsEl;
 let metas = [];
+let activeTags = new Set();   // tag filter, lower-case keys (a design must have every selected tag)
+const SORT_KEY = 'threadform.home.sort';   // remembered in this browser only (a convenience, not design data)
+let dragId = null;
 
 export function initHome(el, actions) {
   root = el; api = actions;
-  qEl = h('input', { type: 'search', class: 'home-search', placeholder: 'Search designs', 'aria-label': 'Search designs', oninput: () => render() });
+  qEl = h('input', { type: 'search', class: 'home-search', placeholder: 'Search designs and tags', 'aria-label': 'Search designs', oninput: () => render() });
   sortEl = h('select', { class: 'home-sort', 'aria-label': 'Sort designs', onchange: () => render() },
     h('option', { value: 'edited' }, 'Recently edited'),
     h('option', { value: 'oldest' }, 'Least recently edited'),
     h('option', { value: 'created' }, 'Recently created'),
-    h('option', { value: 'name' }, 'Name A–Z'));
+    h('option', { value: 'name' }, 'Name A–Z'),
+    h('option', { value: 'custom' }, 'Custom order'));
+  try { const saved = localStorage.getItem(SORT_KEY); if (saved && [...sortEl.options].some(o => o.value === saved)) sortEl.value = saved; } catch { }
   countEl = h('span', { class: 'muted small' });
+  chipsEl = h('div', { class: 'tag-filters', role: 'group', 'aria-label': 'Filter by tag' });
   listEl = h('div', { class: 'home-grid', role: 'list' });
   noteEl = h('p', { class: 'home-note small muted' });
   emptyEl = h('div', { class: 'home-empty', hidden: true },
@@ -31,7 +39,7 @@ export function initHome(el, actions) {
       h('div', { class: 'home-tools' },
         h('div', {}, h('h1', {}, 'Your designs'), countEl),
         h('div', { class: 'home-filters' }, qEl, sortEl)),
-      listEl, emptyEl, noteEl));
+      chipsEl, listEl, emptyEl, noteEl));
 }
 
 /** Reloads the list from storage and shows it. */
@@ -53,37 +61,101 @@ const ago = t => {
   return new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
+const tagsOf = m => (Array.isArray(m.tags) ? m.tags : []);
+const byName = (a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+/** Custom order: designs with an order first (lowest first), then the rest, newest first. */
+function customSorted(list) {
+  return list.slice().sort((a, b) => {
+    const ao = a.order ?? -Infinity, bo = b.order ?? -Infinity;
+    if (ao !== bo) return ao < bo ? -1 : 1;
+    return (b.createdAt || 0) - (a.createdAt || 0);
+  });
+}
+const sorters = {
+  edited: (a, b) => b.updatedAt - a.updatedAt,
+  oldest: (a, b) => a.updatedAt - b.updatedAt,
+  created: (a, b) => b.createdAt - a.createdAt,
+  name: byName,
+  custom: null,
+};
+
+/** Every tag in use (case-insensitive: the first spelling wins) with how many designs have it, most used first. */
+function allTags() {
+  const count = new Map();
+  for (const m of metas) for (const t of tagsOf(m)) {
+    const k = t.toLowerCase(), e = count.get(k) || { name: t, key: k, n: 0 };
+    e.n++; count.set(k, e);
+  }
+  return [...count.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
+}
+const hasTag = (m, key) => tagsOf(m).some(t => t.toLowerCase() === key);
+
+function renderChips() {
+  const tags = allTags();
+  for (const k of [...activeTags]) if (!tags.some(x => x.key === k)) activeTags.delete(k);
+  chipsEl.hidden = tags.length === 0;
+  chipsEl.replaceChildren(...tags.map(({ name, key, n }) => h('button', {
+    class: 'tchip', 'aria-pressed': String(activeTags.has(key)),
+    onclick: () => { activeTags.has(key) ? activeTags.delete(key) : activeTags.add(key); render(); },
+  }, name, h('span', { class: 'tcount' }, String(n)))));
+  if (activeTags.size) chipsEl.append(h('button', { class: 'tchip clear', onclick: () => { activeTags.clear(); render(); } }, 'Clear tags'));
+}
+
 function render() {
   const q = qEl.value.trim().toLowerCase();
-  const sorters = {
-    edited: (a, b) => b.updatedAt - a.updatedAt,
-    oldest: (a, b) => a.updatedAt - b.updatedAt,
-    created: (a, b) => b.createdAt - a.createdAt,
-    name: (a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }),
-  };
-  const list = metas.filter(m => !q || (m.name || '').toLowerCase().includes(q)).sort(sorters[sortEl.value] || sorters.edited);
+  renderChips();
+  const sortKey = sortEl.value;
+  try { localStorage.setItem(SORT_KEY, sortKey); } catch { }
+  const base = sortKey === 'custom' ? customSorted(metas) : metas.slice().sort(sorters[sortKey] || sorters.edited);
+  const list = base.filter(m => (!q || (m.name || '').toLowerCase().includes(q) || tagsOf(m).some(t => t.toLowerCase().includes(q)))
+    && [...activeTags].every(k => hasTag(m, k)));
   countEl.textContent = metas.length ? `${metas.length} design${metas.length === 1 ? '' : 's'}` : '';
   emptyEl.hidden = metas.length > 0;
   listEl.hidden = metas.length === 0;
   if (!metas.length) { listEl.replaceChildren(); return; }
-  listEl.replaceChildren(...(list.length ? list.map(card) : [h('p', { class: 'home-nomatch' }, 'No designs match “' + qEl.value.trim() + '”.')]));
+  const canDrag = !q && activeTags.size === 0;
+  listEl.replaceChildren(...(list.length ? list.map(m => card(m, base, canDrag)) : [h('p', { class: 'home-nomatch' }, 'No designs match' + (q ? ' “' + qEl.value.trim() + '”' : '') + (activeTags.size ? ' with those tags' : '') + '.')]));
 }
 
-function card(m) {
+function card(m, orderList, canDrag) {
   const thumb = m.thumb
     ? h('img', { src: m.thumb, alt: '', loading: 'lazy', decoding: 'async' })
     : h('div', { class: 'dthumb-empty' }, icon('layers', 30), h('span', {}, 'No artwork yet'));
   const views = m.views || 0;
-  return h('article', { class: 'dcard', role: 'listitem' },
+  const tags = tagsOf(m);
+  const pos = orderList.findIndex(x => x.id === m.id);
+  const art = h('article', {
+    class: 'dcard', role: 'listitem', 'data-id': m.id,
+    draggable: canDrag ? 'true' : null,
+    ondragstart: e => { dragId = m.id; e.dataTransfer && (e.dataTransfer.setData('text/plain', m.id), e.dataTransfer.effectAllowed = 'move'); art.classList.add('dragging'); },
+    ondragend: () => { dragId = null; document.querySelectorAll('.dcard.dragging,.dcard.drop-before,.dcard.drop-after').forEach(x => x.classList.remove('dragging', 'drop-before', 'drop-after')); },
+    ondragover: e => {
+      if (!dragId || dragId === m.id || !canDrag) return;
+      e.preventDefault(); const b = art.getBoundingClientRect(); const before = e.clientX < b.left + b.width / 2;
+      art.classList.toggle('drop-before', before); art.classList.toggle('drop-after', !before);
+    },
+    ondragleave: () => art.classList.remove('drop-before', 'drop-after'),
+    ondrop: e => {
+      e.preventDefault(); art.classList.remove('drop-before', 'drop-after');
+      const b = art.getBoundingClientRect(); const after = e.clientX >= b.left + b.width / 2;
+      const from = dragId; dragId = null;
+      if (from && from !== m.id) moveTo(from, m.id, after);
+    },
+  },
     h('button', { class: 'dcard-open', onclick: () => api.open(m.id), 'aria-label': `Open ${m.name}` },
       h('div', { class: 'dthumb' }, thumb),
       h('div', { class: 'dinfo' },
         h('div', { class: 'dname' }, m.name || 'Untitled design'),
-        h('div', { class: 'dmeta' }, `Edited ${ago(m.updatedAt)} · ${views} ${views === 1 ? 'view' : 'views'} · ${m.engine || 'Local engine (offline)'}`))),
+        h('div', { class: 'dmeta' }, `Edited ${ago(m.updatedAt)} · ${views} ${views === 1 ? 'view' : 'views'} · ${m.engine || 'Local engine (offline)'}`),
+        tags.length ? h('div', { class: 'dtags' }, tags.map(t => h('span', { class: 'dtag' }, t))) : null)),
     h('div', { class: 'dactions' },
+      h('button', { class: 'btn ghost sm mv', 'aria-label': `Move ${m.name} up`, tip: 'Move up', disabled: pos <= 0, onclick: () => move(m, -1) }, '▲'),
+      h('button', { class: 'btn ghost sm mv', 'aria-label': `Move ${m.name} down`, tip: 'Move down', disabled: pos < 0 || pos >= orderList.length - 1, onclick: () => move(m, 1) }, '▼'),
       h('button', { class: 'btn ghost sm', onclick: () => rename(m) }, 'Rename'),
+      h('button', { class: 'btn ghost sm', onclick: () => editTags(m) }, 'Tags'),
       h('button', { class: 'btn ghost sm', onclick: () => duplicate(m) }, 'Duplicate'),
       h('button', { class: 'btn ghost sm danger-txt', onclick: () => remove(m) }, icon('trash', 14), 'Delete')));
+  return art;
 }
 
 async function guarded(fn) {
@@ -92,6 +164,39 @@ async function guarded(fn) {
   await refreshHome();
 }
 
+/* ------------------------------------------------------------------ order */
+/** Writes order = position for every design whose order changed. `ordered` is the full list in its new order. */
+async function persistOrder(ordered) {
+  const changed = ordered.map((m, i) => [m, i]).filter(([m, i]) => m.order !== i);
+  for (const [m, i] of changed) { await store.patchDesign(m.id, { meta: { order: i } }); m.order = i; }
+  return changed.length;
+}
+/** Moves one design up (-1) or down (+1) in the custom order. */
+function move(m, dir) {
+  return guarded(async () => {
+    const ordered = customSorted(metas);
+    const i = ordered.findIndex(x => x.id === m.id), j = i + dir;
+    if (i < 0 || j < 0 || j >= ordered.length) return;
+    [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
+    sortEl.value = 'custom';
+    await persistOrder(ordered);
+  });
+}
+/** Drag and drop: puts design `fromId` just before (or after) design `toId`. */
+function moveTo(fromId, toId, after) {
+  return guarded(async () => {
+    const ordered = customSorted(metas);
+    const from = ordered.find(x => x.id === fromId); if (!from) return;
+    const rest = ordered.filter(x => x.id !== fromId);
+    let at = rest.findIndex(x => x.id === toId); if (at < 0) return;
+    if (after) at += 1;
+    rest.splice(at, 0, from);
+    sortEl.value = 'custom';
+    await persistOrder(rest);
+  });
+}
+
+/* ------------------------------------------------------------------ actions */
 function rename(m) {
   return guarded(async () => {
     const name = await ask({ title: 'Rename design', label: 'Design name', value: m.name, ok: 'Rename' });
@@ -104,6 +209,28 @@ function rename(m) {
   });
 }
 
+/** Comma-separated text -> clean tag list: trimmed, no empties, no duplicates (any case), limited in count and length. */
+export function parseTags(text) {
+  const out = [], seen = new Set();
+  for (const raw of String(text || '').split(',')) {
+    const t = raw.replace(/\s+/g, ' ').trim().slice(0, MAX_TAG_LEN);
+    if (!t || seen.has(t.toLowerCase())) continue;
+    seen.add(t.toLowerCase()); out.push(t);
+    if (out.length >= MAX_TAGS) break;
+  }
+  return out;
+}
+
+function editTags(m) {
+  return guarded(async () => {
+    const text = await ask({ title: 'Tags', label: 'Tags, separated by commas', value: tagsOf(m).join(', '), ok: 'Save tags', allowEmpty: true, hint: 'For example: summer, client A, draft' });
+    if (text === null) return;
+    const tags = parseTags(text);
+    await store.patchDesign(m.id, { meta: { tags }, doc: { tags } });
+    toast(tags.length ? 'Tags saved.' : 'Tags removed.', 'ok');
+  });
+}
+
 function duplicate(m) {
   return guarded(async () => {
     const rec = await store.getDesign(m.id);
@@ -111,10 +238,16 @@ function duplicate(m) {
     const now = Date.now(), id = store.newId(), name = (m.name || 'Untitled design') + ' copy';
     await store.putDesign({
       id,
-      meta: { ...rec.meta, id, name, createdAt: now, updatedAt: now },
+      meta: { ...rec.meta, id, name, createdAt: now, updatedAt: now, order: undefined },
       doc: { ...rec.doc, name, createdAt: now, updatedAt: now },
       assets: rec.assets,
     });
+    // the copy goes right after the original in the custom order
+    const ordered = customSorted(metas).filter(x => x.id !== id);
+    const at = ordered.findIndex(x => x.id === m.id);
+    const copy = { ...rec.meta, id, order: undefined, createdAt: now };
+    ordered.splice(at + 1, 0, copy);
+    await persistOrder(ordered);
     toast('Duplicated “' + m.name + '”.', 'ok');
   });
 }
@@ -142,18 +275,18 @@ function makeDialog(cls) {
 }
 
 /** Text prompt (value = string) or confirmation (value = true). Resolves null on cancel. */
-function ask({ title, text = '', label = '', value = null, ok = 'OK', danger = false }) {
+function ask({ title, text = '', label = '', value = null, ok = 'OK', danger = false, allowEmpty = false, hint = '' }) {
   return new Promise(resolve => {
     const dlg = makeDialog('ask');
-    const input = value == null ? null : h('input', { type: 'text', value, maxlength: 80, 'aria-label': label, required: true });
+    const input = value == null ? null : h('input', { type: 'text', value, maxlength: allowEmpty ? 400 : 80, 'aria-label': label, required: !allowEmpty });
     const form = h('form', { method: 'dialog', class: 'dlg-body' },
       h('h2', {}, title),
       text ? h('p', { class: 'muted' }, text) : null,
-      input ? h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, label), input) : null,
+      input ? h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, label), input, hint ? h('span', { class: 'muted small' }, hint) : null) : null,
       h('div', { class: 'dlg-actions' },
         h('button', { type: 'button', class: 'btn ghost', onclick: () => dlg.close('') }, 'Cancel'),
         h('button', { type: 'submit', class: danger ? 'btn danger' : 'btn primary', value: 'ok' }, ok)));
-    form.addEventListener('submit', e => { if (input && !input.value.trim()) { e.preventDefault(); input.focus(); } });
+    form.addEventListener('submit', e => { if (input && !allowEmpty && !input.value.trim()) { e.preventDefault(); input.focus(); } });
     dlg.append(form);
     dlg.addEventListener('close', () => {
       const ok = dlg.returnValue === 'ok';

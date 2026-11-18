@@ -4,6 +4,7 @@ import { h, icon } from './util.js';
 import * as A from './ui-actions.js';
 import { createStage } from './canvas.js';
 import { stageHint } from './manual.js';
+import { viewTools } from './ui-look.js';
 
 export function initStage(root) {
   const S = state;
@@ -43,7 +44,7 @@ export function initStage(root) {
   // short, context-sensitive hint over the canvas (what the current tool / selection can do)
   const hintEl = h('div', { class: 'stage-hint', id: 'stage-hint', role: 'status', style: { position: 'absolute', left: '12px', bottom: '10px', maxWidth: 'calc(100% - 24px)', pointerEvents: 'none', background: 'rgba(255,255,255,.9)', color: '#4b4b55', fontSize: '12px', padding: '6px 10px', borderRadius: '8px', boxShadow: '0 1px 4px rgba(0,0,0,.08)' }, hidden: true });
   wrap.append(hintEl);
-  root.append(h('div', { class: 'stage-top' }, tabs, tools), wrap);
+  root.append(h('div', { class: 'stage-top' }, tabs, tools), h('div', { class: 'stage-look', style: { padding: '0 16px 6px' } }, viewTools()), wrap);
   stage = createStage(cv, wrap);
   window.__stage = stage;
 

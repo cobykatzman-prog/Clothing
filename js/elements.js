@@ -652,8 +652,14 @@ function innerSVG(el) {
 }
 /** Editable SVG fragment: one <g> per element, positioned with translate/rotate. */
 export function elementsToSVG(elements, view, size = SIZE, opts = {}) {
-  const body = (elements || []).filter(e => inView(e, view)).map(el =>
-    `<g id="${el.id}" data-type="${el.type}" data-name="${xmlEsc(el.name || el.type)}" transform="translate(${el.x.toFixed(2)} ${el.y.toFixed(2)}) rotate(${el.rotation.toFixed(2)})"${el.opacity != null && el.opacity < 1 ? ` opacity="${el.opacity}"` : ''}>${innerSVG(el)}</g>`).join('\n');
+  const body = (elements || []).filter(e => inView(e, view)).map(el => {
+    const sh = el.props.shadow && el.props.shadow.on ? el.props.shadow : null, fid = 'ds_' + el.id;
+    const defs = sh ? `<defs><filter id="${fid}" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="${sh.x || 0}" dy="${sh.y || 0}" stdDeviation="${((sh.blur || 0) / 2).toFixed(2)}" flood-color="${sh.color || '#000000'}" flood-opacity="${sh.alpha ?? 0.45}"/></filter></defs>` : '';
+    let inner = innerSVG(el);
+    if (el.flipX || el.flipY) inner = `<g transform="scale(${el.flipX ? -1 : 1} ${el.flipY ? -1 : 1})">${inner}</g>`;
+    if (sh) inner = `<g filter="url(#${fid})">${inner}</g>`;
+    return `<g id="${el.id}" data-type="${el.type}" data-name="${xmlEsc(el.name || el.type)}" transform="translate(${el.x.toFixed(2)} ${el.y.toFixed(2)}) rotate(${el.rotation.toFixed(2)})"${el.opacity != null && el.opacity < 1 ? ` opacity="${el.opacity}"` : ''}>${defs}${inner}</g>`;
+  }).join('\n');
   if (opts.fragment) return body;
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${size}" height="${size}" viewBox="0 0 ${SIZE} ${SIZE}">\n${body}\n</svg>`;
 }

@@ -3,6 +3,7 @@ import { state, VIEWS, VIEW_LABELS, activeView, subscribe, notify, markFlow, pus
 import { h, icon, toast, makeCanvas, SIZE, canvasToBlob } from './util.js';
 import * as A from './ui-actions.js';
 import { exportPNG, exportSVG, exportDesignSheet, download } from './export.js';
+import { openExportDialog } from './export-dialog.js';
 
 const slug = () => (state.name || 'design').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'design';
 const ago = t => { const s = (Date.now() - t) / 1000; return s < 60 ? 'just now' : s < 3600 ? Math.floor(s / 60) + ' min ago' : Math.floor(s / 3600) + ' h ago'; };
@@ -35,6 +36,7 @@ export function initBottom(root) {
     download(await canvasToBlob(c), `${slug()}-front-back.png`);
   }
   menu.append(
+    h('button', { class: 'menu-item', role: 'menuitem', id: 'btn-custom-export', onclick: () => { menu.hidden = true; openExportDialog(); } }, h('b', {}, 'Custom export…'), h('span', {}, 'Format, size, background, elements and design-sheet options')),
     item('PNG', '1024 px, white background', png(1, false, '')),
     item('High-res PNG 2×', '2048 px', png(2, false, '@2x')),
     item('High-res PNG 4×', '4096 px, for print', png(4, false, '@4x')),

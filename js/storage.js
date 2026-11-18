@@ -85,28 +85,62 @@ export async function getDesign(id) {
   } catch (e) { throw new StorageError('Could not read that design.', { cause: e }); }
 }
 
+/**
+ * Home-page fields (tags, order) survive saves that do not carry them: the studio's autosave writes the whole
+ * record without them, so they are copied over from the stored meta.
+ */
+async function withKeptMeta(rec, m, db) {
+  const meta = { ...rec.meta };
+  if (meta.tags !== undefined && meta.order !== undefined) return meta;
+  let prev = null;
+  try {
+    if (m === 'indexeddb') prev = await reqP(db.transaction(STORE_META).objectStore(STORE_META).get(rec.id));
+    else if (m === 'localstorage') prev = lsIndex().find(x => x.id === rec.id);
+    else prev = memory.get(rec.id)?.meta;
+  } catch { prev = null; }
+  if (meta.tags === undefined && prev?.tags) meta.tags = prev.tags;
+  if (meta.order === undefined && prev?.order !== undefined) meta.order = prev.order;
+  return meta;
+}
+
 /** Creates or replaces a record. Throws StorageError (quota: true when the browser is full). */
 export async function putDesign(rec) {
   const m = await initStorage();
   try {
     if (m === 'indexeddb') {
       const db = await openDB();
+      const meta = await withKeptMeta(rec, m, db);
       const tx = db.transaction([STORE_FULL, STORE_META], 'readwrite');
-      tx.objectStore(STORE_FULL).put(rec);
-      tx.objectStore(STORE_META).put(rec.meta);
+      tx.objectStore(STORE_FULL).put({ ...rec, meta });
+      tx.objectStore(STORE_META).put(meta);
       await txDone(tx);
     } else if (m === 'localstorage') {
-      const body = JSON.stringify({ ...rec, assets: await assetsToStrings(rec.assets) });
+      const meta = await withKeptMeta(rec, m);
+      const body = JSON.stringify({ ...rec, meta, assets: await assetsToStrings(rec.assets) });
       localStorage.setItem(LS_PREFIX + rec.id, body);
-      const idx = lsIndex().filter(x => x.id !== rec.id); idx.push(rec.meta);
+      const idx = lsIndex().filter(x => x.id !== rec.id); idx.push(meta);
       localStorage.setItem(LS_INDEX, JSON.stringify(idx));
     } else {
-      memory.set(rec.id, rec);
+      const meta = await withKeptMeta(rec, m);
+      memory.set(rec.id, { ...rec, meta });
     }
   } catch (e) {
     const quota = isQuotaError(e);
     throw new StorageError(quota ? 'Storage is full.' : 'Could not save the design.', { quota, cause: e });
   }
+}
+
+/**
+ * Changes home-page fields of a stored design: `meta` is merged into the meta and `doc` into the saved document.
+ * Reads the whole record first so the artwork is not touched. Throws StorageError.
+ */
+export async function patchDesign(id, { meta = {}, doc = {} } = {}) {
+  const rec = await getDesign(id);
+  if (!rec) throw new StorageError('That design no longer exists.');
+  rec.meta = { ...rec.meta, ...meta };
+  rec.doc = { ...(rec.doc || {}), ...doc };
+  await putDesign(rec);
+  return rec.meta;
 }
 
 export async function deleteDesign(id) {

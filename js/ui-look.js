@@ -130,8 +130,8 @@ export function presetBlock() {
   const el = h('div', { class: 'stack-col' },
     h('div', { class: 'lbl' }, 'Fit'), h('div', { class: 'chips' }, fitChips),
     h('div', { class: 'lbl' }, 'Sleeves'), h('div', { class: 'chips' }, slvChips),
-    h('div', { class: 'lk-status', 'aria-live': 'polite' }, line('fit'), line('sleeve'),
-      h('span', { class: 'lk-note' }, 'A preset is a starting point. Moving a slider afterwards is allowed and the preset shows “adjusted”.')));
+    h('div', { class: 'lk-status', 'aria-live': 'polite' }, line('fit'), line('sleeve')),
+    h('div', { class: 'lk-note' }, 'A preset is a starting point. You can move any slider afterwards; the preset then shows as adjusted.'));
   const chipsAll = [...fitChips, ...slvChips];
   return {
     el,

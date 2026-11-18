@@ -43,6 +43,10 @@ export async function recompute(name = state.activeView) {
       canvas = await applyFabric(canvas === V.base ? cloneCanvas(canvas) : canvas, lim, V.fabric.name, V.fabric.amount);
       if (tok !== V.job) return;
     }
+    if (V.fabric.tint && V.fabric.tintAmount > 0) {   // fabric tint (ui-look.js), separate from the whole-garment colour
+      canvas = applyColor(canvas === V.base ? cloneCanvas(canvas) : canvas, lim, { tint: V.fabric.tint, tintAmount: V.fabric.tintAmount });
+      if (tok !== V.job) return;
+    }
     if (colorActive(V.color)) {
       canvas = await applyColor(canvas === V.base ? cloneCanvas(canvas) : canvas, lim, V.color);
       if (tok !== V.job) return;
@@ -69,22 +73,25 @@ export function setParam(key, val) {
   activeView().params[key] = val; markFlow('refined'); notify('params'); scheduleRecompute();
 }
 export function resetParams() {
-  snapshot(); const V = activeView(); V.params = { ...DEFAULT_PARAMS }; notify('params'); recompute();
+  snapshot(); const V = activeView(); V.params = { ...DEFAULT_PARAMS }; V.presets = { fit: null, sleeve: null }; notify('params'); recompute();
 }
 export function applyFit(name) {
   snapshot(); const V = activeView();
-  V.params = { ...DEFAULT_PARAMS, ...FIT_PRESETS[name] }; markFlow('refined'); notify('params'); recompute();
+  V.params = { ...DEFAULT_PARAMS, ...FIT_PRESETS[name] }; V.presets = { fit: name, sleeve: null }; markFlow('refined'); notify('params'); recompute();
 }
 export function applySleeve(name) {
   snapshot(); const V = activeView();
   const keys = ['sleeveLength', 'sleeveWidth', 'sleeveFlare', 'sleeveShape'];
   for (const k of keys) V.params[k] = 0;
-  Object.assign(V.params, SLEEVE_PRESETS[name]); markFlow('refined'); notify('params'); recompute();
+  Object.assign(V.params, SLEEVE_PRESETS[name]); V.presets = { ...(V.presets || {}), sleeve: name }; markFlow('refined'); notify('params'); recompute();
 }
 export function setColor(patch) { beginEdit(); Object.assign(activeView().color, patch); markFlow('refined'); notify('color'); scheduleRecompute(); }
 export function setFabric(name, amount) {
   beginEdit(); const V = activeView(); V.fabric.name = name; if (amount != null) V.fabric.amount = amount;
   markFlow('refined'); notify('color'); scheduleRecompute();
+}
+export function setFabricTint(patch) {
+  beginEdit(); Object.assign(activeView().fabric, patch); markFlow('refined'); notify('color'); scheduleRecompute();
 }
 
 // ---------- loading ----------
@@ -94,7 +101,7 @@ async function installBase(name, canvas, { sample = null, keepSeg = null, label 
   V.job++;
   V.original = canvas; V.base = canvas; V.baseSeg = seg; V.current = canvas; V.seg = seg;
   V.params = { ...DEFAULT_PARAMS }; V.color = newColor(); V.fabric = { name: null, amount: 0.6 };
-  V.regionSel = []; V.sample = sample; V.parts = {};
+  V.regionSel = []; V.sample = sample; V.parts = {}; V.presets = { fit: null, sleeve: null };
   const x = V.mask.getContext('2d'); x.clearRect(0, 0, SIZE, SIZE); touchMask(V);
 }
 export async function loadFile(file, viewName = state.activeView) {
@@ -151,6 +158,7 @@ export async function removeBg() {
 let generating = false;
 const applyGarmentLook = (V, spec) => {
   V.params = { ...DEFAULT_PARAMS, ...(FIT_PRESETS[spec.fit] || {}), ...(SLEEVE_PRESETS[spec.sleeve] || {}) };
+  V.presets = { fit: FIT_PRESETS[spec.fit] ? spec.fit : null, sleeve: SLEEVE_PRESETS[spec.sleeve] ? spec.sleeve : null };
   V.fabric = spec.fabric ? { name: spec.fabric.name, amount: spec.fabric.amount } : { name: null, amount: 0.6 };
 };
 export async function generateFromPrompt(text, { defaultKind = 'tee' } = {}) {
@@ -311,7 +319,7 @@ async function bake(canvas, seg, label) {
   const s = seg || await segmentGarment(canvas);
   V.job++;
   V.base = canvas; V.baseSeg = s; V.current = canvas; V.seg = s;
-  V.params = { ...DEFAULT_PARAMS }; V.color = newColor(); V.fabric = { name: null, amount: 0.6 }; V.parts = {};
+  V.params = { ...DEFAULT_PARAMS }; V.color = newColor(); V.fabric = { name: null, amount: 0.6 }; V.parts = {}; V.presets = { fit: null, sleeve: null };
   pushVersion(label);
 }
 export async function acceptVariation(i) {

@@ -19,6 +19,7 @@ export function newView() {
     mask: makeCanvas(),
     maskRev: 0, _maskCache: null,
     params: { ...DEFAULT_PARAMS },
+    presets: { fit: null, sleeve: null },   // preset that started the shape (ui-look.js)
     color: newColor(),
     parts: {},        // per-garment-part colour {[region]: {color, hue, sat, light}} (manual.js)
     fabric: { name: null, amount: 0.6 },
@@ -31,6 +32,7 @@ export function newView() {
 const subs = new Set();
 export const state = {
   name: 'Untitled design',
+  tags: [],              // home-page tags of this design (saved in the design document, see serializeDesign)
   views: Object.fromEntries(VIEWS.map(v => [v, newView()])),
   activeView: 'front',
   get params() { return this.views[this.activeView].params; },
@@ -70,7 +72,7 @@ export function capture() {
     const v = state.views[n];
     views[n] = {
       original: v.original, base: v.base, baseSeg: v.baseSeg, current: v.current, seg: v.seg,
-      mask: maskClone(v), params: { ...v.params }, color: { ...v.color }, fabric: { ...v.fabric },
+      mask: maskClone(v), params: { ...v.params }, presets: { ...(v.presets || {}) }, color: { ...v.color }, fabric: { ...v.fabric },
       regionSel: [...v.regionSel], sample: v.sample, parts: { ...v.parts },
     };
   }
@@ -81,7 +83,7 @@ function apply(s) {
     const v = state.views[n], d = s.views[n];
     v.job++; // cancel pending recomputes
     Object.assign(v, { original: d.original, base: d.base, baseSeg: d.baseSeg, current: d.current, seg: d.seg,
-      params: { ...d.params }, color: { ...d.color }, fabric: { ...d.fabric }, regionSel: [...d.regionSel], sample: d.sample, parts: { ...d.parts } });
+      params: { ...d.params }, presets: { ...(d.presets || {}) }, color: { ...d.color }, fabric: { ...d.fabric }, regionSel: [...d.regionSel], sample: d.sample, parts: { ...d.parts } });
     const x = v.mask.getContext('2d'); x.clearRect(0, 0, v.mask.width, v.mask.height); x.drawImage(d.mask, 0, 0);
     v.maskRev++; v._maskCache = { rev: v.maskRev, canvas: d.mask };
   }
@@ -165,7 +167,7 @@ function viewDoc(v, ref) {
     original: ref(v.original), base: ref(v.base), current: ref(v.current),
     sameBase: !!v.base && v.current === v.base,
     mask: v.mask && !maskIsEmpty(v.mask) ? ref(v.mask) : null,
-    params: { ...v.params }, color: { ...v.color }, fabric: { ...v.fabric }, parts: JSON.parse(JSON.stringify(v.parts || {})),
+    params: { ...v.params }, presets: { ...(v.presets || {}) }, color: { ...v.color }, fabric: { ...v.fabric }, parts: JSON.parse(JSON.stringify(v.parts || {})),
     regionSel: [...(v.regionSel || [])], sample: v.sample ? JSON.parse(JSON.stringify(v.sample)) : null,
   };
 }
@@ -190,7 +192,7 @@ function remapRaw(raw, R) {
 export async function serializeDesign() {
   const R = makeRefs();
   const doc = {
-    v: 1, name: state.name, activeView: state.activeView,
+    v: 1, name: state.name, activeView: state.activeView, tags: [...(state.tags || [])],
     views: Object.fromEntries(VIEWS.map(n => [n, viewDoc(state.views[n], R.canvas)])),
     elements: state.elements.map(elDoc),
     references: state.references.filter(Boolean).map(R.canvas),
@@ -224,7 +226,7 @@ function assetLoader(assets = {}) {
 }
 const blankView = () => ({
   original: null, base: null, baseSeg: null, current: null, seg: null, mask: makeCanvas(),
-  maskRev: 0, _maskCache: null, params: { ...DEFAULT_PARAMS }, color: newColor(), parts: {},
+  maskRev: 0, _maskCache: null, params: { ...DEFAULT_PARAMS }, presets: { fit: null, sleeve: null }, color: newColor(), parts: {},
   fabric: { name: null, amount: 0.6 }, regionSel: [], sample: null, job: 0,
 });
 async function hydrateView(vd, load) {
@@ -234,7 +236,7 @@ async function hydrateView(vd, load) {
   Object.assign(f, {
     original, base, current: vd.sameBase ? base : (current || base), mask: mask || makeCanvas(),
     params: { ...DEFAULT_PARAMS, ...(vd.params || {}) }, color: { ...newColor(), ...(vd.color || {}) },
-    parts: { ...(vd.parts || {}) }, fabric: { ...f.fabric, ...(vd.fabric || {}) }, regionSel: [...(vd.regionSel || [])], sample: vd.sample || null,
+    presets: { ...f.presets, ...(vd.presets || {}) }, parts: { ...(vd.parts || {}) }, fabric: { ...f.fabric, ...(vd.fabric || {}) }, regionSel: [...(vd.regionSel || [])], sample: vd.sample || null,
   });
   return f;
 }
@@ -270,6 +272,7 @@ export async function hydrateDesign(doc = {}, assets = {}) {
     Object.assign(state.views[n], views[n], { job });
   }
   state.name = doc.name || 'Untitled design';
+  state.tags = Array.isArray(doc.tags) ? doc.tags.filter(t => typeof t === 'string') : [];
   state.activeView = VIEWS.includes(doc.activeView) ? doc.activeView : 'front';
   state.selectedId = null;
   state.elements = (doc.elements || []).map(o => ElementLayer.fromJSON(o));

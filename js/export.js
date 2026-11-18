@@ -1,29 +1,45 @@
-// Threadform - exports: PNG (hi-res), editable SVG, design sheet, per-view images, download helper.
+// Threadform - exports: PNG (any scale, any background), editable SVG, design sheet, per-view images, download helper.
+// Every function takes plain options so the export dialog (export-dialog.js) and the quick menu share one code path.
 import { drawElements, elementsToSVG, elementsReady } from './elements.js';
 
 const SIZE = 1024;
-const mk = (w, h) => { const c = document.createElement('canvas'); c.width = Math.round(w); c.height = Math.round(h); return c; };
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; };
 const toBlob = (c, type = 'image/png', q) => new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), type, q));
 const asCanvas = v => (v && (v.current || v.canvas)) || v || null;
 
-function compose(base, elements, view, scale, transparent) {
-  const out = mk(SIZE * scale, SIZE * scale); const ctx = out.getContext('2d');
-  if (!transparent) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, out.width, out.height); }
+/**
+ * Garment + elements on one canvas. outScale: output size = SIZE * outScale. rasterRes: resolution the elements are
+ * rasterised at (the export scale, or 1 for previews so the element cache is not thrashed).
+ * background: 'transparent' | '#rrggbb'.
+ */
+export function compose(base, elements, view, outScale = 1, background = 'transparent', rasterRes = outScale) {
+  const out = mk(SIZE * outScale, SIZE * outScale); const ctx = out.getContext('2d');
+  if (background && background !== 'transparent') { ctx.fillStyle = background; ctx.fillRect(0, 0, out.width, out.height); }
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
   if (base) ctx.drawImage(base, 0, 0, out.width, out.height);
-  ctx.save(); ctx.scale(scale, scale);
-  drawElements(ctx, elements || [], view, { handles: false, res: scale });
+  ctx.save(); ctx.scale(outScale, outScale);
+  drawElements(ctx, elements || [], view, { handles: false, res: rasterRes });
   ctx.restore();
   return out;
 }
-
-/** PNG of garment + elements. scale 1|2|4 (1024/2048/4096px). */
-export async function exportPNG({ baseCanvas, elements = [], view = 'front', scale = 1, transparent = true } = {}) {
-  await elementsReady(elements);
-  return toBlob(compose(asCanvas(baseCanvas), elements, view, scale, transparent));
+/** Background option -> canvas value. Old callers passed transparent:true/false. */
+export function backgroundOf({ background, transparent } = {}) {
+  if (background) return background;
+  return transparent === false ? '#ffffff' : 'transparent';
 }
 
-/** Editable SVG: <g id="design-elements"> (vector) over <g id="garment-bitmap"> (embedded PNG, optional baseCanvas). */
+/** PNG of garment + elements. scale: any number 0.25..4 (1 = 1024 px). */
+export async function exportPNG({ baseCanvas, elements = [], view = 'front', scale = 1, transparent, background } = {}) {
+  await elementsReady(elements);
+  return toBlob(compose(asCanvas(baseCanvas), elements, view, scale, backgroundOf({ background, transparent })));
+}
+
+/** Small preview of what exportPNG draws (cheap: no element re-rasterising at export resolution). */
+export function previewCanvas({ baseCanvas, elements = [], view = 'front', background, size = 240 } = {}) {
+  return compose(asCanvas(baseCanvas), elements, view, size / SIZE, backgroundOf({ background }), 1);
+}
+
+/** Editable SVG: <g id="design-elements"> (vector) over an optional <g id="garment-bitmap"> (embedded PNG). */
 export function exportSVG({ elements = [], view = 'front', baseCanvas = null, size = SIZE, title = 'Threadform design' } = {}) {
   const base = asCanvas(baseCanvas);
   let img = '';
@@ -32,12 +48,12 @@ export function exportSVG({ elements = [], view = 'front', baseCanvas = null, si
   return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${size}" height="${size}" viewBox="0 0 ${SIZE} ${SIZE}">\n<title>${title.replace(/[<&]/g, '')}</title>\n${img}<g id="design-elements">\n${frag}\n</g>\n</svg>\n`;
 }
 
-/** One blob per view -> [{view, name, blob}] (no zip). views: {front:canvas|{current}, back:...}. */
-export async function exportViewImages({ views, elements = [], scale = 1, transparent = true, only = ['front', 'back'], name = 'threadform' } = {}) {
+/** One PNG per view -> [{view, name, blob}] (no zip). views: {front: canvas|{current}, back: ...}. */
+export async function exportViewImages({ views, elements = [], scale = 1, transparent, background, only = ['front', 'back'], name = 'threadform' } = {}) {
   const out = [];
   for (const v of only) {
     const c = asCanvas(views && views[v]); if (!c) continue;
-    out.push({ view: v, name: `${name}-${v}${scale > 1 ? '@' + scale + 'x' : ''}.png`, blob: await exportPNG({ baseCanvas: c, elements, view: v, scale, transparent }) });
+    out.push({ view: v, name: `${name}-${v}${scale !== 1 ? '@' + scale + 'x' : ''}.png`, blob: await exportPNG({ baseCanvas: c, elements, view: v, scale, transparent, background }) });
   }
   return out;
 }
@@ -71,6 +87,16 @@ export function extractSwatches(canvas, max = 6) {
 /* ------------------------------------------------------------------ design sheet */
 const PARAM_LABELS = { bodyWidth: 'Body width', bodyLength: 'Body length', shoulderWidth: 'Shoulder width', sleeveLength: 'Sleeve length', sleeveWidth: 'Sleeve width', sleeveFlare: 'Sleeve flare', sleeveShape: 'Sleeve shape', collarSize: 'Collar size', neckOpening: 'Neck opening', hemShape: 'Hem shape', cropLength: 'Crop length' };
 const ELEMENT_LABELS = { text: 'Text', logo: 'Logo', crest: 'Crest', graphic: 'Graphic', stripe: 'Stripes', piping: 'Piping', embroidery: 'Embroidery', print: 'Print', patch: 'Patch' };
+/** What the design sheet can show. Pass any subset as `include` (defaults: everything). */
+export const SHEET_SECTIONS = [
+  ['views', 'Views', 'Front, back, side and detail panels'],
+  ['shape', 'Shape adjustments', 'Sliders that differ from the original'],
+  ['fabric', 'Fabric', 'The fabric applied to the garment'],
+  ['elements', 'Element list', 'How many of each element type'],
+  ['texts', 'Element text', 'The words used in text and print elements'],
+  ['palette', 'Colour palette', 'Dominant colours of the garment'],
+  ['notes', 'Notes', 'Your notes at the bottom of the sheet'],
+];
 
 function wrap(ctx, text, maxW) {
   const out = [];
@@ -84,13 +110,19 @@ function wrap(ctx, text, maxW) {
 function rr(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 
 /**
- * Design sheet PNG (2400x1700). views: {front, back, side?, detail?} (canvas or {current}).
- * params: per-view params object OR a single params object; notes: string; name: string.
- * Optional: specs:[[label,value],...], date:Date|string, fabric, brand.
+ * Design sheet PNG (2400x1700 at scale 1). views: {front, back, side?, detail?} (canvas or {current}).
+ * params: per-view params object OR a single params object; notes; name; title (heading, defaults to name);
+ * specs: extra [label, value] rows; date; fabric; brand;
+ * include: {views:[...], shape, fabric, elements, texts, palette, notes} booleans (default all on);
+ * scale: 1 | 2 (output 2400 px wide at 1).
  */
-export async function exportDesignSheet({ views = {}, elements = [], params = {}, notes = '', name = 'Untitled design', specs = [], date = new Date(), fabric = null, brand = 'Threadform' } = {}) {
+export async function exportDesignSheet({ views = {}, elements = [], params = {}, notes = '', name = 'Untitled design', title, specs = [], date = new Date(), fabric = null, brand = 'Threadform', include = {}, scale = 1 } = {}) {
   await elementsReady(elements);
-  const W = 2400, H = 1700; const c = mk(W, H); const ctx = c.getContext('2d');
+  const inc = k => include[k] !== false;
+  const viewSet = include.views ? new Set(include.views) : null;
+  const showView = k => !!views[k] && (!viewSet || viewSet.has(k));
+  const W = 2400, H = 1700; const c = mk(W * scale, H * scale); const ctx = c.getContext('2d');
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
   const INK = '#1f2328', MUTE = '#6b7280', LINE = '#d9d4c7', PAPER = '#faf8f3', ACC = '#8a5a2b';
   ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H);
   const M = 90;
@@ -98,7 +130,7 @@ export async function exportDesignSheet({ views = {}, elements = [], params = {}
 
   // header
   ctx.fillStyle = INK; ctx.font = `700 74px ${serif}`; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
-  ctx.fillText(name || 'Untitled design', M, M + 62);
+  ctx.fillText(title || name || 'Untitled design', M, M + 62);
   ctx.fillStyle = MUTE; ctx.font = `400 26px ${sans}`;
   const ds = date instanceof Date ? date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : String(date);
   ctx.fillText('DESIGN SHEET  ·  ' + ds, M, M + 108);
@@ -109,13 +141,13 @@ export async function exportDesignSheet({ views = {}, elements = [], params = {}
   // view panels
   const top = M + 170;
   const drawView = (key, label, x, y, w, h) => {
+    if (!showView(key)) return;
     ctx.fillStyle = '#fff'; rr(ctx, x, y, w, h, 14); ctx.fill(); ctx.strokeStyle = LINE; ctx.lineWidth = 2; ctx.stroke();
     const cv = asCanvas(views[key]);
-    const pad = 24; const lh = 44;
+    const pad = 24, lh = 44;
     if (cv) {
-      const comp = compose(cv, elements, key, 1, true);
-      // crop to garment bbox for nicer framing
-      const bb = bounds(comp);
+      const comp = compose(cv, elements, key, 1, 'transparent');
+      const bb = bounds(comp);   // crop to the garment for nicer framing
       const aw = w - pad * 2, ah = h - pad * 2 - lh; const k = Math.min(aw / bb.w, ah / bb.h);
       const dw = bb.w * k, dh = bb.h * k;
       ctx.imageSmoothingQuality = 'high';
@@ -124,30 +156,37 @@ export async function exportDesignSheet({ views = {}, elements = [], params = {}
     ctx.fillStyle = MUTE; ctx.font = `700 22px ${sans}`; ctx.textAlign = 'center'; ctx.fillText(label, x + w / 2, y + h - 20); ctx.textAlign = 'left';
   };
   const bigW = 640, bigH = 880;
-  drawView('front', 'FRONT', M, top, bigW, bigH);
-  drawView('back', 'BACK', M + bigW + 30, top, bigW, bigH);
-  const sw = 420, sh = 425;
-  const rx = M + (bigW + 30) * 2;
-  drawView('side', 'SIDE', rx, top, sw, sh);
-  drawView('detail', 'DETAIL', rx, top + sh + 30, sw, sh);
+  if (inc('views')) {
+    drawView('front', 'FRONT', M, top, bigW, bigH);
+    drawView('back', 'BACK', M + bigW + 30, top, bigW, bigH);
+    const sw = 420, sh = 425;
+    const rx = M + (bigW + 30) * 2;
+    drawView('side', 'SIDE', rx, top, sw, sh);
+    drawView('detail', 'DETAIL', rx, top + sh + 30, sw, sh);
+  }
   // right column: specs
-  const colX = rx + sw + 40, colW = W - M - colX;
+  const rx = M + (bigW + 30) * 2;
+  const colX = rx + 420 + 40, colW = W - M - colX;
   let y = top;
   ctx.fillStyle = INK; ctx.font = `700 28px ${sans}`; ctx.fillText('SPECIFICATION', colX, y + 24);
   ctx.strokeStyle = LINE; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(colX, y + 40); ctx.lineTo(colX + colW, y + 40); ctx.stroke();
   y += 80;
   const rows = [];
   const P = pickParams(params);
-  const nz = Object.keys(PARAM_LABELS).filter(k => Math.abs(P[k] || 0) > 0.5);
-  nz.forEach(k => rows.push([PARAM_LABELS[k], (P[k] > 0 ? '+' : '') + Math.round(P[k])]));
-  if (!nz.length) rows.push(['Shape edits', 'Original proportions']);
-  if (fabric) rows.push(['Fabric', fabric]);
+  if (inc('shape')) {
+    const nz = Object.keys(PARAM_LABELS).filter(k => Math.abs(P[k] || 0) > 0.5);
+    nz.forEach(k => rows.push([PARAM_LABELS[k], (P[k] > 0 ? '+' : '') + Math.round(P[k])]));
+    if (!nz.length) rows.push(['Shape edits', 'Original proportions']);
+  }
+  if (inc('fabric') && fabric) rows.push(['Fabric', fabric]);
   for (const s of specs || []) rows.push([s[0], String(s[1])]);
-  const counts = {}; (elements || []).forEach(e => { if (e.visible !== false) counts[e.type] = (counts[e.type] || 0) + 1; });
-  Object.keys(counts).forEach(t => rows.push([ELEMENT_LABELS[t] || t, counts[t] + (counts[t] > 1 ? ' elements' : ' element')]));
-  (elements || []).filter(e => e.type === 'text' || e.type === 'embroidery' || e.type === 'print').slice(0, 4).forEach(e => { if (e.props.text) rows.push([(ELEMENT_LABELS[e.type]) + ' text', '"' + String(e.props.text).replace(/\n/g, ' ').slice(0, 24) + '"']); });
+  if (inc('elements')) {
+    const counts = {}; (elements || []).forEach(e => { if (e.visible !== false) counts[e.type] = (counts[e.type] || 0) + 1; });
+    Object.keys(counts).forEach(t => rows.push([ELEMENT_LABELS[t] || t, counts[t] + (counts[t] > 1 ? ' elements' : ' element')]));
+  }
+  if (inc('texts')) (elements || []).filter(e => e.type === 'text' || e.type === 'embroidery' || e.type === 'print').slice(0, 4).forEach(e => { if (e.props.text) rows.push([(ELEMENT_LABELS[e.type]) + ' text', '"' + String(e.props.text).replace(/\n/g, ' ').slice(0, 24) + '"']); });
   ctx.font = `400 25px ${sans}`;
-  rows.slice(0, 16).forEach(([a, b], i) => {
+  rows.slice(0, 16).forEach(([a, b]) => {
     ctx.fillStyle = MUTE; ctx.textAlign = 'left'; ctx.fillText(a, colX, y);
     ctx.fillStyle = INK; ctx.textAlign = 'right'; ctx.fillText(b, colX + colW, y); ctx.textAlign = 'left';
     ctx.strokeStyle = '#ece8dc'; ctx.beginPath(); ctx.moveTo(colX, y + 14); ctx.lineTo(colX + colW, y + 14); ctx.stroke();
@@ -157,28 +196,34 @@ export async function exportDesignSheet({ views = {}, elements = [], params = {}
   // swatches (bottom band)
   const by = top + bigH + 40;
   const base = asCanvas(views.front) || asCanvas(Object.values(views).find(Boolean));
-  ctx.fillStyle = INK; ctx.font = `700 28px ${sans}`; ctx.fillText('COLOUR PALETTE', M, by + 24);
-  ctx.strokeStyle = LINE; ctx.beginPath(); ctx.moveTo(M, by + 40); ctx.lineTo(M + bigW * 2 + 30, by + 40); ctx.stroke();
-  const sws = base ? extractSwatches(compose(base, elements, 'front', 1, true), 6) : [];
-  const swW = 195;
-  sws.forEach((s, i) => {
-    const x = M + i * (swW + 12);
-    ctx.fillStyle = s.hex; rr(ctx, x, by + 58, swW, 70, 10); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.stroke();
-    ctx.fillStyle = INK; ctx.font = `700 21px ${sans}`; ctx.fillText(s.name, x, by + 156);
-    ctx.fillStyle = MUTE; ctx.font = `400 20px ${sans}`; ctx.fillText(s.hex.toUpperCase(), x, by + 182);
-  });
-  // notes
-  const nx = M + bigW * 2 + 30 + 60;
-  ctx.fillStyle = INK; ctx.font = `700 28px ${sans}`; ctx.fillText('NOTES', nx, by + 24);
-  ctx.strokeStyle = LINE; ctx.beginPath(); ctx.moveTo(nx, by + 40); ctx.lineTo(W - M, by + 40); ctx.stroke();
-  ctx.fillStyle = INK; ctx.font = `400 24px ${sans}`;
-  const nl = wrap(ctx, notes || 'No notes.', W - M - nx);
-  nl.slice(0, 6).forEach((l, i) => ctx.fillText(l, nx, by + 80 + i * 34));
+  if (inc('palette')) {
+    ctx.fillStyle = INK; ctx.font = `700 28px ${sans}`; ctx.fillText('COLOUR PALETTE', M, by + 24);
+    ctx.strokeStyle = LINE; ctx.beginPath(); ctx.moveTo(M, by + 40); ctx.lineTo(M + bigW * 2 + 30, by + 40); ctx.stroke();
+    const sws = base ? extractSwatches(compose(base, elements, 'front', 1, 'transparent'), 6) : [];
+    const swW = 195;
+    sws.forEach((s, i) => {
+      const x = M + i * (swW + 12);
+      ctx.fillStyle = s.hex; rr(ctx, x, by + 58, swW, 70, 10); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.stroke();
+      ctx.fillStyle = INK; ctx.font = `700 21px ${sans}`; ctx.fillText(s.name, x, by + 156);
+      ctx.fillStyle = MUTE; ctx.font = `400 20px ${sans}`; ctx.fillText(s.hex.toUpperCase(), x, by + 182);
+    });
+  }
+  if (inc('notes')) {
+    const nx = M + bigW * 2 + 30 + 60;
+    ctx.fillStyle = INK; ctx.font = `700 28px ${sans}`; ctx.fillText('NOTES', nx, by + 24);
+    ctx.strokeStyle = LINE; ctx.beginPath(); ctx.moveTo(nx, by + 40); ctx.lineTo(W - M, by + 40); ctx.stroke();
+    ctx.fillStyle = INK; ctx.font = `400 24px ${sans}`;
+    const nl = wrap(ctx, notes || 'No notes.', W - M - nx);
+    nl.slice(0, 6).forEach((l, i) => ctx.fillText(l, nx, by + 80 + i * 34));
+  }
   // footer
   ctx.fillStyle = MUTE; ctx.font = `400 20px ${sans}`; ctx.textAlign = 'left'; ctx.fillText(`${brand} · generated design sheet · ${ds}`, M, H - 40);
   ctx.textAlign = 'right'; ctx.fillText('Flat-lay preview, not to scale', W - M, H - 40); ctx.textAlign = 'left';
   return toBlob(c);
 }
+/** Output size of each export format, for the live preview in the export dialog. */
+export function sheetSize(scale = 1) { return { w: Math.round(2400 * scale), h: Math.round(1700 * scale) }; }
+
 function pickParams(params) {
   if (!params) return {};
   if (params.front || params.back) return params.front || params.back; // per-view params
