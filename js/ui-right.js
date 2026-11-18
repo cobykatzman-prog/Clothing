@@ -119,7 +119,7 @@ export function initRight(root) {
     const has = !!V.base;
     [genBtn, ...root.querySelectorAll('.chip, .slider input')].forEach(b => { b.disabled = !has; });
     const sel = hasMask(V);
-    keepNote.textContent = sel ? 'Only your selected area will change. Everything else is kept exactly. To make a part bigger, use Grow so there is room.' : 'No area selected: the edit may affect any matching part. Select an area on the left to protect the rest.';
+    keepNote.textContent = sel ? 'Only your selected area will change. Everything else is kept exactly. To make a part bigger, use Grow so there is room.' : 'No area selected: the change applies to the whole garment. Optional: select an area on the left to limit it.';
     if (!reason || ['variations', 'applied', 'restore', 'loaded', 'history'].includes(reason)) renderCards();
   }
   subscribe(r => { if (!['render', 'zoom', 'processing', 'busy', 'elements-live'].includes(r)) sync(r); });
