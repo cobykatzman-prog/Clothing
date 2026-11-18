@@ -232,14 +232,14 @@ summary:focus-visible,a:focus-visible,[tabindex]:focus-visible,.tab:focus-visibl
 .sb-basic-tip{margin:0;font-size:12.5px;color:#3730a3}
 body[data-mode=advanced] [data-level=basic-only]{display:none!important}
 .sl-row{display:flex;align-items:center;gap:8px;flex:1 1 150px;min-width:0;max-width:340px}.sl-row .lbl{white-space:nowrap}.sl-row input[type=range]{flex:1;min-width:60px}.sl-row .val{min-width:46px}
-.numfield{display:inline-flex;align-items:center;gap:3px}.numfield .num{width:60px;border:1px solid var(--line);border-radius:7px;padding:5px 6px;text-align:center;background:#fff}
+.numfield{display:inline-flex;align-items:center;gap:3px;flex:none}.numfield .numin{width:60px;border:1px solid var(--line);border-radius:7px;padding:5px 6px;text-align:center;background:#fff}
 .numfield .stp{width:26px;height:28px;border:1px solid var(--line);background:#fff;border-radius:7px;cursor:pointer;font-weight:700;line-height:1}.numfield .stp:hover{background:var(--soft)}.numfield .unit{font-size:12px;color:var(--muted);margin-left:2px}
 .tool-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}
 .ptool{display:flex;flex-direction:column;align-items:center;gap:3px;border:1px solid var(--line);background:#fff;border-radius:9px;padding:7px 4px;cursor:pointer;font-weight:600;font-size:12px;text-align:center}
 .ptool:hover{background:var(--soft)}.ptool.on{background:var(--accent-soft);border-color:#cfcaf8;color:var(--accent)}
 .optbox{display:flex;flex-direction:column;gap:7px;padding:9px;background:var(--soft);border-radius:9px}
 .readout{font-size:12.5px;color:var(--ink);background:var(--accent-soft);border-radius:8px;padding:6px 9px;font-variant-numeric:tabular-nums}
-.modify{display:flex;flex-direction:column;gap:7px}.mrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.mrow .lbl{min-width:74px}
+.modify{display:flex;flex-direction:column;gap:7px}.modrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.modrow .lbl{min-width:74px}.modrow .btn{flex:none}
 .sub{border:1px solid var(--line);border-radius:9px;padding:0 9px}.sub>summary{cursor:pointer;padding:8px 0;font-weight:600;font-size:13px}.sub[open]{padding-bottom:9px}
 .refine,.ovl{display:flex;flex-direction:column;gap:8px}
 .saved-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}

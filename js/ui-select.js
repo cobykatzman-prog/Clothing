@@ -30,7 +30,7 @@ function slider({ label, get, set, min, max, step = 1, fmt = v => v + ' px', tip
   return row;
 }
 function numberField({ label, get, set, min, max, step = 1, unit = 'px', tip }) {
-  const inp = h('input', { type: 'number', min, max, step, class: 'num', 'aria-label': label, inputmode: 'decimal' });
+  const inp = h('input', { type: 'number', min, max, step, class: 'numin', 'aria-label': label, inputmode: 'decimal' });
   const clampV = v => Math.min(max, Math.max(min, Number.isFinite(v) ? v : min));
   const commit = () => { set(clampV(+inp.value)); inp.value = get(); };
   inp.addEventListener('change', commit);
@@ -118,6 +118,7 @@ export function selectionBar() {
   const root = h('div', { class: 'selbar', id: 'selbar', 'aria-label': 'Select the area to change' }, row1, h('div', { class: 'sb-row sb-lower' }, opts, actions), basicTip);
   track(() => {
     const V = activeView(), t = state.ui.tool, st = S.isSelTool(t);
+    root.hidden = !V.current;   // nothing to select on an empty view
     tools.querySelectorAll('.sb-tool').forEach(b => { const on = b.dataset.tool === t; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
     opts.querySelectorAll('.sb-opt').forEach(o => { const f = o.dataset.for.split(' ').includes(t); o.hidden = !f; });
     const info = S.selHistInfo();
@@ -151,16 +152,16 @@ export function selectionSection({ section }) {
   const smoothN = numberField({ label: 'Smooth amount', get: () => state.ui.smoothPx, set: v => { state.ui.smoothPx = v; }, min: 0, max: 60, tip: 'Round off jagged corners and specks' });
   const btn = (txt, act, tip, fn, cls = 'btn ghost sm') => h('button', { type: 'button', class: cls, 'data-act': act, tip, onclick: fn }, txt);
   const modify = h('div', { class: 'modify' },
-    h('div', { class: 'mrow' }, h('span', { class: 'lbl' }, 'Feather'), featherN, btn('Apply', 'feather', 'Feather the selection edge', () => S.featherSelection(state.ui.feather))),
-    h('div', { class: 'mrow' }, h('span', { class: 'lbl' }, 'Grow / shrink'), growN, btn('Expand', 'expand', 'Make the selection bigger by this many pixels', () => S.expandSelection(state.ui.grow)), btn('Contract', 'contract', 'Make the selection smaller by this many pixels', () => S.contractSelection(state.ui.grow))),
-    h('div', { class: 'mrow' }, h('span', { class: 'lbl' }, 'Smooth'), smoothN, btn('Apply', 'smooth', 'Round off corners and specks', () => S.smoothSelection(state.ui.smoothPx))));
+    h('div', { class: 'modrow' }, h('span', { class: 'lbl' }, 'Feather'), featherN, btn('Apply', 'feather', 'Feather the selection edge', () => S.featherSelection(state.ui.feather))),
+    h('div', { class: 'modrow' }, h('span', { class: 'lbl' }, 'Grow / shrink'), growN, btn('Expand', 'expand', 'Make the selection bigger by this many pixels', () => S.expandSelection(state.ui.grow)), btn('Contract', 'contract', 'Make the selection smaller by this many pixels', () => S.contractSelection(state.ui.grow))),
+    h('div', { class: 'modrow' }, h('span', { class: 'lbl' }, 'Smooth'), smoothN, btn('Apply', 'smooth', 'Round off corners and specks', () => S.smoothSelection(state.ui.smoothPx))));
 
   // refine edges (live preview, then apply)
   const applyR = btn('Apply refinement', 'refine-apply', 'Keep the refined edge', () => S.applyRefine(), 'btn primary sm');
   const cancelR = btn('Cancel', 'refine-cancel', 'Go back to the edge you had', () => S.cancelRefine());
   const refineBox = h('div', { class: 'refine' },
     slider({ label: 'Edge radius', get: () => state.ui.refine.radius, set: v => { state.ui.refine.radius = v; S.refinePreview(); }, min: 1, max: 40, tip: 'How far from the edge the selection may snap to the picture' }),
-    slider({ label: 'Strength', get: () => state.ui.refine.strength, set: v => { state.ui.refine.strength = v; S.refinePreview(); }, min: 0, max: 100, fmt: v => v + '%', tip: '0 = leave the edge alone, 100 = snap fully to the picture edges' }),
+    slider({ label: 'Refine strength', get: () => state.ui.refine.strength, set: v => { state.ui.refine.strength = v; S.refinePreview(); }, min: 0, max: 100, fmt: v => v + '%', tip: '0 = leave the edge alone, 100 = snap fully to the picture edges' }),
     h('div', { class: 'row gap wrap' }, btn('Preview', 'refine-preview', 'Show the refined edge on the canvas before you keep it', () => S.refinePreview()), applyR, cancelR));
   track(() => { const on = S.refine.active; applyR.hidden = cancelR.hidden = !on; });
 
@@ -175,7 +176,7 @@ export function selectionSection({ section }) {
       selectBox('Overlay look', [['both', 'Outline + tint'], ['ants', 'Outline only'], ['tint', 'Tint only']], () => state.ui.ovl.style, v => { state.ui.ovl.style = v; notify('tool'); }, 'Outline and tint, outline only, or tint only'),
       selectBox('Overlay view', [['normal', 'Normal'], ['only', 'Dim the rest'], ['mask', 'Black & white mask']], () => state.ui.ovl.view, v => { state.ui.ovl.view = v; notify('tool'); }, 'Normal, dim everything that is not selected, or show the selection as a black and white mask')),
     slider({ label: 'Tint opacity', get: () => state.ui.ovl.opacity, set: v => { state.ui.ovl.opacity = v; notify('tool'); }, min: 0, max: 60, fmt: v => v + '%', tip: 'How strongly the selection is tinted (0-60%)' }),
-    h('label', { class: 'field', tip: 'Tint colour' }, h('span', { class: 'lbl' }, 'Tint colour'), (() => { const c = h('input', { type: 'color', 'aria-label': 'Tint colour', oninput: e => { state.ui.ovl.color = e.target.value; notify('tool'); } }); track(() => { c.value = state.ui.ovl.color; }); return c; })()),
+    h('label', { class: 'field', tip: 'Tint colour' }, h('span', { class: 'lbl' }, 'Tint colour'), (() => { const c = h('input', { type: 'color', 'aria-label': 'Selection tint colour', oninput: e => { state.ui.ovl.color = e.target.value; notify('tool'); } }); track(() => { c.value = state.ui.ovl.color; }); return c; })()),
     check('Animate the outline', () => state.ui.ovl.animate, v => { state.ui.ovl.animate = v; notify('tool'); }, 'Marching ants'));
 
   // saved selections

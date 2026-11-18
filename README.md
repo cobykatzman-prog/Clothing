@@ -79,9 +79,23 @@ Honest note: this backend was verified end to end against a local mock of the Op
 3. **Refine.** Click a part of the garment to recolour it, add text and graphics from the left panel (they open in the *Items* tab), and check sizes in the *Measure* tab.
 4. **Export** a PNG, an editable SVG, the measurements (CSV) or a full design sheet.
 
-The blue *Next* line under the view tabs always says what to do next. **Basic** mode (the default) shows only these essentials; switch to **Advanced** in the header for shape sliders, fit and sleeve presets, fabric, layers, references, the selection brush and copy look. The choice is remembered in this browser, and nothing is lost when you switch.
+The blue *Next* line under the view tabs always says what to do next. **Basic** mode (the default) shows only these essentials; switch to **Advanced** in the header for shape sliders, fit and sleeve presets, fabric, layers, references, the full set of selection tools and copy look. The choice is remembered in this browser, and nothing is lost when you switch.
 
 Press **?** (or the *?* button in the header) for the guided tour, the keyboard shortcuts and a one-page *How it works*. Useful shortcuts: Ctrl+Z / Ctrl+Shift+Z undo and redo, Delete removes the selected item, Ctrl+D duplicates it, arrow keys nudge it, + / - / 0 zoom, hold Space to pan, Esc deselects or closes a dialog. Anything you reset or delete can be undone from the message that appears.
+
+### Selecting parts of a garment
+
+Mark the area you want to change before you describe it; only the selected pixels are edited, everything else stays exactly as it was. The tools sit in the bar above the canvas (and, in Advanced, in the left *Select garment areas* section):
+
+- **Basic** shows the five everyday tools: *Brush*, *Eraser*, *Lasso*, *Click a part* and *Smart select*, plus *Both sleeves* and *Clear*. To change both sleeves: choose *Click a part*, click each sleeve (or press *Both sleeves*), then describe the change.
+- **Advanced** adds *Polygon* (click corners, double-click or Enter to finish, Backspace removes a point, Esc cancels), *Rectangle*, *Whole part*, *Magic wand* (tolerance, contiguous or not), *Select by colour* (click, eyedropper or colour picker, with tolerance), *Select by material* (weave / print), *Select garment*, *Invert*, and the modes *Add / Subtract / Intersect / Replace*. Hold **Shift** to add, **Alt (Option)** to subtract, **Shift + Alt** to intersect, with any tool.
+- **Modify**: *Feather*, *Expand* / *Contract* (type a number or use the + / - steppers), *Smooth*, and *Refine edges* (a live preview snaps the edge to the picture before you press Apply). Readouts show the selection as a percentage of the garment and its pixel bounds.
+- **Undo selection**: while a selection tool is active Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z step through the last 100 selection changes; the normal undo covers them as well, so nothing is lost.
+- **Save selection** keeps a named selection per view (with a thumbnail); load it later as a replacement, or add / subtract / intersect it with the current one. Saved selections are stored with the design (also in the shared library).
+- **Outline and tint**: the selection is drawn as animated marching ants (dark and light, readable on any fabric) with an optional tint (0-60 %, any colour). You can show outline only, dim everything that is not selected, view the selection as a black-and-white mask, or hide it.
+- **Precision**: the mouse wheel zooms towards the pointer up to 1000 %, space-drag / middle-drag / two fingers pan, the pointer maps to image pixels exactly at any zoom, and *Zoom to selection* (Z) frames what you selected, so logos, stitching and collar edges can be selected pixel by pixel. Touch and pen work through pointer events. Tools that need the garment outline (*Click a part*, *Whole part*, *Smart select*, *Select garment*) say so politely when an image has none; the Brush, Lasso, Wand and the rest always work.
+
+Shortcuts: B brush, E eraser, L lasso, P polygon, M rectangle, R click a part, C whole part, S smart select, W wand, K by colour, T by material, V move, [ and ] brush size, Ctrl+A select garment, Ctrl+I invert, Ctrl+Shift+A clear, Z zoom to selection.
 
 ## Security
 

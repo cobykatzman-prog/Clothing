@@ -84,7 +84,7 @@ export function download(blobOrString, filename)
 ```
 
 ### js/state.js (A)
-Single store: `state = { name, views:{front,back,side,detail}:{original:canvas|null, current:canvas|null, seg, mask:canvas}, activeView, params (per view), elements, references:[canvas], versions:[{id,label,thumb,snapshot}], undo/redo stacks }`; functions `snapshot()`, `undo()`, `redo()`, `pushVersion(label)`, `restoreVersion(id)`, `subscribe(fn)`.
+Single store: `state = { name, views:{front,back,side,detail}:{original:canvas|null, current:canvas|null, seg, mask:canvas (ALPHA = the selection; only `js/selection.js` changes it), saved:[{id,name,canvas,t}] (saved selections, persisted with the design)}, activeView, params (per view), elements, references:[canvas], versions:[{id,label,thumb,snapshot}], undo/redo stacks }`; functions `snapshot()`, `undo()`, `redo()`, `pushVersion(label)`, `restoreVersion(id)`, `subscribe(fn)`.
 
 ## Rules
 - No external CDN/network deps at runtime. No frameworks. Plain ES modules (`<script type="module">`).
