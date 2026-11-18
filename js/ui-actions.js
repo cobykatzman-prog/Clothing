@@ -230,7 +230,16 @@ async function generateWithAi(prompt) {
     try {
       await tick();
       let c = canvas;
-      if (!hasTransparentBorder(c)) { try { c = cropToContent(await removeBackground(c)); } catch (e) { console.warn('bg removal failed', e); } }
+      if (!hasTransparentBorder(c)) {
+        try {
+          const cut = cropToContent(await removeBackground(c));
+          // If the cut-out is (almost) empty the garment blended into its background: keep the image as it came back
+          // instead of installing a blank canvas and calling that a success.
+          const d = cut.getContext('2d').getImageData(0, 0, cut.width, cut.height).data; let solid = 0;
+          for (let i = 3; i < d.length; i += 4) if (d[i] > 40) solid++;
+          if (solid / (cut.width * cut.height) >= 0.02) c = cut;
+        } catch (e) { console.warn('bg removal failed', e); }
+      }
       if (task.closed) return { cancelled: true };
       snapshot();
       await installBase('front', c);
