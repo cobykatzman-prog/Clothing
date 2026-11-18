@@ -459,6 +459,46 @@ async function readVector(file) {
   const doc = new DOMParser().parseFromString(source, 'image/svg+xml');
   const root = doc.documentElement;
   if (root?.localName !== 'svg' || doc.querySelector('parsererror')) throw userError('That file is not a valid SVG.');
+  // Preserve safe presentation rules from common SVG exports (including Illustrator),
+  // but inline them before removing stylesheet nodes. External resources and active CSS are never kept.
+  const styleNodes = [...root.querySelectorAll('style')];
+  const cssRules = [];
+  const safeCss = new Set(['fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'fill-rule', 'clip-rule', 'fill-opacity', 'stroke-opacity', 'opacity']);
+  for (const styleNode of styleNodes) {
+    const css = styleNode.textContent || '';
+    for (const match of css.matchAll(/([^{}]+)\\{([^{}]*)\\}/g)) {
+      const selectors = match[1].trim().split(',');
+      const declarations = [];
+      for (const declaration of match[2].split(';')) {
+        const at = declaration.indexOf(':');
+        if (at < 1) continue;
+        const property = declaration.slice(0, at).trim().toLowerCase();
+        const value = declaration.slice(at + 1).trim();
+        if (safeCss.has(property) && value && !/url\\s*\\(|javascript:|expression\\s*\\(/i.test(value)) declarations.push([property, value]);
+      }
+      if (declarations.length) for (const selector of selectors) {
+        const clean = selector.trim();
+        // Restrict selectors to simple tag/class/id combinations; ignore complex or active selectors.
+        if (/^(?:[a-z][\\w-]*)?(?:[.#][\\w-]+)*$/i.test(clean) && clean) cssRules.push({ selector: clean, declarations });
+      }
+    }
+  }
+  if (cssRules.length) {
+    const nodes = [root, ...root.querySelectorAll('*')];
+    for (const node of nodes) {
+      const applied = new Map();
+      for (const rule of cssRules) {
+        try { if (node.matches(rule.selector)) for (const [property, value] of rule.declarations) applied.set(property, value); } catch {}
+      }
+      const inline = new Set((node.getAttribute('style') || '').split(';').map(part => part.split(':', 1)[0].trim().toLowerCase()));
+      for (const [property, value] of applied) {
+        if (!inline.has(property) && !node.hasAttribute(property)) {
+          const current = node.getAttribute('style') || '';
+          node.setAttribute('style', current + (current.trim() && !current.trim().endsWith(';') ? ';' : '') + property + ':' + value);
+        }
+      }
+    }
+  }
   root.querySelectorAll('script,foreignObject,iframe,object,embed,style,link,animate,animateTransform,animateMotion,set').forEach(n => n.remove());
   for (const node of root.querySelectorAll('*')) {
     for (const attr of [...node.attributes]) {
