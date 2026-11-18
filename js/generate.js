@@ -78,7 +78,7 @@ export function parseGarmentText(text, { defaultKind = 'tee', defaultColor = nul
   const colourName = bodyCol ? bodyCol.name : (pickedColor ? 'selected colour' : 'cream');
 
   // stripes (parsePrompt knows about "no stripes" / "add stripes")
-  const removedStripes = (p.removeParts || []).includes('stripes');
+  const removedStripes = (p.removeParts || []).includes('stripes') || (p.avoid || []).includes('stripes');
   const wantsStripes = !removedStripes && (!!stripeCol || addStripes || /\bstripe[sd]?\b|pinstripe/.test(lower) || (p.addElements || []).some(e => e.type === 'stripe'));
   const stripe = wantsStripes ? (stripeCol ? stripeCol.hex : contrastOf(color)) : false;
   const stripeName = stripe ? (stripeCol ? stripeCol.name : (lum(color) > 0.5 ? 'dark' : 'white')) : null;
