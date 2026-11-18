@@ -393,7 +393,7 @@ export function createLayers() {
     list.replaceChildren(...(top.length ? top.map(e => row(e, top)) : [h('div', { class: 'muted small' }, 'Nothing added yet. Use sections 4 and 5 to add text, crests or stripes.')]));
   }
   // upload a picture as a new logo on this view
-  const logoIn = h('input', { type: 'file', accept: 'image/*', hidden: true, 'aria-label': 'Logo file', onchange: e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) addLogo(f); } });
+  const logoIn = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/svg+xml', hidden: true, 'aria-label': 'Logo file', onchange: e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) addLogo(f); } });
   const addBtn = h('button', { class: 'btn ghost sm', tip: 'Upload a logo or picture to place on the garment (then recolour it in the Selected item section)', onclick: () => logoIn.click() }, icon('plus', 15), 'Add logo…');
   const wrap = h('div', { class: 'lwrap' }, h('div', { class: 'row gap center' }, addBtn, logoIn), list);
   subscribe(sync); sync();
@@ -403,6 +403,12 @@ export function createLayers() {
 /* ------------------------------------------------------------------ element inspector (right panel) */
 /** Reads a picture file into a PNG data URL, shrunk to 1024 px so the saved design stays small. */
 function readLogo(file) {
+  const allowed = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml']);
+  const ext = String(file?.name || '').split('.').pop().toLowerCase();
+  const extensionTypes = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', svg: 'image/svg+xml' };
+  const type = file?.type || extensionTypes[ext];
+  if (!file || !allowed.has(type)) return Promise.reject(userError('Use a PNG, JPG, WebP or SVG logo.'));
+  if (file.size > 20 * 1024 * 1024) return Promise.reject(userError('That logo is larger than 20 MB. Resize it and try again.'));
   return new Promise((res, rej) => {
     const fr = new FileReader();
     fr.onerror = () => rej(userError('That file could not be read. Try another image.'));
@@ -425,18 +431,26 @@ async function replaceLogo(el, file) {
   if (!el || !file) return;
   try {
     const { url, ih, iw } = await readLogo(file);
+    // The user may delete the layer while the file is decoding; never resurrect or mutate a stale object.
+    if (!state.elements.includes(el) || el.type !== 'logo') return;
     change(() => { el.props.image = url; el._tint = null; el._cache = null; el.h = el.w * ih / iw; el.base = { w: el.w, h: el.h, size: el.props.size }; });
     toast('Logo replaced.', 'ok');
   } catch (e) { toast(friendly(e, 'That logo could not be used. Try a PNG or JPG.'), 'error', 5000); }
 }
 /** Adds an uploaded picture as a logo on the active view, centred on the garment's body. */
 export async function addLogo(file) {
+  const viewName = state.activeView;
   const V = activeView();
   if (!V.current) { toast('Load a garment first.', 'info'); return; }
   try {
     const { url, ih, iw } = await readLogo(file);
+    // Keep the upload attached to the view where it was started; don't silently place it on a newly selected view.
+    if (state.activeView !== viewName || activeView() !== V) {
+      toast('The view changed while the logo was loading. Select the original view and upload it again.', 'info', 5000);
+      return;
+    }
     const b = V.seg?.bbox, pos = b ? { x: b.x + b.w / 2, y: b.y + b.h * 0.4 } : { x: SIZE / 2, y: SIZE / 2 };
-    const el = createElement('logo', { image: url, view: state.activeView, ...pos });
+    const el = createElement('logo', { image: url, view: viewName, ...pos });
     el.w = 200; el.h = 200 * ih / iw; el.base = { w: el.w, h: el.h, size: undefined };
     change(() => { state.elements.push(el); state.selectedId = el.id; state.ui.tool = 'move'; });
     markFlow('refined');
@@ -481,7 +495,7 @@ export function createInspector() {
   const select = (label, options, get, set, tip) => row(label, bind(h('select', { 'aria-label': label }, options), get, set), tip);
   const btn = (txt, tip, fn, cls = 'btn ghost sm') => h('button', { class: cls, tip, onclick: () => { const c = cur(); if (c) fn(c); } }, txt);
   const group = (title, kids, open = true) => h('details', { class: 'igrp', open: open || null }, h('summary', {}, title), h('div', { class: 'igrp-body' }, kids));
-  const fileIn = h('input', { type: 'file', accept: 'image/*', hidden: true, 'aria-label': 'Replace logo image', onchange: e => { const f = e.target.files?.[0]; e.target.value = ''; const c = cur(); if (c && f) replaceLogo(c, f); } });
+  const fileIn = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/svg+xml', hidden: true, 'aria-label': 'Replace logo image', onchange: e => { const f = e.target.files?.[0]; e.target.value = ''; const c = cur(); if (c && f) replaceLogo(c, f); } });
 
   function build(c) {
     binders = []; inputs = [];
