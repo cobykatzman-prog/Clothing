@@ -252,17 +252,20 @@ export function measureGarment(seg, cal) {
   if (!raw || !cal || !(cal.s > 0)) return { ...empty, sleeveLeft: null, sleeveRight: null };
   const sl = Object.entries(raw.sleeves);
   const avg = f => (sl.length ? sl.reduce((a, [, q]) => a + f(q), 0) / sl.length : null);
+  // Remove insignificant IEEE-754 residue (for example 56.00000000000001 cm)
+  // so chart-anchored measurements remain stable for exports and exact comparisons.
+  const clean = n => n == null ? null : Math.round(n * 1e9) / 1e9;
   return {
-    chest: raw.chest * cal.s,
-    length: raw.length * cal.sy,
-    shoulder: raw.shoulder * SHOULDER_SEAM * cal.s,
-    sleeve: avg(q => q.len * cal.ss),
-    sleeveOpening: avg(q => Math.hypot(q.n.x * q.open * cal.s, q.n.y * q.open * cal.sy)),
-    hem: raw.hem * cal.s,
-    neck: raw.neck * cal.s,
-    neckDrop: raw.neckDrop * cal.s,
-    sleeveLeft: raw.sleeves.L ? raw.sleeves.L.len * cal.ss : null,
-    sleeveRight: raw.sleeves.R ? raw.sleeves.R.len * cal.ss : null,
+    chest: clean(raw.chest * cal.s),
+    length: clean(raw.length * cal.sy),
+    shoulder: clean(raw.shoulder * SHOULDER_SEAM * cal.s),
+    sleeve: clean(avg(q => q.len * cal.ss)),
+    sleeveOpening: clean(avg(q => Math.hypot(q.n.x * q.open * cal.s, q.n.y * q.open * cal.sy))),
+    hem: clean(raw.hem * cal.s),
+    neck: clean(raw.neck * cal.s),
+    neckDrop: clean(raw.neckDrop * cal.s),
+    sleeveLeft: clean(raw.sleeves.L ? raw.sleeves.L.len * cal.ss : null),
+    sleeveRight: clean(raw.sleeves.R ? raw.sleeves.R.len * cal.ss : null),
   };
 }
 
