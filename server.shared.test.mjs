@@ -58,6 +58,12 @@ await t('status: ok, then clear reasons for bad key / missing tables / paused / 
   s = (await J(await api('/api/shared/status?fresh=1'))).body; assert.match(s.error, /Cannot reach Supabase/);
   mock.setFailure(null);
   assert.equal((await J(await api('/api/shared/status?fresh=1'))).body.ok, true);
+  // a failed design request drops the cached "ok", so the next (non-fresh) status check shows the real reason
+  mock.setKey('rotated');
+  assert.equal((await api('/api/designs')).status, 502);
+  s = (await J(await api('/api/shared/status'))).body; assert.equal(s.ok, false); assert.match(s.error, /service_role key/);
+  mock.setKey(KEY);
+  assert.equal((await J(await api('/api/shared/status?fresh=1'))).body.ok, true);
   for (const bad of ['not a url', 'http://example.com']) {
     const e = await startServer({ ...baseEnv, SUPABASE_URL: bad, SUPABASE_SERVICE_KEY: KEY }, 0);
     const b = (await J(await fetch(`http://127.0.0.1:${e.port}/api/shared/status`, { headers: { cookie: await loginAt(`http://127.0.0.1:${e.port}`) } }))).body;

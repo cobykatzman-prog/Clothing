@@ -1,6 +1,6 @@
 # Threadform
 
-A garment design studio that runs entirely in your browser: upload or generate a garment, describe a change, compare three options, refine shape, colour and graphics, check measurements and export. Vanilla ES modules, no build step, no API keys, no dependencies. `server.mjs` is a tiny Node server that serves the files and can require a password.
+A garment design studio that runs entirely in your browser: upload or generate a garment, describe a change, compare three options, refine shape, colour and graphics, check measurements and export. Vanilla ES modules, no build step, no dependencies. `server.mjs` is a tiny Node server that serves the files, can require a password and can keep a shared design library in a free Supabase database.
 
 Run it locally:
 
@@ -36,11 +36,13 @@ The free plan sleeps after a period of inactivity, so the first visit after a wh
 
 ## Shared designs (Supabase)
 
-By default every browser keeps its own designs. If you and a friend want to see and edit the **same** designs, you can add a free Supabase database. It is optional: without it nothing changes.
+By default every browser keeps its own designs. If you and a friend want to see and edit the **same** designs, you can add a free Supabase database. It is optional: without it nothing changes. Designs are stored in the database **only when both `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` are set** on the server.
+
+Already have a project with the tables created (for example a project named `threadform` whose Project URL is `https://tstvirabqkbeoqermirs.supabase.co`)? Skip to step 3.
 
 1. Go to [supabase.com](https://supabase.com), sign up (free) and create a **New project**. Pick any name and region and save the database password somewhere (you will not need it again here). Wait a minute for it to finish setting up.
 2. In the project, open **SQL Editor > New query**, paste the whole contents of `supabase/schema.sql` from this repo, and press **Run**. You should see "Success". (Running it twice is harmless.)
-3. Open **Project Settings > API**. Copy the **Project URL** (looks like `https://abcdxyz.supabase.co`) and the **service_role** key (click Reveal; it is the long secret one, not the `anon` / publishable one).
+3. Open **Project Settings > API**. Copy the **Project URL** (looks like `https://abcdxyz.supabase.co`) and the **service_role** key (click Reveal; it is the long secret one, not the `anon` / publishable one; on newer dashboards it is under **API Keys**, *Legacy API keys* tab).
 4. In Render, open your Threadform web service > **Environment** and add two variables: `SUPABASE_URL` (the Project URL) and `SUPABASE_SERVICE_KEY` (the service_role key). Save, then **redeploy** if Render does not do it by itself.
 5. Open the site and log in. On the home page the **Shared library** badge should say *Connected*. If it shows a red message, it says what is wrong (wrong key, tables not created, project paused...). Press **Check connection** after fixing it.
 
@@ -55,7 +57,7 @@ Things to know, honestly:
 - **The service_role key is powerful**: it can read and change everything in your Supabase project. Keep it only in Render's environment variables. Never put it in the repo, a chat or the browser. Only this server uses it; the browser never sees it, and the tables are locked so the public Supabase key can read nothing.
 - **Free Supabase projects pause after about a week of inactivity.** If the badge says the project is paused or unreachable, open the Supabase dashboard and press **Restore project**; your data is kept.
 - **The free database is 500 MB.** Designs are small, but each image takes space. Images a design no longer uses are cleaned up automatically on save.
-- **Tested against a mock, not a live project.** The server code and `supabase/schema.sql` were verified against an in-memory imitation of the Supabase API (`npm test`), not a real Supabase project. The **Check connection** button is the real test of your own setup.
+- **Tested against a mock, not a live project.** The server and the browser side were verified end to end against an in-memory imitation of the Supabase API (`test/mock-supabase.mjs`, also used by `npm test`), not a real Supabase project, and the tests do not run `supabase/schema.sql`. The **Check connection** button is the real test of your own setup.
 - There are no per-person accounts: everyone with the site password can edit and delete every shared design, and if two people save at once the second is asked what to do rather than overwriting.
 
 ## Using Threadform
@@ -71,11 +73,11 @@ Press **?** (or the *?* button in the header) for the guided tour, the keyboard 
 
 ## Security
 
-Threadform is built so it is safe to share a public link. Everything you design stays in your own browser.
+Threadform is built so it is safe to share a public link. Without the shared library, everything you design stays in your own browser; with it, designs go only to your own Supabase database, through this server.
 
 **What runs where**
-- The studio is plain files served by `server.mjs`. All image editing, generating and measuring runs in the visitor's browser with a local garment-shape engine; nothing is uploaded, there are no API keys and no third-party scripts, fonts, analytics or CDNs.
-- By default designs are saved in the visitor's own browser storage (IndexedDB / localStorage) and never sent anywhere. Clearing site data deletes them. If you turn on the optional shared library (below), designs are instead stored in your own Supabase database, reached only through this server.
+- The studio is plain files served by `server.mjs`. All image editing, generating and measuring runs in the visitor's browser with a local garment-shape engine; there are no third-party scripts, fonts, analytics or CDNs, and the browser never talks to any site but this one.
+- By default designs are saved in the visitor's own browser storage (IndexedDB / localStorage) and never sent anywhere. Clearing site data deletes them. If you turn on the optional shared library (above), designs and their images are instead saved to your own Supabase database, reached only through this server; the Supabase key stays on the server and is never sent to the browser.
 
 **Built-in protections**
 - Strict Content-Security-Policy and related headers (set by `server.mjs` on every response, from the list in `vercel.json`, which Vercel also applies): scripts only from the site itself, no inline scripts, no network connections except back to the site itself (`connect-src 'self'`), no framing (clickjacking), no MIME sniffing, no referrer sent to other sites, camera/mic/location blocked.
@@ -93,5 +95,5 @@ Threadform is built so it is safe to share a public link. Everything you design 
 
 **Known limits**
 - One shared password, not per-person accounts. Anyone who has it can use the studio, and you cannot revoke one person without changing it for everyone (changing it logs everyone out).
-- Without the shared library, designs are stored per browser, so you and a friend do not see each other's designs (turn on the shared library below, or export a PNG, SVG or design sheet).
+- Without the shared library, designs are stored per browser, so you and a friend do not see each other's designs (turn on the shared library above, or export a PNG, SVG or design sheet).
 - Login attempt limits are kept in memory, so they reset when the server restarts.

@@ -90,6 +90,6 @@ Single store: `state = { name, views:{front,back,side,detail}:{original:canvas|n
 - No external CDN/network deps at runtime. No frameworks. Plain ES modules (`<script type="module">`).
 - Every module must be importable in a browser with no bundler: relative imports with `.js` extension.
 - Keep functions fast: processing at 1024px must finish < ~1s for warps (use typed arrays / ImageData, not per-pixel getPixel calls).
-- Honest UX: the studio is a local garment-shape engine, not an AI. Never call the network (CSP is `connect-src 'none'`).
+- Honest UX: the studio is a local garment-shape engine, not an AI. Never call any other site (CSP is `connect-src 'self'`): the only network calls are to this site's own server, for the shared design library (SHARED-API.md).
 - Test your own modules in headless Chromium (Playwright is preinstalled: `require('playwright')`, launch with no options) via a tiny test page or `page.evaluate`. Do not run `playwright install`.
 - Commit nothing; the lead will commit.

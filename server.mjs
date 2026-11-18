@@ -1,5 +1,5 @@
 // Threadform web server: serves the static studio behind a password set in the environment.
-// Zero dependencies (Node built-ins only). Nothing is sent to any third party.
+// Zero dependencies (Node built-ins only). The only outside service it ever calls is your own Supabase project, and only when SUPABASE_URL + SUPABASE_SERVICE_KEY are set.
 //
 //   SITE_PASSWORD   required in production (min 8 chars, 12+ recommended). Visitors must log in with it.
 //   SITE_USERNAME   optional. If set, visitors must also enter this username.

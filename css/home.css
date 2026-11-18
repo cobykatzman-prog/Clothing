@@ -153,3 +153,8 @@ body.view-home{overflow:auto}
 .sync-btns{display:flex;gap:8px;flex-wrap:wrap}
 .save-status[data-kind=offline],.save-status[data-kind=conflict]{color:#b45309}
 @media (max-width:700px){.last-edited{display:none}.sync-banner{top:auto;bottom:70px}}
+/* shared mode makes the header text longer: keep the header inside the window on laptop widths */
+.save-status{overflow:hidden;text-overflow:ellipsis;max-width:190px}
+@media (max-width:1600px){.last-edited{display:none}}
+@media (max-width:1280px){.save-status{max-width:110px}}
+@media (max-width:980px){.save-status{max-width:none}}   /* the header wraps here, so the full text fits */

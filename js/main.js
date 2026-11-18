@@ -64,7 +64,7 @@ function setStatus(kind, t) {
     saved: 'Saved',
   })[kind] || '';
   saveStatus.textContent = text;
-  saveStatus.title = t ? 'Last saved ' + new Date(t).toLocaleString() : '';
+  saveStatus.title = text + (t ? ' (last saved ' + new Date(t).toLocaleString() + ')' : '');   // full text even when the label is cut short
   saveStatus.dataset.kind = kind;
 }
 
