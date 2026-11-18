@@ -49,12 +49,16 @@ export function initLeft(root) {
     if (genBtn.disabled) return;
     genBtn.disabled = true; genLabel.textContent = 'Generating…'; genStatus.textContent = '';
     try {
-      const r = await A.generateFromPrompt(genPrompt.value, { defaultKind: kind });
+      const r = await A.generateFromPrompt(genPrompt.value, { defaultKind: kind, defaultColor: colorIn.value, addStripes: stripeIn.checked });
       genStatus.textContent = r.message;
       if (r.spec) { // keep "Use sample" in step with what was just generated
         kind = r.spec.kind; kindBtns.forEach(b => b.classList.toggle('on', b.dataset.k === kind));
         colorIn.value = r.spec.color;
       }
+    } catch (e) {
+      console.error(e);
+      genStatus.textContent = 'Generation failed. Try a simpler description or use a sample garment.';
+      toast('The garment could not be generated. Your current design has been left unchanged.', 'error', 5000);
     } finally { genBtn.disabled = false; genLabel.textContent = 'Generate garment'; }
   };
   genPrompt.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runGenerate(); });
