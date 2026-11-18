@@ -459,12 +459,12 @@ async function readVector(file) {
       const name = attr.name.toLowerCase(), value = attr.value.trim();
       if (name.startsWith('on')) node.removeAttribute(attr.name);
       else if ((name === 'href' || name === 'xlink:href') && !value.startsWith('#')) node.removeAttribute(attr.name);
-      else if (/javascript:|expression\\(|url\\(\\s*['"]?(?!#)/i.test(value)) node.removeAttribute(attr.name);
+      else if (/javascript:|expression\(|url\(\s*['"]?(?!#)/i.test(value)) node.removeAttribute(attr.name);
     }
   }
   for (const attr of [...root.attributes]) {
     const name = attr.name.toLowerCase();
-    if (name.startsWith('on') || /javascript:|expression\\(/i.test(attr.value)) root.removeAttribute(attr.name);
+    if (name.startsWith('on') || /javascript:|expression\(/i.test(attr.value)) root.removeAttribute(attr.name);
   }
   let vb = (root.getAttribute('viewBox') || '').trim().split(/[ ,]+/).map(Number);
   if (vb.length !== 4 || !vb.every(Number.isFinite) || vb[2] <= 0 || vb[3] <= 0) {
@@ -478,7 +478,7 @@ async function readVector(file) {
   return { svg, ratio: vb[3] / vb[2] };
 }
 function isSVGFile(file) {
-  return file?.type === 'image/svg+xml' || /\\.svg$/i.test(file?.name || '');
+  return file?.type === 'image/svg+xml' || /\.svg$/i.test(file?.name || '');
 }
 /** Replace a logo's picture (keeps its width and position). */
 async function replaceLogo(el, file) {
