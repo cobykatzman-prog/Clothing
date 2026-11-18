@@ -139,4 +139,29 @@ await t('handle: same-origin, methods, status', async () => {
   assert.equal(res.statusCode, 405);
 });
 
+await t('rate limit: per IP, per window, daily cap, 429 response', async () => {
+  L.resetRateLimit();
+  const env = { AI_RATE_LIMIT: '3', AI_RATE_WINDOW_MIN: '10', AI_DAILY_LIMIT: '6' };
+  const a = { headers: { 'x-forwarded-for': '1.2.3.4, 10.0.0.1' } }, b = { headers: { 'x-forwarded-for': '5.6.7.8' } };
+  const t0 = Date.UTC(2026, 0, 1, 12, 0, 0);
+  for (let i = 0; i < 3; i++) assert.equal(L.rateLimit(a, env, t0 + i).ok, true);
+  const blocked = L.rateLimit(a, env, t0 + 10);
+  assert.equal(blocked.ok, false); assert.ok(blocked.retryAfter > 0 && blocked.retryAfter <= 600);
+  assert.equal(L.rateLimit(b, env, t0 + 20).ok, true);                       // other IPs unaffected
+  assert.equal(L.rateLimit(a, env, t0 + 11 * 60000).ok, true);               // window reset
+  assert.equal(L.rateLimit(b, env, t0 + 11 * 60000 + 1).ok, true);           // 6th request today
+  assert.equal(L.rateLimit({ headers: { 'x-forwarded-for': '9.9.9.9' } }, env, t0 + 11 * 60000 + 2).ok, false); // daily cap
+  assert.equal(L.rateLimit(b, env, t0 + 24 * 3600 * 1000).ok, true);        // next UTC day resets
+  L.resetRateLimit();
+  // through the handler: the (limit+1)th POST gets 429 with Retry-After
+  const old = { ...process.env }; Object.assign(process.env, env);
+  const call = () => new Promise((resolve) => {
+    const res = { headers: {}, setHeader(k, v) { this.headers[k] = v; }, end(x) { resolve({ statusCode: this.statusCode, headers: this.headers, body: x }); } };
+    L.handle({ method: 'POST', headers: { host: 'a', 'content-type': 'application/json', 'x-forwarded-for': '7.7.7.7' }, body: { a: 1 } }, res, { run: async () => ({ status: 200, json: { ok: 1 } }), allowStatus: false });
+  });
+  for (let i = 0; i < 3; i++) assert.equal((await call()).statusCode, 200);
+  const r = await call(); assert.equal(r.statusCode, 429); assert.ok(r.headers['Retry-After']);
+  for (const k of Object.keys(env)) delete process.env[k]; Object.assign(process.env, old); L.resetRateLimit();
+});
+
 console.log(`lib tests passed: ${n}`);

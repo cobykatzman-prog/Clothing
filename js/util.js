@@ -11,9 +11,15 @@ export function cloneCanvas(c) {
   n.getContext('2d').drawImage(c, 0, 0);
   return n;
 }
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;   // refuse huge files before decoding them
+const MAX_UPLOAD_PIXELS = 100e6;             // ~10000x10000: bigger images can exhaust browser memory
 export async function loadImageToCanvas(src, margin = 0.94) {
   let url = src, revoke = false;
-  if (typeof src !== 'string') { url = URL.createObjectURL(src); revoke = true; }
+  if (typeof src !== 'string') {
+    if (src.type && !/^image\/(png|jpe?g|webp|gif|bmp|avif|svg\+xml)$/i.test(src.type)) throw new Error('Please choose an image file (PNG, JPG, WebP or GIF).');
+    if (src.size > MAX_UPLOAD_BYTES) throw new Error('That image is larger than 25 MB. Please choose a smaller one.');
+    url = URL.createObjectURL(src); revoke = true;
+  }
   const img = new Image();
   img.crossOrigin = 'anonymous';
   await new Promise((res, rej) => {
@@ -23,6 +29,7 @@ export async function loadImageToCanvas(src, margin = 0.94) {
   });
   if (revoke) URL.revokeObjectURL(url);
   const w = img.naturalWidth || img.width || SIZE, h = img.naturalHeight || img.height || SIZE;
+  if (w * h > MAX_UPLOAD_PIXELS) throw new Error('That image has too many pixels. Please choose one under about 10,000 x 10,000.');
   const s = Math.min(SIZE / w, SIZE / h) * margin;
   const dw = w * s, dh = h * s;
   const c = makeCanvas();
@@ -104,7 +111,6 @@ export function h(tag, attrs, ...kids) {
     if (k === 'class') el.className = v;
     else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
     else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
-    else if (k === 'html') el.innerHTML = v;
     else if (k === 'tip') el.setAttribute('data-tip', v);
     else el.setAttribute(k, v === true ? '' : v);
   }

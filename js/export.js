@@ -1,6 +1,7 @@
 // Threadform - exports: PNG (any scale, any background), editable SVG, design sheet, per-view images, download helper.
 // Every function takes plain options so the export dialog (export-dialog.js) and the quick menu share one code path.
 import { drawElements, elementsToSVG, elementsReady } from './elements.js';
+import { drawDimensionLines, dimensionLinesSVG, drawMeasureTable } from './measure.js';
 
 const SIZE = 1024;
 const mk = (w, h) => { const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; };
@@ -29,9 +30,15 @@ export function backgroundOf({ background, transparent } = {}) {
 }
 
 /** PNG of garment + elements. scale: any number 0.25..4 (1 = 1024 px). */
-export async function exportPNG({ baseCanvas, elements = [], view = 'front', scale = 1, transparent, background } = {}) {
+export async function exportPNG({ baseCanvas, elements = [], view = 'front', scale = 1, transparent, background, measurements = null } = {}) {
   await elementsReady(elements);
-  return toBlob(compose(asCanvas(baseCanvas), elements, view, scale, backgroundOf({ background, transparent })));
+  const out = compose(asCanvas(baseCanvas), elements, view, scale, backgroundOf({ background, transparent }));
+  if (measurements && measurements.rows && measurements.rows.length) {   // optional dimension lines + labels (measure.js)
+    const x = out.getContext('2d'); x.save(); x.scale(scale, scale);
+    drawDimensionLines(x, measurements.seg, measurements.rows, { unit: measurements.unit, canvasSize: SIZE });
+    x.restore();
+  }
+  return toBlob(out);
 }
 
 /** Small preview of what exportPNG draws (cheap: no element re-rasterising at export resolution). */
@@ -40,20 +47,20 @@ export function previewCanvas({ baseCanvas, elements = [], view = 'front', backg
 }
 
 /** Editable SVG: <g id="design-elements"> (vector) over an optional <g id="garment-bitmap"> (embedded PNG). */
-export function exportSVG({ elements = [], view = 'front', baseCanvas = null, size = SIZE, title = 'Threadform design' } = {}) {
+export function exportSVG({ elements = [], view = 'front', baseCanvas = null, size = SIZE, title = 'Threadform design', measurements = null } = {}) {
   const base = asCanvas(baseCanvas);
   let img = '';
   if (base) { try { img = `<g id="garment-bitmap"><image x="0" y="0" width="${SIZE}" height="${SIZE}" xlink:href="${base.toDataURL('image/png')}"/></g>\n`; } catch (e) { } }
   const frag = elementsToSVG(elements, view, size, { fragment: true });
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${size}" height="${size}" viewBox="0 0 ${SIZE} ${SIZE}">\n<title>${title.replace(/[<&]/g, '')}</title>\n${img}<g id="design-elements">\n${frag}\n</g>\n</svg>\n`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${size}" height="${size}" viewBox="0 0 ${SIZE} ${SIZE}">\n<title>${title.replace(/[<&]/g, '')}</title>\n${img}<g id="design-elements">\n${frag}\n</g>\n${measurements && measurements.rows ? dimensionLinesSVG(measurements.seg, measurements.rows, { unit: measurements.unit }) + '\n' : ''}</svg>\n`;
 }
 
 /** One PNG per view -> [{view, name, blob}] (no zip). views: {front: canvas|{current}, back: ...}. */
-export async function exportViewImages({ views, elements = [], scale = 1, transparent, background, only = ['front', 'back'], name = 'threadform' } = {}) {
+export async function exportViewImages({ views, elements = [], scale = 1, transparent, background, only = ['front', 'back'], name = 'threadform', measurements = null } = {}) {
   const out = [];
   for (const v of only) {
     const c = asCanvas(views && views[v]); if (!c) continue;
-    out.push({ view: v, name: `${name}-${v}${scale !== 1 ? '@' + scale + 'x' : ''}.png`, blob: await exportPNG({ baseCanvas: c, elements, view: v, scale, transparent, background }) });
+    out.push({ view: v, name: `${name}-${v}${scale !== 1 ? '@' + scale + 'x' : ''}.png`, blob: await exportPNG({ baseCanvas: c, elements, view: v, scale, transparent, background, measurements: measurements && measurements[v] }) });
   }
   return out;
 }
@@ -95,6 +102,7 @@ export const SHEET_SECTIONS = [
   ['elements', 'Element list', 'How many of each element type'],
   ['texts', 'Element text', 'The words used in text and print elements'],
   ['palette', 'Colour palette', 'Dominant colours of the garment'],
+  ['measurements', 'Measurements table', 'Approximate flat measurements: original, edited and change'],
   ['notes', 'Notes', 'Your notes at the bottom of the sheet'],
 ];
 
@@ -116,7 +124,7 @@ function rr(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arc
  * include: {views:[...], shape, fabric, elements, texts, palette, notes} booleans (default all on);
  * scale: 1 | 2 (output 2400 px wide at 1).
  */
-export async function exportDesignSheet({ views = {}, elements = [], params = {}, notes = '', name = 'Untitled design', title, specs = [], date = new Date(), fabric = null, brand = 'Threadform', include = {}, scale = 1 } = {}) {
+export async function exportDesignSheet({ views = {}, elements = [], params = {}, notes = '', name = 'Untitled design', title, specs = [], date = new Date(), fabric = null, brand = 'Threadform', include = {}, scale = 1, measurements = null } = {}) {
   await elementsReady(elements);
   const inc = k => include[k] !== false;
   const viewSet = include.views ? new Set(include.views) : null;
@@ -186,12 +194,14 @@ export async function exportDesignSheet({ views = {}, elements = [], params = {}
   }
   if (inc('texts')) (elements || []).filter(e => e.type === 'text' || e.type === 'embroidery' || e.type === 'print').slice(0, 4).forEach(e => { if (e.props.text) rows.push([(ELEMENT_LABELS[e.type]) + ' text', '"' + String(e.props.text).replace(/\n/g, ' ').slice(0, 24) + '"']); });
   ctx.font = `400 25px ${sans}`;
-  rows.slice(0, 16).forEach(([a, b]) => {
+  const showMeas = !!(measurements && measurements.rows && measurements.rows.length && inc('measurements'));
+  rows.slice(0, showMeas ? 5 : 16).forEach(([a, b]) => {
     ctx.fillStyle = MUTE; ctx.textAlign = 'left'; ctx.fillText(a, colX, y);
     ctx.fillStyle = INK; ctx.textAlign = 'right'; ctx.fillText(b, colX + colW, y); ctx.textAlign = 'left';
     ctx.strokeStyle = '#ece8dc'; ctx.beginPath(); ctx.moveTo(colX, y + 14); ctx.lineTo(colX + colW, y + 14); ctx.stroke();
     y += 46;
   });
+  if (showMeas) drawMeasureTable(ctx, measurements, { x: colX, y: y + 20, w: colW }, { ink: INK, mute: MUTE, line: LINE, sans });   // measure.js
 
   // swatches (bottom band)
   const by = top + bigH + 40;

@@ -385,6 +385,36 @@ async function runGenerate({ body, env: e, fetchImpl = globalThis.fetch }) {
   }
 }
 
+/* ------------------------------------------------------------------ abuse / cost protection */
+// Each AI request spends real money (an edit makes three image calls). Anyone can call these endpoints
+// directly, so cap per-IP and total usage. Counters live in memory: on serverless platforms each warm
+// instance keeps its own counts, so this is a best-effort brake, not a hard limit. Also set a spending
+// limit on the OpenAI project. Tunable via AI_RATE_LIMIT (requests per IP per window, default 6),
+// AI_RATE_WINDOW_MIN (default 10) and AI_DAILY_LIMIT (requests per instance per UTC day, default 300).
+const rateBuckets = new Map();
+const dayState = { key: '', count: 0 };
+function clientIp(req) {
+  const h = (req && req.headers) || {};
+  const fwd = String(h['x-forwarded-for'] || '').split(',')[0].trim();
+  return fwd || String(h['x-real-ip'] || (req && req.socket && req.socket.remoteAddress) || 'unknown');
+}
+function rateLimit(req, env = process.env, now = Date.now()) {
+  const perIp = Math.max(1, Number(env.AI_RATE_LIMIT) || 6);
+  const windowMs = Math.max(1, Number(env.AI_RATE_WINDOW_MIN) || 10) * 60000;
+  const daily = Math.max(1, Number(env.AI_DAILY_LIMIT) || 300);
+  const day = new Date(now).toISOString().slice(0, 10);
+  if (dayState.key !== day) { dayState.key = day; dayState.count = 0; }
+  if (dayState.count >= daily) return { ok: false, retryAfter: 3600 };
+  const ip = clientIp(req);
+  let rec = rateBuckets.get(ip);
+  if (!rec || now - rec.start >= windowMs) { rec = { start: now, n: 0 }; rateBuckets.set(ip, rec); }
+  if (rec.n >= perIp) return { ok: false, retryAfter: Math.max(1, Math.ceil((rec.start + windowMs - now) / 1000)) };
+  rec.n++; dayState.count++;
+  if (rateBuckets.size > 5000) for (const [k, v] of rateBuckets) if (now - v.start >= windowMs) rateBuckets.delete(k);
+  return { ok: true };
+}
+function resetRateLimit() { rateBuckets.clear(); dayState.key = ''; dayState.count = 0; }
+
 // Shared request wrapper for both endpoints.
 async function handle(req, res, { run, allowStatus }) {
   try {
@@ -397,6 +427,8 @@ async function handle(req, res, { run, allowStatus }) {
     if (req.method !== 'POST') { res.setHeader('Allow', 'GET, POST'); return send(res, 405, { error: 'Method not allowed' }); }
     const ct = String((req.headers && req.headers['content-type']) || '');
     if (!/application\/json/i.test(ct)) return send(res, 415, { error: 'Content-Type must be application/json' });
+    const rl = rateLimit(req);
+    if (!rl.ok) { res.setHeader('Retry-After', String(rl.retryAfter)); return send(res, 429, { error: 'Too many AI requests. Please try again later.' }); }
     const body = await readJson(req);
     const out = await run({ body, env: process.env });
     return send(res, out.status, out.json);
@@ -410,5 +442,5 @@ module.exports = {
   MODEL, LIMITS, VARIANTS, VIEWS, HttpError,
   send, sameOrigin, readJson, decodeDataURL, imageSize, crc32, encodePNG, decodePNG, maskToOpenAI,
   cleanText, buildEditPrompt, buildGeneratePrompt, buildEditForm, callOpenAI, status,
-  runEdit, runGenerate, handle
+  runEdit, runGenerate, handle, rateLimit, resetRateLimit
 };

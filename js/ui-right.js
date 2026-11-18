@@ -5,6 +5,7 @@ import * as A from './ui-actions.js';
 import { section } from './ui-left.js';
 import { createPartPanel, createInspector } from './manual.js';
 import { presetBlock, shapeBlock, wholeColourBlock, fabricBlock } from './ui-look.js';
+import { measureSection } from './ui-measure.js';
 
 const EXAMPLES = ['make the sleeves flared', 'boxy oversized fit', 'remove the cuffs', 'cropped hem', 'heavyweight cotton', 'red piping on the collar', 'vintage Greek island style'];
 
@@ -62,7 +63,8 @@ export function initRight(root) {
   const fab = fabricBlock();
   const secFabric = section(5, 'Fabric', 'Applies a procedural weave and shading while keeping the original folds and shadows.', [fab.el], false, 'sec-fabric');
 
-  root.append(secInspector, secDescribe, secPresets, secShape, secColor, secFabric);
+  const secMeasure = measureSection().sec;   // approximate garment measurements (ui-measure.js)
+  root.append(secInspector, secDescribe, secPresets, secShape, secMeasure, secColor, secFabric);
 
   const sumOf = (o, i) => (o.ops && o.ops.summary) || ['A small change to what you asked for', 'The change exactly as you described it', 'A stronger version of your change'][i] || '';
   const shorten = t => (t.length > 60 ? t.slice(0, 58).trimEnd() + '…' : t);

@@ -307,6 +307,7 @@ export async function applyShape(srcCanvas, seg, params, opts = {}) {
   for (const k of ['neckTop', 'neckBottom', 'shoulderL', 'shoulderR', 'hemL', 'hemR', 'cuffL', 'cuffR', 'armpitL', 'armpitR']) lm[k] = mp(L[k]);
   lm.centerX = map(L.centerX, L.neckTop.y)[0];
   const M = seg.metrics || {}, nm = { ...M, sleeves: {} };
+  nm.fitScale = (M.fitScale || 1) * fit.s;   // uniform shrink applied to keep the garment on the canvas (measure.js divides it out)
   const nx = mp({ x: L.centerX + (M.neckRx || 40), y: L.neckTop.y }), nxl = mp({ x: L.centerX - (M.neckRx || 40), y: L.neckTop.y });
   nm.neckRx = Math.max(8, Math.abs(nx.x - nxl.x) / 2);
   nm.neckRy = Math.max(8, lm.neckBottom.y - lm.neckTop.y);

@@ -1,0 +1,18 @@
+/* Measurements panel (ui-measure.js) */
+.measure-block{display:flex;flex-direction:column;gap:10px}
+.chips.xs{gap:4px}.chips.xs .chip{padding:4px 9px;font-size:12px}
+.mtable{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff}
+.mrow{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,.8fr) minmax(0,.8fr) minmax(0,.8fr);gap:6px;align-items:baseline;padding:6px 9px;border-top:1px solid #f0eee8;font-size:12.5px;font-variant-numeric:tabular-nums}
+.mrow:first-child{border-top:0}
+.mrow>span:not(.mlab),.mrow>b{text-align:right}
+.mhead{background:var(--soft);font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+.mlab{line-height:1.25}
+.morig{color:var(--muted)}
+.mchg{font-weight:700}.mchg.up{color:#15803d}.mchg.down{color:#b91c1c}.mchg.zero{color:var(--muted);font-weight:500}
+.mcal select{width:auto;max-width:150px;padding:5px 8px;font-size:12.5px}
+.mcal-in{width:74px;border:1px solid var(--line);border-radius:9px;padding:6px 8px;background:#fff;font:inherit}
+.mmsg.err{color:var(--danger)}
+.mmsg:empty{display:none}
+.mnote{line-height:1.4}
+.mbasis{line-height:1.35}
+.measure-block .row select{width:auto;padding:4px 8px;font-size:12.5px}

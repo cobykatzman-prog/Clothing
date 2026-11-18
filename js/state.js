@@ -3,6 +3,7 @@ import { makeCanvas, cloneCanvas, thumbOf, maskIsEmpty, canvasToBlob, toast } fr
 import { DEFAULT_PARAMS } from './warp.js';
 import { segmentGarment } from './segment.js';
 import { ElementLayer } from './elements.js';
+import { defaultMeasureState, normalizeMeasureState } from './measure.js';
 
 export const VIEWS = ['front', 'back', 'side', 'detail'];
 export const VIEW_LABELS = { front: 'Front', back: 'Back', side: 'Side', detail: 'Detail' };
@@ -32,6 +33,7 @@ export function newView() {
 const subs = new Set();
 export const state = {
   name: 'Untitled design',
+  measure: defaultMeasureState(),   // size / unit / calibration / show-dimensions of this design (measure.js, saved with the design)
   tags: [],              // home-page tags of this design (saved in the design document, see serializeDesign)
   views: Object.fromEntries(VIEWS.map(v => [v, newView()])),
   activeView: 'front',
@@ -192,7 +194,7 @@ function remapRaw(raw, R) {
 export async function serializeDesign() {
   const R = makeRefs();
   const doc = {
-    v: 1, name: state.name, activeView: state.activeView, tags: [...(state.tags || [])],
+    v: 1, name: state.name, activeView: state.activeView, tags: [...(state.tags || [])], measure: { ...state.measure },
     views: Object.fromEntries(VIEWS.map(n => [n, viewDoc(state.views[n], R.canvas)])),
     elements: state.elements.map(elDoc),
     references: state.references.filter(Boolean).map(R.canvas),
@@ -274,6 +276,7 @@ export async function hydrateDesign(doc = {}, assets = {}) {
   state.name = doc.name || 'Untitled design';
   state.tags = Array.isArray(doc.tags) ? doc.tags.filter(t => typeof t === 'string') : [];
   state.activeView = VIEWS.includes(doc.activeView) ? doc.activeView : 'front';
+  state.measure = normalizeMeasureState(doc.measure);
   state.selectedId = null;
   state.elements = (doc.elements || []).map(o => ElementLayer.fromJSON(o));
   state.references = (await Promise.all((doc.references || []).map(k => load(k)))).filter(Boolean);

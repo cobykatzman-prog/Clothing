@@ -651,8 +651,51 @@ function innerSVG(el) {
   return '';
 }
 /** Editable SVG fragment: one <g> per element, positioned with translate/rotate. */
+/* ---- SVG export hardening -------------------------------------------------------------------
+   Element props end up inside SVG attributes. They normally come from colour pickers and number inputs, but
+   a hex text box (or a corrupted saved design) can hold anything, and an exported .svg opened directly in a
+   browser can run script. So: (1) colours and numbers are validated before they are written, and (2) the
+   finished markup is parsed and scrubbed of scripts, event handlers and any external reference. */
+const SAFE_COLOR = /^(#[0-9a-f]{3,8}|(rgb|hsl)a?\(\s*[0-9.,%\s/-]+\)|[a-z]{3,20})$/i;
+const safeCol = (c, d = '#000000') => (typeof c === 'string' && SAFE_COLOR.test(c.trim()) ? c.trim() : d);
+const safeNum = (v, d = 0) => (Number.isFinite(Number(v)) && v !== '' && v !== null ? Number(v) : d);
+const SVG_COLOR_KEYS = ['color', 'color2', 'color3', 'bg', 'border', 'textColor', 'outlineColor', 'tint'];
+const SVG_NUM_KEYS = ['size', 'thickness', 'opacity', 'letterSpacing', 'outline', 'count', 'gapRatio', 'curve', 'tintAmount', 'gap', 'width', 'height', 'bend'];
+function svgSafeElement(el) {
+  const out = Object.assign(Object.create(Object.getPrototypeOf(el)), el);
+  out.id = String(el.id).replace(/[^A-Za-z0-9_-]/g, '_');
+  for (const k of ['x', 'y', 'w', 'h', 'rotation']) out[k] = safeNum(el[k], k === 'w' || k === 'h' ? 1 : 0);
+  if (el.opacity != null) out.opacity = clamp01(safeNum(el.opacity, 1));
+  const p = { ...(el.props || {}) };
+  for (const k of SVG_COLOR_KEYS) if (p[k] != null) p[k] = safeCol(p[k]);
+  for (const k of SVG_NUM_KEYS) if (p[k] != null && typeof p[k] !== 'boolean') p[k] = safeNum(p[k], k === 'size' ? 24 : 0);
+  p.weight = typeof p.weight === 'number' || /^\d{3}$/.test(String(p.weight)) ? Number(p.weight) : (p.weight == null ? p.weight : 700);
+  if (p.shadow) p.shadow = { ...p.shadow, color: safeCol(p.shadow.color, '#000000'), x: safeNum(p.shadow.x), y: safeNum(p.shadow.y), blur: safeNum(p.shadow.blur), alpha: clamp01(safeNum(p.shadow.alpha, 0.45)) };
+  if (p.colors && typeof p.colors === 'object') p.colors = Object.fromEntries(Object.entries(p.colors).map(([k, v]) => [k, safeCol(v, '#888888')]));
+  out.props = p;
+  return out;
+}
+function clamp01(v) { return Math.min(1, Math.max(0, v)); }
+const SVG_SAFE_HREF = /^(#[A-Za-z0-9_-]+|data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+)$/;
+function scrubSVGFragment(fragment) {
+  if (typeof DOMParser === 'undefined' || !fragment) return fragment;
+  const doc = new DOMParser().parseFromString(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">${fragment}</svg>`, 'image/svg+xml');
+  if (doc.querySelector('parsererror')) throw new Error('Could not build a safe SVG from these design elements.');
+  doc.querySelectorAll('script,foreignObject,iframe,object,embed,style,link,animate,animateTransform,animateMotion,set').forEach(n => n.remove());
+  for (const n of doc.querySelectorAll('*')) {
+    for (const a of [...n.attributes]) {
+      const name = a.name.toLowerCase();
+      if (name.startsWith('on')) n.removeAttribute(a.name);
+      else if ((name === 'href' || name === 'xlink:href') && !SVG_SAFE_HREF.test(a.value.trim())) n.removeAttribute(a.name);
+      else if (/javascript:|expression\(/i.test(a.value) || (name === 'style' && /url\(/i.test(a.value))) n.removeAttribute(a.name);
+    }
+  }
+  const ser = new XMLSerializer();
+  return [...doc.documentElement.childNodes].map(n => ser.serializeToString(n).replace(/ xmlns="http:\/\/www\.w3\.org\/2000\/svg"/g, '')).join('\n');
+}
+
 export function elementsToSVG(elements, view, size = SIZE, opts = {}) {
-  const body = (elements || []).filter(e => inView(e, view)).map(el => {
+  const body0 = (elements || []).filter(e => inView(e, view)).map(raw => { const el = svgSafeElement(raw);
     const sh = el.props.shadow && el.props.shadow.on ? el.props.shadow : null, fid = 'ds_' + el.id;
     const defs = sh ? `<defs><filter id="${fid}" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="${sh.x || 0}" dy="${sh.y || 0}" stdDeviation="${((sh.blur || 0) / 2).toFixed(2)}" flood-color="${sh.color || '#000000'}" flood-opacity="${sh.alpha ?? 0.45}"/></filter></defs>` : '';
     let inner = innerSVG(el);
@@ -660,6 +703,7 @@ export function elementsToSVG(elements, view, size = SIZE, opts = {}) {
     if (sh) inner = `<g filter="url(#${fid})">${inner}</g>`;
     return `<g id="${el.id}" data-type="${el.type}" data-name="${xmlEsc(el.name || el.type)}" transform="translate(${el.x.toFixed(2)} ${el.y.toFixed(2)}) rotate(${el.rotation.toFixed(2)})"${el.opacity != null && el.opacity < 1 ? ` opacity="${el.opacity}"` : ''}>${defs}${inner}</g>`;
   }).join('\n');
+  const body = scrubSVGFragment(body0);
   if (opts.fragment) return body;
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${size}" height="${size}" viewBox="0 0 ${SIZE} ${SIZE}">\n${body}\n</svg>`;
 }

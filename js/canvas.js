@@ -5,6 +5,7 @@ import { regionAt } from './segment.js';
 import { drawElements, hitTest, beginDrag, dragTo } from './elements.js';
 import { closeGate, setActivePart, handleElementKey } from './manual.js';
 import { toggleRegion } from './ui-actions.js';
+import { designMeasure, drawDimensionLines } from './measure.js';
 
 const ACCENT = [79, 70, 229];
 const tintCache = new WeakMap();
@@ -75,6 +76,10 @@ export function createStage(el, wrap) {
       if (state.ui.showMask && V.mask) { ctx.globalAlpha = 0.42; ctx.drawImage(V.mask, 0, 0); ctx.globalAlpha = 1; }
       if (state.ui.tool === 'region' && hoverRegion && V.seg?.regions?.[hoverRegion]) ctx.drawImage(tinted(V.seg.regions[hoverRegion], 0.35), 0, 0);
       drawElements(ctx, state.elements, state.activeView, { selectedId: state.selectedId, handles: state.ui.tool === 'move', handleScale: 1 / T.zoom });
+      if (state.measure && state.measure.show) {   // dimension lines: overlay only, never part of the garment bitmap
+        const dm = designMeasure(state, state.activeView);
+        if (dm) drawDimensionLines(ctx, dm.seg, dm.rows, { unit: dm.unit, fontPx: clamp(13 / T.zoom, 15, 30), lineW: clamp(1.4 / T.zoom, 1.4, 3) });
+      }
     }
     // viewport border
     ctx.lineWidth = 1 / T.zoom; ctx.strokeStyle = 'rgba(0,0,0,.08)'; ctx.strokeRect(0, 0, SIZE, SIZE);

@@ -4,6 +4,7 @@
 // A live preview shows the garment as it will export, the pixel size and an estimated file size.
 import { state, VIEWS, VIEW_LABELS, markFlow } from './state.js';
 import { h, icon, toast, SIZE, canvasToBlob } from './util.js';
+import { exportMeasureData } from './measure.js';
 import { exportPNG, exportSVG, exportDesignSheet, exportViewImages, previewCanvas, download, downloadAll, sheetSize, SHEET_SECTIONS } from './export.js';
 
 const FORMATS = [
@@ -17,7 +18,7 @@ const SCALES = [['1', '1×'], ['2', '2×'], ['4', '4×'], ['custom', 'Custom']];
 // options are remembered for the rest of the session
 const last = {
   format: 'png', view: 'front', scale: '1', custom: 2, bg: 'transparent', bgColor: '#ffffff',
-  elements: true, svgGarment: false, sheetScale: '1', title: null, notes: null,
+  elements: true, measure: false, svgGarment: false, sheetScale: '1', title: null, notes: null,
   sections: Object.fromEntries(SHEET_SECTIONS.map(([k]) => [k, true])),
   sheetViews: Object.fromEntries(VIEWS.map(v => [v, true])),
 };
@@ -81,6 +82,9 @@ export function openExportDialog() {
   // ---- elements (all formats)
   const elCb = add(check('Include design elements', () => last.elements, v => { last.elements = v; }, 'Text, logos, crests, stripes and other elements are drawn on top'));
 
+  // ---- measurements (dimension lines and labels on PNG / SVG / front and back; the design sheet has its own table)
+  const measCb = add(check('Include measurements (dimension lines and labels)', () => last.measure, v => { last.measure = v; }, 'Draws tech-pack style dimension lines with the approximate measurements on the exported image, or as an editable <g id="measurements"> group in the SVG'));
+
   // ---- design sheet
   const sheetScaleRow = chipRow([['1', '1×'], ['2', '2×']], k => last.sheetScale === k, k => { last.sheetScale = k; refresh(); });
   const titleIn = h('input', { type: 'text', maxlength: 80, 'aria-label': 'Sheet title', oninput: e => { last.title = e.target.value; refresh(); } });
@@ -108,7 +112,7 @@ export function openExportDialog() {
     h('div', { class: 'xlayout' },
       h('div', { class: 'xopts' },
         h('div', { class: 'lbl' }, 'Format'), fmtRow.el, fmtHint,
-        imgGroup, svgGarment, elCb, sheetGroup),
+        imgGroup, svgGarment, elCb, measCb, sheetGroup),
       preview),
     h('div', { class: 'dlg-actions' },
       h('button', { type: 'button', class: 'btn ghost', onclick: () => dlg.close() }, 'Cancel'), goBtn));
@@ -130,6 +134,7 @@ export function openExportDialog() {
     imgGroup.querySelector('.xbgc').hidden = f === 'svg' || f === 'sheet' || last.bg !== 'custom';
     imgGroup.querySelectorAll('.lbl').forEach(l => { if (l.textContent === 'Background' || l.textContent === 'Size') l.hidden = f === 'svg' || f === 'sheet'; });
     svgGarment.hidden = f !== 'svg';
+    measCb.hidden = f === 'sheet';
     sheetGroup.hidden = f !== 'sheet';
     fmtHint.textContent = FORMATS.find(x => x[0] === f)[2];
   };
@@ -211,13 +216,13 @@ async function doExport(btn) {
   try {
     if (f === 'png') {
       const s = scaleValue();
-      const blob = await exportPNG({ baseCanvas: S.views[last.view].current, elements: els, view: last.view, scale: s, background: bgValue() });
+      const blob = await exportPNG({ baseCanvas: S.views[last.view].current, elements: els, view: last.view, scale: s, background: bgValue(), measurements: last.measure ? exportMeasureData(S, last.view) : null });
       download(blob, `${slug}-${last.view}${s !== 1 ? '@' + s + 'x' : ''}.png`);
     } else if (f === 'svg') {
-      download(exportSVG({ elements: els, view: last.view, baseCanvas: last.svgGarment ? S.views[last.view].current : null, title: S.name }), `${slug}-${last.view}.svg`);
+      download(exportSVG({ elements: els, view: last.view, baseCanvas: last.svgGarment ? S.views[last.view].current : null, title: S.name, measurements: last.measure ? exportMeasureData(S, last.view) : null }), `${slug}-${last.view}.svg`);
     } else if (f === 'fb') {
       const views = { front: S.views.front.current, back: S.views.back.current };
-      const items = await exportViewImages({ views, elements: els, scale: scaleValue(), background: bgValue(), only: ['front', 'back'], name: slug });
+      const items = await exportViewImages({ views, elements: els, scale: scaleValue(), background: bgValue(), only: ['front', 'back'], name: slug, measurements: last.measure ? { front: exportMeasureData(S, 'front'), back: exportMeasureData(S, 'back') } : null });
       if (!items.length) throw new Error('Nothing to export yet');
       await downloadAll(items);
     } else {
@@ -227,7 +232,7 @@ async function doExport(btn) {
       const blob = await exportDesignSheet({
         views, elements: els, params: { ...S.views[v].params }, notes: last.notes ?? (S.ui.notes || S.ui.prompt || ''),
         name: S.name, title: last.title || S.name, fabric: fabric && fabric !== 'none' ? fabric : null,
-        include: { ...last.sections, views: VIEWS.filter(n => last.sheetViews[n]) }, scale: sheetScaleValue(),
+        include: { ...last.sections, views: VIEWS.filter(n => last.sheetViews[n]) }, scale: sheetScaleValue(), measurements: exportMeasureData(S, v),
       });
       download(blob, `${slug}-design-sheet.png`);
     }

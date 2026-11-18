@@ -50,7 +50,7 @@ function control({ label, tip, min, max, hint, get, set, reset, resetTip = 'Rese
     ondblclick: () => { A.beginEdit(); set(reset ? reset.value : 0); A.endEdit(); } });
   num = h('input', { type: 'number', class: 'num-in', min, max, step: 1, value: 0, inputmode: 'numeric', 'aria-label': label + ' value', tip: `Type a value from ${min} to ${max}`,
     oninput: e => { if (e.target.value === '' || e.target.value === '-' || e.target.value === '.') return; const v = Number(e.target.value); if (isFinite(v)) commitTyped(v); },
-    onchange: e => { if (e.target.value === '' || !isFinite(Number(e.target.value))) { e.target.value = String(get()); } else commitTyped(Number(e.target.value)); A.endEdit(); } });
+    onchange: e => { if (e.target.value === '' || !isFinite(Number(e.target.value))) { e.target.value = String(get(activeView())); } else commitTyped(Number(e.target.value)); A.endEdit(); } });
   rb = h('button', { class: 'lk-reset', type: 'button', tip: resetTip, 'aria-label': 'Reset ' + label, onclick: () => { A.beginEdit(); set(reset ? reset.value : 0); A.endEdit(); } }, '↺ Reset');
   const head = h('div', { class: 'lk-head' }, h('span', { class: 'lbl' }, label), num, rb);
   const el = h('div', { class: 'slider', tip }, head, rng, hint ? h('div', { class: 'lk-hint' }, h('span', {}, hint[0]), h('span', {}, hint[1]), h('span', {}, hint[2])) : null);
@@ -73,7 +73,7 @@ export const SHAPE = [
   { k: 'sleeveLength', label: 'Sleeve length', hint: ['− shorter', '0 original', '+ longer'], tip: 'How far the sleeves reach down the arm. Range −100 to +100; 0 keeps the original length.' },
   { k: 'sleeveWidth', label: 'Sleeve width', hint: ['− slimmer', '0 original', '+ fuller'], tip: 'How wide the sleeve is around the arm. Range −100 to +100; 0 keeps the original width.' },
   { k: 'sleeveFlare', label: 'Sleeve flare', hint: ['− tapered', '0 original', '+ flared'], tip: 'Narrows (tapered) or widens (flared) the sleeve toward the cuff. Range −100 to +100; 0 keeps the original.' },
-  { k: 'sleeveShape', label: 'Sleeve curve', hint: ['− straighter', '0 original', '+ more curve'], tip: 'How much the sleeve bends along its length. Range −100 to +100; 0 keeps the original.' },
+  { k: 'sleeveShape', label: 'Sleeve curve', hint: ['− less bend', '0 original', '+ more bend'], tip: 'How much the sleeve bends along its length. + bends it further so it droops toward the cuff; − bends it less. Range −100 to +100; 0 keeps the original.' },
   { k: 'collarSize', label: 'Collar size', hint: ['− smaller', '0 original', '+ larger'], tip: 'Makes the collar band smaller or larger. Range −100 to +100; 0 keeps the original.' },
   { k: 'neckOpening', label: 'Neck opening', hint: ['− closer', '0 original', '+ wider'], tip: 'Makes the neck hole narrower or wider. Range −100 to +100; 0 keeps the original.' },
   { k: 'hemShape', label: 'Hem curve', hint: ['− dips', '0 straight', '+ lifts'], tip: 'Curves the hem: positive lifts the side corners (curved shirt-tail), negative lets them drop. Range −100 to +100; 0 is a straight hem.' },

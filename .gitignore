@@ -1,0 +1,10 @@
+# secrets and local config: never commit these
+.env
+.env.*
+*.pem
+*.key
+# tooling / platform
+node_modules/
+.vercel/
+.DS_Store
+*.log

@@ -3,6 +3,7 @@ import { state, VIEWS, VIEW_LABELS, activeView, subscribe, notify, markFlow, pus
 import { h, icon, toast, makeCanvas, SIZE, canvasToBlob } from './util.js';
 import * as A from './ui-actions.js';
 import { exportPNG, exportSVG, exportDesignSheet, download } from './export.js';
+import { exportMeasureData, measurementsCSV } from './measure.js';
 import { openExportDialog } from './export-dialog.js';
 
 const slug = () => (state.name || 'design').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'design';
@@ -43,10 +44,14 @@ export function initBottom(root) {
     item('Transparent PNG', 'No background', png(1, true, '-transparent')),
     item('SVG graphics', 'Editable vector text, logos, trims', async () => { download(exportSVG({ elements: S.elements, view: S.activeView }), `${slug()}-${S.activeView}.svg`); }),
     item('Front + back', 'Both views side by side', frontBack),
+    item('Measurements (CSV)', 'Approximate flat measurements: original, edited, change', async () => {
+      const d = exportMeasureData(S, S.activeView); if (!d) throw new Error('Nothing to measure yet');
+      download(new Blob([measurementsCSV(d, { design: S.name, view: S.activeView })], { type: 'text/csv' }), `${slug()}-${S.activeView}-measurements.csv`);
+    }),
     item('Design sheet', 'Specs, swatches, all views', async () => {
       const views = {}; for (const n of VIEWS) if (S.views[n].current) views[n] = S.views[n].current;
       const params = {}; for (const n of VIEWS) params[n] = { ...S.views[n].params };
-      const blob = await exportDesignSheet({ views, elements: S.elements, params: params[S.activeView], paramsByView: params, notes: S.ui.notes || S.ui.prompt || '', name: S.name, fabric: V().fabric.name });
+      const blob = await exportDesignSheet({ views, elements: S.elements, params: params[S.activeView], paramsByView: params, notes: S.ui.notes || S.ui.prompt || '', name: S.name, fabric: V().fabric.name, measurements: exportMeasureData(S, S.activeView) });
       download(blob, `${slug()}-design-sheet.png`);
     }));
   const expB = h('button', { class: 'btn primary', id: 'btn-export', 'aria-haspopup': 'menu', onclick: e => { e.stopPropagation(); menu.hidden = !menu.hidden; } }, icon('download'), 'Export', icon('chevron', 14));
