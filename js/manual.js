@@ -479,11 +479,24 @@ async function readVector(file) {
   // Turn up to three distinct solid fill/stroke colours into editor colour slots.
   // Keep gradients, patterns, "none", currentColor and other paint servers untouched.
   const palette = {};
-  const paintToken = value => {
+  const colourCanvas = document.createElement('canvas');
+  const colourContext = colourCanvas.getContext('2d');
+  const pickerHex = value => {
     const colour = (value || '').trim();
     if (!colour || /^(none|currentcolor|inherit|initial|unset|transparent)$/i.test(colour) || /^url\(/i.test(colour)) return null;
-    if (!(/^(#[0-9a-f]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\)|[a-z]+)$/i.test(colour))) return null;
-    let index = Object.keys(palette).find(key => palette[key].toLowerCase() === colour.toLowerCase());
+    // Native colour inputs accept opaque six-digit hex. Normalize named/rgb/hsl colours
+    // through the browser; leave alpha colours and paint servers unchanged.
+    if (/^(rgba|hsla)\(/i.test(colour)) return null;
+    if (!colourContext) return /^#[0-9a-f]{6}$/i.test(colour) ? colour.toLowerCase() : null;
+    colourContext.fillStyle = '#010203';
+    colourContext.fillStyle = colour;
+    const normalized = String(colourContext.fillStyle).toLowerCase();
+    return /^#[0-9a-f]{6}$/.test(normalized) && normalized !== '#010203' ? normalized : null;
+  };
+  const paintToken = value => {
+    const colour = pickerHex(value);
+    if (!colour) return null;
+    let index = Object.keys(palette).find(key => palette[key].toLowerCase() === colour);
     if (!index) {
       const used = Object.keys(palette).length;
       if (used >= 3) return null;
