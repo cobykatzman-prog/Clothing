@@ -62,6 +62,18 @@ export function labelComponents(bin, w, h) {
   return { labels, count, areas };
 }
 
+function dilate(bin, w, h, r) {
+  let cur = bin;
+  for (let k = 0; k < r; k++) {
+    const nx = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (cur[i] || (x > 0 && cur[i - 1]) || (x < w - 1 && cur[i + 1]) || (y > 0 && cur[i - w]) || (y < h - 1 && cur[i + w])) nx[i] = 1;
+    }
+    cur = nx;
+  }
+  return cur;
+}
 function erode(bin, w, h, r) {
   let cur = bin;
   for (let k = 0; k < r; k++) {
@@ -129,7 +141,7 @@ function computeAlpha(d, w, h) {
   let big = 0; for (let k = 1; k <= lc.count; k++) big = Math.max(big, lc.areas[k]);
   for (let i = 0; i < n; i++) if (fg[i] && lc.areas[lc.labels[i]] < Math.max(60, big * 0.04)) fg[i] = 0;
   // 1px shave of the background halo, then 3x3 soften for an anti-aliased edge
-  fg = erode(fg, w, h, 1);
+  fg = erode(dilate(erode(fg, w, h, 4), w, h, 4), w, h, 1);   // opening removes shadow fringes, then 1px shave
   const a = new Uint8Array(n);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = y * w + x;
@@ -262,7 +274,7 @@ export async function segmentGarment(canvas) {
     const shoulder = { x: S.xA, y: shY >= 0 ? shY : y0 };
     const armpit = { x: S.xA, y: S.yA };
     const root = { x: S.xA, y: (shoulder.y + armpit.y) / 2 };
-    const info = { has: ba > 0.002 * n, root, shoulder, armpit };
+    const info = { has: ba > 0.002 * n, root, shoulder, armpit, ln: S.ln };
     if (info.has) {
       let dmax = 0; const idx = [];
       for (let i = 0; i < n; i++) if (keep[i]) { idx.push(i); const x = i % w, y = (i - x) / w; dmax = Math.max(dmax, Math.hypot(x - root.x, y - root.y)); }

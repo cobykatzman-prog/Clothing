@@ -11,7 +11,7 @@ export function cloneCanvas(c) {
   n.getContext('2d').drawImage(c, 0, 0);
   return n;
 }
-export async function loadImageToCanvas(src) {
+export async function loadImageToCanvas(src, margin = 0.94) {
   let url = src, revoke = false;
   if (typeof src !== 'string') { url = URL.createObjectURL(src); revoke = true; }
   const img = new Image();
@@ -23,7 +23,7 @@ export async function loadImageToCanvas(src) {
   });
   if (revoke) URL.revokeObjectURL(url);
   const w = img.naturalWidth || img.width || SIZE, h = img.naturalHeight || img.height || SIZE;
-  const s = Math.min(SIZE / w, SIZE / h) * 0.94;
+  const s = Math.min(SIZE / w, SIZE / h) * margin;
   const dw = w * s, dh = h * s;
   const c = makeCanvas();
   const ctx = c.getContext('2d');
@@ -62,13 +62,33 @@ export function maskIsEmpty(c) {
   for (let i = 3; i < d.length; i += 4) if (d[i] > 24) return false;
   return true;
 }
-/** does the image have a transparent border? (false = looks like a photo with background) */
-export function hasTransparentBorder(c) {
+/** re-centres the visible pixels and scales them to fill `margin` of the working area */
+export function cropToContent(c, margin = 0.9) {
   const ctx = c.getContext('2d', { willReadFrequently: true });
-  const pts = [[2, 2], [c.width - 3, 2], [2, c.height - 3], [c.width - 3, c.height - 3], [c.width >> 1, 2], [c.width >> 1, c.height - 3]];
-  let transparent = 0;
-  for (const [x, y] of pts) if (ctx.getImageData(x, y, 1, 1).data[3] < 40) transparent++;
-  return transparent >= 4;
+  const d = ctx.getImageData(0, 0, c.width, c.height).data, W = c.width, H = c.height;
+  let x0 = W, y0 = H, x1 = -1, y1 = -1;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 20) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < 0) return c;
+  const bw = x1 - x0 + 1, bh = y1 - y0 + 1, s = Math.min(SIZE * margin / bw, SIZE * margin / bh);
+  const out = makeCanvas(), o = out.getContext('2d');
+  o.imageSmoothingQuality = 'high';
+  o.drawImage(c, x0, y0, bw, bh, (SIZE - bw * s) / 2, (SIZE - bh * s) / 2, bw * s, bh * s);
+  return out;
+}
+/** false when the content's rectangle edge is mostly opaque, i.e. a photo with a background */
+export function hasTransparentBorder(c) {
+  const N = 256, t = makeCanvas(N, N), ctx = t.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(c, 0, 0, N, N);
+  const d = ctx.getImageData(0, 0, N, N).data, A = (x, y) => d[(y * N + x) * 4 + 3];
+  let x0 = N, y0 = N, x1 = -1, y1 = -1;
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (A(x, y) > 40) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < 0) return true;
+  let n = 0, op = 0;
+  const i = 2; // inset: the resampled edge is semi-transparent
+  if (x1 - x0 < 8 || y1 - y0 < 8) return true;
+  for (let x = x0 + i; x <= x1 - i; x++) { n += 2; if (A(x, y0 + i) > 200) op++; if (A(x, y1 - i) > 200) op++; }
+  for (let y = y0 + i; y <= y1 - i; y++) { n += 2; if (A(x0 + i, y) > 200) op++; if (A(x1 - i, y) > 200) op++; }
+  return op / n < 0.6;
 }
 export function intersectMask(mask, garmentMask) {
   const out = cloneCanvas(mask);
