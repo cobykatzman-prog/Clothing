@@ -81,4 +81,58 @@ t('colour + presets', () => {
 });
 t('garbage', () => { const r = parsePrompt('asdf qwerty'); assert.equal(r.confidence, 0); assert.deepEqual(r.regions, []); assert.equal(parsePrompt('').summary, ''); });
 
+
+// ---- owner instructions (PLAN.md requirement 1)
+t('owner (a): slightly flared sleeves, but do not add cuffs', () => {
+  const r = parsePrompt("Make the sleeves slightly flared but don't add cuffs");
+  assert.equal(r.sleevePreset, 'slightFlare'); assert.ok(r.paramDeltas.sleeveFlare > 0 && r.paramDeltas.sleeveFlare <= 40);
+  eq(r.regions, SL); assert.deepEqual(r.avoid, ['cuffs']); assert.equal(r.removeCuffs, true); assert.equal(r.openHem, true);
+  assert.ok(!r.regions.includes('cuffs') && !r.addElements.length && r.sleevePreset !== 'ribbedCuff');
+});
+t('owner (a) variants: no cuffs / without ribbed cuffs never produce a ribbed cuff', () => {
+  for (const txt of ['Make the sleeves flared, no cuffs', 'Make the sleeves slightly flared without ribbed cuffs', 'Make the sleeves flared, avoid cuffs']) {
+    const r = parsePrompt(txt); assert.deepEqual(r.avoid, ['cuffs'], txt); assert.notEqual(r.sleevePreset, 'ribbedCuff', txt);
+  }
+  assert.equal(parsePrompt('Make the sleeves ribbed cuffs').sleevePreset, 'ribbedCuff');
+});
+t('owner (b): boxy body without changing the length locks length', () => {
+  const r = parsePrompt('Make the body more boxy without changing the length');
+  assert.equal(r.fitPreset, 'boxy'); eq(r.regions, ['body']); assert.deepEqual(r.lock, ['bodyLength', 'cropLength']);
+  assert.equal(r.paramDeltas.bodyLength, undefined); assert.equal(r.paramDeltas.cropLength, undefined); assert.ok(r.paramDeltas.bodyWidth > 30);
+});
+t('owner (c): wider vintage collar, keep the colour and stripes', () => {
+  const r = parsePrompt('Change the collar to a wider vintage collar, but keep the colour and stripes');
+  eq(r.regions, ['collar']); assert.equal(r.collarStyle, 'vintage'); assert.ok(r.paramDeltas.collarSize > 0);
+  assert.ok(r.keep.includes('stripes')); assert.equal(r.keepColor, true); assert.equal(r.style, undefined); assert.equal(r.color, undefined);
+});
+t('owner (d): remove the logo and put it on a separate editable layer', () => {
+  const r = parsePrompt('Remove the logo from the shirt and put it on a separate editable layer');
+  assert.deepEqual(r.extract, { logo: true, text: false, graphics: false, separateLayer: true });
+  assert.deepEqual(r.removeParts, undefined); assert.deepEqual(r.paramDeltas, {}); assert.equal(r.color, undefined); assert.equal(r.fabric, undefined);
+  assert.equal(r.fitPreset, undefined); assert.equal(r.unparsed, undefined);
+});
+t('owner (d): text and graphics extraction', () => {
+  const r = parsePrompt('Extract the back text and the tennis graphic to separate editable layers');
+  assert.deepEqual(r.extract, { logo: false, text: true, graphics: true, separateLayer: true });
+});
+t('owner (e): back matches the front proportions', () => {
+  const r = parsePrompt('Make the back match the front proportions');
+  assert.equal(r.matchBackToFront, true); assert.deepEqual(r.paramDeltas, {}); assert.equal(r.extract, null);
+  assert.equal(parsePrompt('Make the front match the front').matchBackToFront, false);
+});
+t('generic keep / avoid / lock', () => {
+  const k = parsePrompt('Make the sleeves longer, but keep the collar unchanged');
+  assert.ok(k.keep.includes('collar')); assert.ok(!k.regions.includes('collar'));
+  assert.deepEqual(parsePrompt('Make the body wider without changing the collar').lock, ['collarSize']);
+  assert.deepEqual(parsePrompt('Make it wider, keep the hem the same').lock, ['bodyLength', 'cropLength', 'hemShape']);
+  assert.deepEqual(parsePrompt("Make the body wider but don't add a logo").avoid, ['logos']);
+  assert.deepEqual(parsePrompt('Make it oversized but do not change the stripes').keep, ['stripes']);
+  const d = parsePrompt('Make the body boxy and do not change the sleeve length');
+  assert.ok(d.lock.includes('sleeveLength')); assert.equal(d.paramDeltas.sleeveLength, undefined);
+});
+t('new keys always present', () => {
+  const r = parsePrompt('');
+  assert.deepEqual(r.avoid, []); assert.deepEqual(r.lock, []); assert.equal(r.extract, null); assert.equal(r.matchBackToFront, false);
+});
+
 console.log(`prompt tests passed: ${n}`);

@@ -85,17 +85,48 @@ function removeCuffs(canvas, seg, strength) {
   return commitPixels(canvas, img, flags);
 }
 
+// Parts the user asked us NOT to add (ops.avoid): cuffs are never added as a ribbed band (open hem instead).
+const avoids = ops => (ops && Array.isArray(ops.avoid) ? ops.avoid : []);
+const sleevePresetFor = ops => (ops.sleevePreset === 'ribbedCuff' && avoids(ops).includes('cuffs') ? 'openHem' : ops.sleevePreset);
+
 function buildParams(ops, s) {
   // Sum the requested change, cap it at the slider range, THEN scale per option. Scaling before capping
   // made Medium and Bold identical whenever a preset and a prompt delta stacked past 100.
   const p = { ...DEFAULT_PARAMS };
   const add = obj => { if (obj) for (const k of Object.keys(DEFAULT_PARAMS)) if (obj[k]) p[k] += obj[k]; };
   add(FIT_PRESETS[ops.fitPreset]);
-  add(SLEEVE_PRESETS[ops.sleevePreset]);
+  add(SLEEVE_PRESETS[sleevePresetFor(ops)]);
   add(ops.paramDeltas);
   if (ops.garmentKind === 'longSleeve' && !(ops.paramDeltas && ops.paramDeltas.sleeveLength > 0)) p.sleeveLength += 100;
+  // locked parameters ("without changing the length") are forced to zero after every addition
+  for (const k of (Array.isArray(ops.lock) ? ops.lock : [])) if (k in p) p[k] = 0;
   for (const k of Object.keys(p)) p[k] = clamp(clamp(p[k], -100, 100) * s, -100, 100);
   return p;
+}
+
+// Regions that must come back exactly as they were: ops.keep, plus logos/text/stripes the user said not to touch.
+function keepAlphaFor(seg, ops, n) {
+  const names = uniq([...(ops.keep || []), ...avoids(ops).filter(a => ['logos', 'text', 'stripes'].includes(a))])
+    .filter(r => REGION_NAMES.includes(r) && r !== 'fabric');
+  if (!names.length) return null;
+  const u = new Uint8Array(n);
+  for (const nm of names) { const a = regionAlpha(seg, nm); if (a) for (let i = 0; i < n; i++) if (a[i] > u[i]) u[i] = a[i]; }
+  return u.some(v => v > 0) ? u : null;
+}
+// Composites the ORIGINAL pixels back over `out` wherever keep>0 (in place), so kept parts stay byte-identical.
+function compositeKeep(out, orig, keepA) {
+  const w = out.width, h = out.height, n = w * h;
+  const octx = out.getContext('2d', { willReadFrequently: true }), od = octx.getImageData(0, 0, w, h);
+  const sd = orig.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data;
+  for (let i = 0; i < n; i++) {
+    const k = keepA[i];
+    if (!k) continue;
+    if (k >= 255) { od.data.set(sd.subarray(i * 4, i * 4 + 4), i * 4); continue; }
+    const f = k / 255;
+    for (let c = 0; c < 4; c++) od.data[i * 4 + c] = Math.round(od.data[i * 4 + c] * (1 - f) + sd[i * 4 + c] * f);
+  }
+  octx.putImageData(od, 0, 0);
+  return out;
 }
 
 export async function localVariations(canvas, seg, mask, ops = {}) {
@@ -114,6 +145,7 @@ export async function localVariations(canvas, seg, mask, ops = {}) {
   const wantCuffRemoval = !!(ops.removeCuffs || (ops.removeParts || []).includes('cuffs'));
   const hasFabric = ops.fabric && ops.fabric !== 'none';
   const col = ops.color || null;
+  const keepA = seg ? keepAlphaFor(seg, ops, w * h) : null;
   const results = [];
   for (const [label, s] of LEVELS) {
     let cur = canvas, cseg = seg;
@@ -136,6 +168,7 @@ export async function localVariations(canvas, seg, mask, ops = {}) {
       cur = applyColor(cur, pm, { hue: clamp((col.hue || 0) * s, -180, 180), sat: clamp((col.sat || 0) * s, -100, 100), light: clamp((col.light || 0) * s, -100, 100), tint: col.tint || null, tintAmount: clamp((col.tintAmount == null ? 1 : col.tintAmount) * s, 0, 1) });
     }
     const out = cur === canvas ? (() => { const c = mkCanvas(w, h); c.getContext('2d').drawImage(canvas, 0, 0); return c; })() : mergeChanged(canvas, cur);
+    if (keepA) compositeKeep(out, canvas, keepA);
     results.push({ label, canvas: out, seg: cseg });
   }
   return results;
