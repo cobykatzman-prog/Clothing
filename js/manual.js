@@ -463,8 +463,8 @@ async function readVector(file) {
     }
   }
   for (const attr of [...root.attributes]) {
-    const name = attr.name.toLowerCase();
-    if (name.startsWith('on') || /javascript:|expression\(/i.test(attr.value)) root.removeAttribute(attr.name);
+    const name = attr.name.toLowerCase(), value = attr.value.trim();
+    if (name.startsWith('on') || ((name === 'href' || name === 'xlink:href') && !value.startsWith('#')) || /javascript:|expression\(|url\(\s*['"]?(?!#)/i.test(value)) root.removeAttribute(attr.name);
   }
   let vb = (root.getAttribute('viewBox') || '').trim().split(/[ ,]+/).map(Number);
   if (vb.length !== 4 || !vb.every(Number.isFinite) || vb[2] <= 0 || vb[3] <= 0) {
