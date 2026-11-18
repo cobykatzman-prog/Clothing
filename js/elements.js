@@ -7,15 +7,27 @@ const PAD = 14; // internal raster padding (px at res 1) for shadows
 
 let _id = 1;
 export const ELEMENT_TYPES = ['text', 'logo', 'crest', 'graphic', 'stripe', 'piping', 'embroidery', 'print', 'patch'];
+// Fonts: no web-font loading (the site makes no runtime network requests), so every entry is a family name
+// with a generic fallback. A family renders as designed only where it is installed; manual.js marks the rest.
+const F = (family, fallback) => ({ label: family, family, value: `"${family}", ${fallback}` });
+const SERIF = 'Georgia, "Times New Roman", serif', SANS = '"Helvetica Neue", Helvetica, Arial, sans-serif', SCRIPT = '"Brush Script MT", "Segoe Script", cursive';
 export const FONTS = [
-  { label: 'Serif (Georgia)', value: 'Georgia, "Times New Roman", serif' },
-  { label: 'Sans (Helvetica)', value: '"Helvetica Neue", Helvetica, Arial, sans-serif' },
-  { label: 'Condensed (Impact)', value: 'Impact, "Arial Narrow", sans-serif' },
-  { label: 'Script (Brush)', value: '"Brush Script MT", "Segoe Script", cursive' },
-  { label: 'Mono (Courier)', value: '"Courier New", Courier, monospace' },
-  { label: 'Slab (Rockwell)', value: 'Rockwell, "Courier New", Georgia, serif' },
-  { label: 'Rounded (Trebuchet)', value: '"Trebuchet MS", Verdana, sans-serif' },
+  { label: 'Serif (Georgia)', family: 'Georgia', value: SERIF },
+  { label: 'Sans (Helvetica)', family: 'Helvetica', value: SANS },
+  { label: 'Condensed (Impact)', family: 'Impact', value: 'Impact, "Arial Narrow", sans-serif' },
+  { label: 'Script (Brush)', family: 'Brush Script MT', value: SCRIPT },
+  { label: 'Mono (Courier)', family: 'Courier New', value: '"Courier New", Courier, monospace' },
+  { label: 'Slab (Rockwell)', family: 'Rockwell', value: 'Rockwell, "Courier New", Georgia, serif' },
+  { label: 'Rounded (Trebuchet)', family: 'Trebuchet MS', value: '"Trebuchet MS", Verdana, sans-serif' },
+  F('Playfair Display', SERIF), F('Libre Baskerville', SERIF), F('Merriweather', SERIF), F('Cinzel', SERIF), F('Abril Fatface', SERIF),
+  F('Montserrat', SANS), F('Open Sans', SANS), F('Lato', SANS), F('Roboto', SANS), F('Raleway', SANS), F('Space Grotesk', SANS),
+  F('Oswald', 'Impact, sans-serif'), F('Bebas Neue', 'Impact, sans-serif'), F('Anton', 'Impact, sans-serif'), F('Bangers', 'Impact, sans-serif'),
+  F('Josefin Sans', SANS), F('Pacifico', SCRIPT), F('Dancing Script', SCRIPT), F('Caveat', SCRIPT), F('Lobster', SCRIPT),
+  F('Permanent Marker', 'cursive'), F('Courier Prime', '"Courier New", monospace'), F('Rubik', SANS),
 ];
+export const WEIGHTS = [[300, 'Light'], [400, 'Regular'], [600, 'Semibold'], [700, 'Bold'], [900, 'Black']];
+/** Default props for a new element of this type (also used by "Reset this item"). */
+export function defaultProps(type) { return JSON.parse(JSON.stringify(DEFAULTS[type] || {})); }
 
 export class ElementLayer {
   constructor(type, props = {}) {
@@ -29,19 +41,20 @@ export class ElementLayer {
     this.opacity = 1;   // 0..1, applied when drawn
     this.base = null;   // size when added ({w,h,size}); Scale % is relative to it
     this.name = type;
+    this.flipX = false; this.flipY = false;   // mirror horizontally / vertically (drawn about the element centre)
   }
   clone() {
     const e = new ElementLayer(this.type, { ...this.props });
-    Object.assign(e, { x: this.x, y: this.y, w: this.w, h: this.h, rotation: this.rotation, view: this.view, visible: this.visible, locked: this.locked, name: this.name, opacity: this.opacity, base: this.base ? { ...this.base } : null });
+    Object.assign(e, { x: this.x, y: this.y, w: this.w, h: this.h, rotation: this.rotation, view: this.view, visible: this.visible, locked: this.locked, name: this.name, opacity: this.opacity, base: this.base ? { ...this.base } : null, flipX: !!this.flipX, flipY: !!this.flipY });
     return e;
   }
   toJSON() {
     const p = { ...this.props }; if (p.image) { p.image = imageToDataURL(p.image); }
-    return { id: this.id, type: this.type, x: this.x, y: this.y, w: this.w, h: this.h, rotation: this.rotation, props: p, view: this.view, visible: this.visible, locked: this.locked, name: this.name, opacity: this.opacity, base: this.base };
+    return { id: this.id, type: this.type, x: this.x, y: this.y, w: this.w, h: this.h, rotation: this.rotation, props: p, view: this.view, visible: this.visible, locked: this.locked, name: this.name, opacity: this.opacity, base: this.base, flipX: !!this.flipX, flipY: !!this.flipY };
   }
   static fromJSON(o) {
     const e = new ElementLayer(o.type, { ...o.props });
-    Object.assign(e, { id: o.id || e.id, x: o.x, y: o.y, w: o.w, h: o.h, rotation: o.rotation || 0, view: o.view || 'front', visible: o.visible !== false, locked: !!o.locked, name: o.name || o.type, opacity: o.opacity ?? 1, base: o.base || null });
+    Object.assign(e, { id: o.id || e.id, x: o.x, y: o.y, w: o.w, h: o.h, rotation: o.rotation || 0, view: o.view || 'front', visible: o.visible !== false, locked: !!o.locked, name: o.name || o.type, opacity: o.opacity ?? 1, base: o.base || null, flipX: !!o.flipX, flipY: !!o.flipY });
     return e;
   }
 }
@@ -171,6 +184,20 @@ function logoSource(el) {
   }
   return im;
 }
+/** Logo pixels with the optional tint applied (props.tint colour at props.tintAmount 0..1). Cached per element. */
+function logoBitmap(el) {
+  const src = logoSource(el); if (!src) return null;
+  const p = el.props, amt = p.tintAmount ?? 0;
+  if (!p.tint || amt <= 0) return src;
+  const key = p.tint + '|' + amt;
+  if (el._tint && el._tint.src === src && el._tint.key === key) return el._tint.canvas;
+  const w = src.naturalWidth || src.width || 1, hh = src.naturalHeight || src.height || 1;
+  const c = mk(w, hh), x = c.getContext('2d');
+  x.drawImage(src, 0, 0);
+  x.globalCompositeOperation = 'source-atop'; x.globalAlpha = Math.min(1, amt); x.fillStyle = p.tint; x.fillRect(0, 0, w, hh);
+  el._tint = { src, key, canvas: c };
+  return c;
+}
 /** Resolves when every SVG/image used by these elements has loaded (call before rasterising / exporting). */
 export async function elementsReady(elements) {
   const ps = [];
@@ -247,6 +274,27 @@ export function createElement(type, props = {}) {
 /** Change props of an element (re-fits text boxes). */
 export function updateElement(el, patch = {}) {
   Object.assign(el.props, patch); el._cache = null; fitElement(el); return el;
+}
+/**
+ * "Reset this item": back to the look a new element of its type gets. Keeps what the item says (its text,
+ * chosen graphic, logo image) and where it sits; clears colours, outline, shadow, tint, flip, rotation, opacity and scale.
+ */
+export function resetElement(el) {
+  const keep = {}; for (const k of ['text', 'graphicId', 'svg', 'image']) if (el.props[k] != null) keep[k] = el.props[k];
+  el.props = { ...defaultProps(el.type), ...keep };
+  Object.assign(el, { rotation: 0, flipX: false, flipY: false, opacity: 1 });
+  el._cache = null; el._tint = null;
+  if (['text', 'embroidery', 'print'].includes(el.type) && el.props.text != null && !el.props.graphicId && !el.props.svg) {
+    fitElement(el); el.base = { w: el.w, h: el.h, size: el.props.size };
+  } else if (el.base) {
+    el.w = el.base.w; el.h = el.base.h;
+  }
+  return el;
+}
+/** A copy of `el` on another view, in the same place with the same look. The caller inserts it into state.elements. */
+export function copyToView(el, view) {
+  const c = el.clone(); c.view = view; c.locked = false; c.name = el.name || el.type;
+  return c;
 }
 
 /* ------------------------------------------------------------------ rendering of one element to a canvas (local space) */
@@ -340,7 +388,7 @@ function renderElement(el, res) {
       break;
     }
     case 'logo': {
-      const im = logoSource(el);
+      const im = logoBitmap(el);
       if (im) { ctx.globalAlpha = p.opacity ?? 1; ctx.drawImage(im, bx, by, bw, bh); } else if (p.image) c._complete = false;
       else { ctx.strokeStyle = '#888'; ctx.setLineDash([6 * res, 4 * res]); ctx.strokeRect(bx, by, bw, bh); ctx.fillStyle = '#888'; ctx.font = `${14 * res}px sans-serif`; ctx.textAlign = 'center'; ctx.fillText('logo', cx, cy); }
       break;
@@ -433,7 +481,7 @@ function renderPatch(ctx, canvas, el, bx, by, bw, bh, res) {
   ctx.save(); patchShapePath(ctx, p.shape, bx, by, bw, bh, e + 4 * res); ctx.setLineDash([3 * res, 2 * res]); ctx.strokeStyle = p.border; ctx.globalAlpha = 0.7; ctx.lineWidth = 1.1 * res; ctx.stroke(); ctx.restore();
   // content
   if (p.graphicId || p.svg) {
-    const fake = { props: { graphicId: p.graphicId, svg: p.svg, colors: p.colors, color: p.color1 } };
+    const fake = { props: { graphicId: p.graphicId, svg: p.svg, colors: p.colors, color: p.color, color2: p.color2, color3: p.color3 } };
     const s = resolveSVG(fake); if (s) { const r = svgImage(s); if (r.ready) ctx.drawImage(r.img, bx + bw * 0.2, by + bh * 0.2, bw * 0.6, bh * 0.6); else canvas._complete = false; }
   } else if (p.text) {
     ctx.save(); ctx.fillStyle = p.textColor; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -468,12 +516,17 @@ export function handlesFor(el, hs = 1) {
 }
 export function drawElements(ctx, elements, view, opts = {}) {
   const { selectedId = null, handles = false, res = 1 } = opts;
+  // shadow sizes are in device pixels, so scale them by the context's own scale (zoom or export scale)
+  const m0 = ctx.getTransform(), k0 = Math.hypot(m0.a, m0.b) || 1;
   for (const el of elements || []) {
     if (!inView(el, view)) continue;
     const r = getRaster(el, res); const pad = r._pad / res;
     ctx.save();
     ctx.translate(el.x, el.y); ctx.rotate(el.rotation * Math.PI / 180);
+    if (el.flipX || el.flipY) ctx.scale(el.flipX ? -1 : 1, el.flipY ? -1 : 1);
     ctx.globalAlpha = el.opacity ?? 1;
+    const sh = el.props.shadow;
+    if (sh && sh.on) { ctx.shadowColor = sh.color || 'rgba(0,0,0,0.4)'; ctx.shadowBlur = (sh.blur || 0) * k0; ctx.shadowOffsetX = (sh.x || 0) * k0; ctx.shadowOffsetY = (sh.y || 0) * k0; }
     ctx.drawImage(r, -el.w / 2 - pad, -el.h / 2 - pad, el.w + pad * 2, el.h + pad * 2);
     ctx.restore();
   }
@@ -570,7 +623,7 @@ function innerSVG(el) {
   const gfx = () => { const s = resolveSVG(el); if (!s) return ''; return s.replace(/<svg[^>]*>/, `<svg x="${-hw}" y="${-hh}" width="${el.w}" height="${el.h}" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">`); };
   switch (el.type) {
     case 'text': return isText ? svgTextBlock(el, p.color) : gfx();
-    case 'logo': { const u = imageToDataURL(p.image); return u ? `<image x="${-hw}" y="${-hh}" width="${el.w}" height="${el.h}" href="${u}" opacity="${p.opacity ?? 1}"/>` : ''; }
+    case 'logo': { const u = p.tint && (p.tintAmount ?? 0) > 0 ? imageToDataURL(logoBitmap(el)) : imageToDataURL(p.image); return u ?`<image x="${-hw}" y="${-hh}" width="${el.w}" height="${el.h}" href="${u}" opacity="${p.opacity ?? 1}"/>` : ''; }
     case 'crest': case 'graphic': return gfx();
     case 'print': return `<g opacity="${p.opacity ?? 0.95}">${isText ? svgTextBlock(el, p.color) : gfx()}</g>`;
     case 'embroidery': {
@@ -588,7 +641,7 @@ function innerSVG(el) {
       const shape = p.shape; let outer, inner; const e = 6;
       const mk2 = (x, y, w, h) => shape === 'round' || shape === 'oval' ? `<ellipse cx="${x + w / 2}" cy="${y + h / 2}" rx="${w / 2}" ry="${h / 2}"` : shape === 'shield' ? `<path d="M${x} ${y + h * .05}H${x + w}V${y + h * .5}Q${x + w} ${y + h * .88} ${x + w / 2} ${y + h}Q${x} ${y + h * .88} ${x} ${y + h * .5}Z"` : `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${Math.min(w, h) * .14}"`;
       let s = mk2(-hw, -hh, el.w, el.h) + ` fill="${p.border}"/>` + mk2(-hw + e, -hh + e, el.w - e * 2, el.h - e * 2) + ` fill="${p.bg}"/>` + mk2(-hw + e + 4, -hh + e + 4, el.w - 2 * e - 8, el.h - 2 * e - 8) + ` fill="none" stroke="${p.border}" stroke-width="1.1" stroke-dasharray="3 2" opacity=".7"/>`;
-      if (p.graphicId || p.svg) { const fake = { props: { graphicId: p.graphicId, svg: p.svg, colors: p.colors, color: p.color1 } }; const g = resolveSVG(fake); if (g) s += g.replace(/<svg[^>]*>/, `<svg x="${-hw * 0.6}" y="${-hh * 0.6}" width="${el.w * 0.6}" height="${el.h * 0.6}" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">`); }
+      if (p.graphicId || p.svg) { const fake = { props: { graphicId: p.graphicId, svg: p.svg, colors: p.colors, color: p.color, color2: p.color2, color3: p.color3 } }; const g = resolveSVG(fake); if (g) s += g.replace(/<svg[^>]*>/, `<svg x="${-hw * 0.6}" y="${-hh * 0.6}" width="${el.w * 0.6}" height="${el.h * 0.6}" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">`); }
       else if (p.text) s += `<text x="0" y="0" dy=".35em" text-anchor="middle" font-family="${xmlEsc(p.font)}" font-weight="700" font-size="${Math.min(el.h * .5, el.w * .7 / Math.max(1, p.text.length * .6)).toFixed(1)}" fill="${p.textColor}">${xmlEsc(p.text)}</text>`;
       return s;
     }
