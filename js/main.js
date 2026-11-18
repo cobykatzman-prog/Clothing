@@ -107,7 +107,7 @@ async function doSave() {
     setStatus('saved', built.now);
   } catch (e) {
     dirty = true;   // the next change retries
-    console.error('Could not save design', e);
+    (SHARED && e.kind ? console.warn : console.error)('Could not save design', e);
     if (SHARED && e.kind) return sharedSaveFailed(e, id, rec);
     const kind = e.quota ? 'full' : 'error', prev = lastStatus;
     setStatus(kind);

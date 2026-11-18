@@ -46,6 +46,11 @@ By default every browser keeps its own designs. If you and a friend want to see 
 
 Then everyone who can log in sees the same designs, and changes appear for the other person within a few seconds. Old designs saved in a single browser can be moved over from the home page.
 
+How it behaves in the studio:
+- The header save indicator says *Saving...*, *Saved to shared library* or *Not saved (offline): will retry*. While offline a backup of your latest work is kept in this browser and sent as soon as the connection is back (or the next time you open the site). Each design keeps its newest 20 saved versions.
+- An open design checks for changes every few seconds. If your friend saved and you have nothing unsaved, their version is loaded quietly. If you both changed it, a banner offers *Load their version* or *Keep mine (save as a copy)*; nothing of yours is overwritten or lost.
+- The home page refreshes about every 20 seconds and shows the connection status next to a *Check connection* button.
+
 Things to know, honestly:
 - **The service_role key is powerful**: it can read and change everything in your Supabase project. Keep it only in Render's environment variables. Never put it in the repo, a chat or the browser. Only this server uses it; the browser never sees it, and the tables are locked so the public Supabase key can read nothing.
 - **Free Supabase projects pause after about a week of inactivity.** If the badge says the project is paused or unreachable, open the Supabase dashboard and press **Restore project**; your data is kept.
