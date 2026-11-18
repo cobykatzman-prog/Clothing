@@ -267,7 +267,6 @@ export function viewTools() {
     });
     doCopy.disabled = !VIEWS.some(n => copyChecks[n].checked);
     reset.disabled = !state.views[state.activeView].base;
-    det.querySelector('summary').textContent = `Copy look to…`;
   };
   subscribe(r => { if (!['render', 'processing', 'busy', 'zoom', 'elements-live'].includes(r)) sync(); });
   pop.addEventListener('change', () => { doCopy.disabled = !VIEWS.some(n => copyChecks[n].checked); });

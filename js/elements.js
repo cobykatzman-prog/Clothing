@@ -508,7 +508,9 @@ export function rasteriseElement(el, scale = 1) { return getRaster(el, scale); }
 export const rasterizeElement = rasteriseElement;
 
 /* ------------------------------------------------------------------ drawing */
-const inView = (el, view) => el.visible !== false && (!el.view || el.view === 'all' || el.view === view);
+/** Drop shadow props: {on, color:'#rrggbb', alpha 0..1, blur px, x px, y px}. Stored as a plain object (replaced, never mutated). */
+const shadowRGBA = sh => { const [r, g, b] = hexToRgb(sh.color || '#000000'); return `rgba(${r},${g},${b},${sh.alpha ?? 0.45})`; };
+const inView =(el, view) => el.visible !== false && (!el.view || el.view === 'all' || el.view === view);
 export function handlesFor(el, hs = 1) {
   const hw = el.w / 2, hh = el.h / 2; const cos = Math.cos(el.rotation * Math.PI / 180), sin = Math.sin(el.rotation * Math.PI / 180);
   const T = (lx, ly) => ({ x: el.x + lx * cos - ly * sin, y: el.y + lx * sin + ly * cos });
@@ -526,7 +528,7 @@ export function drawElements(ctx, elements, view, opts = {}) {
     if (el.flipX || el.flipY) ctx.scale(el.flipX ? -1 : 1, el.flipY ? -1 : 1);
     ctx.globalAlpha = el.opacity ?? 1;
     const sh = el.props.shadow;
-    if (sh && sh.on) { ctx.shadowColor = sh.color || 'rgba(0,0,0,0.4)'; ctx.shadowBlur = (sh.blur || 0) * k0; ctx.shadowOffsetX = (sh.x || 0) * k0; ctx.shadowOffsetY = (sh.y || 0) * k0; }
+    if (sh && sh.on) { ctx.shadowColor = shadowRGBA(sh); ctx.shadowBlur = (sh.blur || 0) * k0; ctx.shadowOffsetX = (sh.x || 0) * k0; ctx.shadowOffsetY = (sh.y || 0) * k0; }
     ctx.drawImage(r, -el.w / 2 - pad, -el.h / 2 - pad, el.w + pad * 2, el.h + pad * 2);
     ctx.restore();
   }
