@@ -3,6 +3,7 @@ import { state, activeView, snapshot, notify, subscribe, touchMask, markFlow } f
 import { SIZE, makeCanvas, clamp } from './util.js';
 import { regionAt } from './segment.js';
 import { drawElements, hitTest, beginDrag, dragTo } from './elements.js';
+import { closeGate, setActivePart, handleElementKey } from './manual.js';
 import { toggleRegion } from './ui-actions.js';
 
 const ACCENT = [79, 70, 229];
@@ -128,6 +129,7 @@ export function createStage(el, wrap) {
   // ---- pointer handling ----
   el.addEventListener('pointerdown', e => {
     el.setPointerCapture(e.pointerId);
+    closeGate();
     const { sx, sy } = pt(e), p = toImage(sx, sy), V = activeView();
     if (state.ui.compare) {
       const split = state.ui.comparePos * W;
@@ -143,7 +145,7 @@ export function createStage(el, wrap) {
     }
     if (tool === 'region') {
       const name = regionAt(V.seg, p.x, p.y);
-      if (name) toggleRegion(name);
+      if (name) { setActivePart(name); toggleRegion(name); }
       else drag = { type: 'pan', sx, sy, px: T.px, py: T.py };
       return;
     }
@@ -152,10 +154,15 @@ export function createStage(el, wrap) {
     if (hit && hit.element) {
       const el0 = hit.element;
       state.selectedId = el0.id;
-      snapshot();
-      drag = { type: hit.handle || 'move', el: el0, d: beginDrag(el0, hit.handle || 'move', p.x, p.y) };
-      notify('selection'); request(); return;
+      notify('selection'); request();
+      // locked elements can be selected but not moved; otherwise the undo snapshot is taken on the first real move
+      if (el0.locked) { drag = { type: 'none' }; return; }
+      drag = { type: hit.handle || 'move', el: el0, snapped: false, d: beginDrag(el0, hit.handle || 'move', p.x, p.y) };
+      return;
     }
+    // no element here: a click on the garment picks that part for the colour panel (dragging still pans)
+    const partName = V.seg ? regionAt(V.seg, p.x, p.y) : null;
+    if (partName) setActivePart(partName);
     if (state.selectedId) { state.selectedId = null; notify('selection'); }
     drag = { type: 'pan', sx, sy, px: T.px, py: T.py };
   });
@@ -177,7 +184,10 @@ export function createStage(el, wrap) {
     if (drag.type === 'pan') { T.px = drag.px + sx - drag.sx; T.py = drag.py + sy - drag.sy; }
     else if (drag.type === 'compare') { state.ui.comparePos = clamp(sx / W, 0.03, 0.97); }
     else if (drag.type === 'brush') { stroke(drag.last, p); drag.last = p; }
-    else if (drag.el) dragTo(drag.d, p.x, p.y);
+    else if (drag.el) {
+      if (!drag.snapped) { snapshot(); drag.snapped = true; }   // one undo step per drag, taken before the first move
+      dragTo(drag.d, p.x, p.y); notify('elements-live');
+    }
     request();
   });
   const end = e => {
@@ -204,9 +214,7 @@ export function createStage(el, wrap) {
   }
   window.addEventListener('keydown', e => {
     if (e.code === 'Space' && !/INPUT|TEXTAREA|SELECT|BUTTON/.test(document.activeElement?.tagName || '')) { spaceDown = true; el.style.cursor = 'grab'; e.preventDefault(); }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && state.selectedId && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '')) {
-      snapshot(); state.elements = state.elements.filter(x => x.id !== state.selectedId); state.selectedId = null; notify('elements'); e.preventDefault();
-    }
+    handleElementKey(e);   // Delete / arrow nudges / Ctrl+D / Esc on the selected element (manual.js)
   });
   window.addEventListener('keyup', e => { if (e.code === 'Space') { spaceDown = false; el.style.cursor = ''; } });
 

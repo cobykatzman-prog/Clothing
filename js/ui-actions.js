@@ -4,6 +4,7 @@ import { SIZE, makeCanvas, cloneCanvas, loadImageToCanvas, debounce, intersectMa
 import { segmentGarment, removeBackground, REGION_NAMES } from './segment.js';
 import { applyShape, DEFAULT_PARAMS, FIT_PRESETS, SLEEVE_PRESETS } from './warp.js';
 import { applyColor, applyFabric } from './fabric.js';
+import { applyParts, partsActive } from './manual.js';
 import { localVariations } from './variations.js';
 import { parsePrompt } from './prompt.js';
 import { requestVariations, generateGarment, aiStatus } from './ai.js';
@@ -44,6 +45,10 @@ export async function recompute(name = state.activeView) {
     }
     if (colorActive(V.color)) {
       canvas = await applyColor(canvas === V.base ? cloneCanvas(canvas) : canvas, lim, V.color);
+      if (tok !== V.job) return;
+    }
+    if (partsActive(V.parts)) {   // per-part colours (manual), after the whole-garment colour
+      canvas = applyParts(canvas === V.base ? cloneCanvas(canvas) : canvas, seg, V.parts);
       if (tok !== V.job) return;
     }
     V.current = canvas; V.seg = seg;
@@ -89,7 +94,7 @@ async function installBase(name, canvas, { sample = null, keepSeg = null, label 
   V.job++;
   V.original = canvas; V.base = canvas; V.baseSeg = seg; V.current = canvas; V.seg = seg;
   V.params = { ...DEFAULT_PARAMS }; V.color = newColor(); V.fabric = { name: null, amount: 0.6 };
-  V.regionSel = []; V.sample = sample;
+  V.regionSel = []; V.sample = sample; V.parts = {};
   const x = V.mask.getContext('2d'); x.clearRect(0, 0, SIZE, SIZE); touchMask(V);
 }
 export async function loadFile(file, viewName = state.activeView) {
@@ -306,7 +311,7 @@ async function bake(canvas, seg, label) {
   const s = seg || await segmentGarment(canvas);
   V.job++;
   V.base = canvas; V.baseSeg = s; V.current = canvas; V.seg = s;
-  V.params = { ...DEFAULT_PARAMS }; V.color = newColor(); V.fabric = { name: null, amount: 0.6 };
+  V.params = { ...DEFAULT_PARAMS }; V.color = newColor(); V.fabric = { name: null, amount: 0.6 }; V.parts = {};
   pushVersion(label);
 }
 export async function acceptVariation(i) {

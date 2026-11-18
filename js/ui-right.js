@@ -4,6 +4,7 @@ import { h, icon, thumbOf } from './util.js';
 import * as A from './ui-actions.js';
 import { section, field } from './ui-left.js';
 import { FABRICS } from './fabric.js';
+import { createPartPanel, createInspector } from './manual.js';
 
 const pretty = s => s.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
 const SLIDERS = [
@@ -80,11 +81,21 @@ export function initRight(root) {
   const tint = h('input', { type: 'color', value: '#c0392b', 'aria-label': 'Tint colour', oninput: e => { A.setColor({ tint: e.target.value, tintAmount: Math.max(S.views[S.activeView].color.tintAmount, 0.5) }); amtSync(); }, onchange: A.endEdit });
   const tintAmt = h('input', { type: 'range', min: 0, max: 100, value: 0, 'aria-label': 'Tint strength', oninput: e => { A.setColor({ tint: S.views[S.activeView].color.tint || tint.value, tintAmount: e.target.value / 100 }); }, onchange: A.endEdit });
   const amtSync = () => { tintAmt.value = Math.round(activeView().color.tintAmount * 100); };
-  const secColor = section(4, 'Colour', 'Shift the garment colour. Highlights and folds are preserved.', [
+  // per-part colour (sleeves, collar, cuffs...) from manual.js
+  const partPanel = createPartPanel();
+  const wholeBody = h('details', { class: 'subdet', open: true },
+    h('summary', { class: 'lbl', tip: 'Colour every part of the garment at once. Parts you colour separately keep their own colour.' }, 'Whole garment'),
     mk('hue', 'Hue', -180, 180, 'Rotate the colour around the colour wheel'), mk('sat', 'Saturation', -100, 100, 'Muted to vivid'), mk('light', 'Lightness', -100, 100, 'Darker to lighter'),
     h('div', { class: 'row gap center' }, field('Tint', tint, 'Pick a colour to blend over the garment'), h('div', { class: 'grow' }, tintAmt)),
-    h('button', { class: 'btn ghost sm', onclick: () => { A.beginEdit(); const V = activeView(); V.color = { hue: 0, sat: 0, light: 0, tint: null, tintAmount: 0.5 }; A.endEdit(); notify('color'); A.recompute(); } }, 'Reset colour'),
-  ], false, 'sec-color');
+    h('button', { class: 'btn ghost sm', onclick: () => { A.beginEdit(); const V = activeView(); V.color = { hue: 0, sat: 0, light: 0, tint: null, tintAmount: 0.5 }; A.endEdit(); notify('color'); A.recompute(); } }, 'Reset whole garment'));
+  const secColor = section(4, 'Colour', 'Click a part of the garment on the canvas, or pick it below, then choose its colour. Folds and shading are kept.', [
+    h('div', { class: 'lbl', tip: 'Garment parts. The swatch shows the colour the part has now.' }, 'Parts'),
+    partPanel.el,
+    wholeBody,
+  ], true, 'sec-color');
+  // selected design element (text, crest, stripes...): colour, size, position, layer order
+  const inspector = createInspector();
+  const secInspector = section('•', 'Selected item', 'Edit the design element you selected on the canvas or in Layers.', inspector.el, true, 'sec-inspector');
 
   // ---- Fabric ----
   const fabBtns = ['none', ...FABRICS].map(n => h('button', { class: 'chip', 'data-f': n, onclick: () => { A.beginEdit(); A.setFabric(n === 'none' ? null : n); A.endEdit(); } }, n === 'none' ? 'Original' : pretty(n)));
@@ -92,7 +103,7 @@ export function initRight(root) {
   const secFabric = section(5, 'Fabric', 'Applies a procedural weave and shading while keeping the original folds and shadows.', [
     h('div', { class: 'chips' }, fabBtns), field('Strength', fabAmt)], false, 'sec-fabric');
 
-  root.append(secDescribe, secPresets, secShape, secColor, secFabric);
+  root.append(secInspector, secDescribe, secPresets, secShape, secColor, secFabric);
 
   function renderCards() {
     const v = S.variations;
@@ -110,6 +121,7 @@ export function initRight(root) {
   }
   function sync(reason) {
     const V = activeView();
+    partPanel.sync();
     for (const [k, { inp, val }] of Object.entries(sliderEls)) { const v = V.params[k] || 0; if (+inp.value !== v) inp.value = v; val.textContent = Math.round(v); }
     for (const [k, { inp, val }] of Object.entries(cEls)) { const v = V.color[k] || 0; if (+inp.value !== v) inp.value = v; val.textContent = Math.round(v); }
     if (V.color.tint) tint.value = V.color.tint; amtSync();

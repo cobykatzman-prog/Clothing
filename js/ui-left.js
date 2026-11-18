@@ -4,6 +4,7 @@ import { h, icon, thumbOf, toast } from './util.js';
 import * as A from './ui-actions.js';
 import { REGION_NAMES } from './segment.js';
 import { createElement, updateElement, GRAPHIC_LIBRARY, FONTS } from './elements.js';
+import { createLayers } from './manual.js';
 import { SAMPLE_KINDS } from './samples.js';
 
 const pretty = s => s.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
@@ -135,9 +136,9 @@ export function initLeft(root) {
     markFlow('refined'); notify('elements');
   }
 
-  // element list & editor
-  const elList = h('div', { class: 'elist' });
-  const secEl = section('•', 'Layers on this view', 'Everything you added. Select one to edit it.', elList, true, 'sec-layers');
+  // layers list (top of the stack first; drag to reorder; the inspector for the selected item is in the right panel)
+  const layers = createLayers();
+  const secEl = section('•', 'Layers on this view', 'Everything you added, top of the stack first. Click to select, drag to reorder.', layers.el, true, 'sec-layers');
   secEl.classList.add('compact');
 
   // ---- 6 References ----
@@ -161,23 +162,6 @@ export function initLeft(root) {
     modeBtns.forEach(b => b.classList.toggle('on', b.dataset.m === S.ui.brushMode));
     brush.value = S.ui.brushSize; brushVal.textContent = S.ui.brushSize + ' px';
     selInfo.textContent = hasMask(V) ? 'Selection active. Only highlighted pixels will change.' : 'Nothing selected yet: the whole garment may change.';
-    // layers
-    const els = S.elements.filter(e => e.view === S.activeView);
-    elList.replaceChildren(...(els.length ? els.map(e => {
-      const row = h('div', { class: 'erow' + (e.id === S.selectedId ? ' on' : ''), onclick: () => { S.selectedId = e.id; S.ui.tool = 'move'; notify('selection'); } },
-        h('span', { class: 'etype' }, e.type), h('span', { class: 'ename' }, e.props?.text || e.name || ''),
-        h('button', { class: 'icon-btn', 'aria-label': 'Toggle visibility', onclick: ev => { ev.stopPropagation(); e.visible = e.visible === false; notify('elements'); } }, icon(e.visible === false ? 'eyeoff' : 'eye', 15)),
-        h('button', { class: 'icon-btn', 'aria-label': 'Delete layer', onclick: ev => { ev.stopPropagation(); A.removeElement(e.id); } }, icon('trash', 15)));
-      return row;
-    }) : [h('div', { class: 'muted small' }, 'Nothing added yet.')]));
-    const sel = A.selectedElement();
-    if (sel && sel.view === S.activeView) {
-      const ed = h('div', { class: 'eedit' });
-      const ck = ['text', 'embroidery', 'print', 'stripe', 'piping'].includes(sel.type) ? 'color' : sel.type === 'patch' ? 'bg' : null;
-      if (sel.props.text != null && !sel.props.graphicId) ed.append(h('input', { type: 'text', value: sel.props.text || '', 'aria-label': 'Edit text', oninput: e => { updateElement(sel, { text: e.target.value }); notify('elements-live'); } }));
-      if (ck) ed.append(field('Colour', h('input', { type: 'color', value: /^#[0-9a-f]{6}$/i.test(sel.props[ck] || '') ? sel.props[ck] : '#1d1d1f', oninput: e => { updateElement(sel, { [ck]: e.target.value }); notify('elements-live'); } })));
-      elList.append(ed);
-    }
     refGrid.replaceChildren(...S.references.map((c, i) => h('div', { class: 'ref' }, thumbOf(c, 64, '#f3f2ef'), h('button', { class: 'x', 'aria-label': 'Remove reference', onclick: () => A.removeReference(i) }, icon('x', 12)))));
   }
   subscribe(r => { if (r !== 'render' && r !== 'zoom' && r !== 'processing' && r !== 'busy' && r !== 'elements-live') sync(r); });

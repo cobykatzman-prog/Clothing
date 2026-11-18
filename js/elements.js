@@ -26,20 +26,22 @@ export class ElementLayer {
     this.view = 'front'; // 'front'|'back'|'side'|'detail'|'all'
     this.visible = true;
     this.locked = false;
+    this.opacity = 1;   // 0..1, applied when drawn
+    this.base = null;   // size when added ({w,h,size}); Scale % is relative to it
     this.name = type;
   }
   clone() {
     const e = new ElementLayer(this.type, { ...this.props });
-    Object.assign(e, { x: this.x, y: this.y, w: this.w, h: this.h, rotation: this.rotation, view: this.view, visible: this.visible, locked: this.locked, name: this.name });
+    Object.assign(e, { x: this.x, y: this.y, w: this.w, h: this.h, rotation: this.rotation, view: this.view, visible: this.visible, locked: this.locked, name: this.name, opacity: this.opacity, base: this.base ? { ...this.base } : null });
     return e;
   }
   toJSON() {
     const p = { ...this.props }; if (p.image) { p.image = imageToDataURL(p.image); }
-    return { id: this.id, type: this.type, x: this.x, y: this.y, w: this.w, h: this.h, rotation: this.rotation, props: p, view: this.view, visible: this.visible, locked: this.locked, name: this.name };
+    return { id: this.id, type: this.type, x: this.x, y: this.y, w: this.w, h: this.h, rotation: this.rotation, props: p, view: this.view, visible: this.visible, locked: this.locked, name: this.name, opacity: this.opacity, base: this.base };
   }
   static fromJSON(o) {
     const e = new ElementLayer(o.type, { ...o.props });
-    Object.assign(e, { id: o.id || e.id, x: o.x, y: o.y, w: o.w, h: o.h, rotation: o.rotation || 0, view: o.view || 'front', visible: o.visible !== false, locked: !!o.locked, name: o.name || o.type });
+    Object.assign(e, { id: o.id || e.id, x: o.x, y: o.y, w: o.w, h: o.h, rotation: o.rotation || 0, view: o.view || 'front', visible: o.visible !== false, locked: !!o.locked, name: o.name || o.type, opacity: o.opacity ?? 1, base: o.base || null });
     return e;
   }
 }
@@ -239,6 +241,7 @@ export function createElement(type, props = {}) {
   }
   if (props.w) el.w = props.w; if (props.h) el.h = props.h;
   delete p.w; delete p.h;
+  el.base = { w: el.w, h: el.h, size: p.size };
   return el;
 }
 /** Change props of an element (re-fits text boxes). */
@@ -470,6 +473,7 @@ export function drawElements(ctx, elements, view, opts = {}) {
     const r = getRaster(el, res); const pad = r._pad / res;
     ctx.save();
     ctx.translate(el.x, el.y); ctx.rotate(el.rotation * Math.PI / 180);
+    ctx.globalAlpha = el.opacity ?? 1;
     ctx.drawImage(r, -el.w / 2 - pad, -el.h / 2 - pad, el.w + pad * 2, el.h + pad * 2);
     ctx.restore();
   }
@@ -594,7 +598,7 @@ function innerSVG(el) {
 /** Editable SVG fragment: one <g> per element, positioned with translate/rotate. */
 export function elementsToSVG(elements, view, size = SIZE, opts = {}) {
   const body = (elements || []).filter(e => inView(e, view)).map(el =>
-    `<g id="${el.id}" data-type="${el.type}" data-name="${xmlEsc(el.name || el.type)}" transform="translate(${el.x.toFixed(2)} ${el.y.toFixed(2)}) rotate(${el.rotation.toFixed(2)})">${innerSVG(el)}</g>`).join('\n');
+    `<g id="${el.id}" data-type="${el.type}" data-name="${xmlEsc(el.name || el.type)}" transform="translate(${el.x.toFixed(2)} ${el.y.toFixed(2)}) rotate(${el.rotation.toFixed(2)})"${el.opacity != null && el.opacity < 1 ? ` opacity="${el.opacity}"` : ''}>${innerSVG(el)}</g>`).join('\n');
   if (opts.fragment) return body;
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${size}" height="${size}" viewBox="0 0 ${SIZE} ${SIZE}">\n${body}\n</svg>`;
 }

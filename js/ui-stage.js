@@ -3,6 +3,7 @@ import { state, VIEWS, VIEW_LABELS, activeView, subscribe, notify } from './stat
 import { h, icon } from './util.js';
 import * as A from './ui-actions.js';
 import { createStage } from './canvas.js';
+import { stageHint } from './manual.js';
 
 export function initStage(root) {
   const S = state;
@@ -39,6 +40,9 @@ export function initStage(root) {
     h('span', { class: 'sep' }),
     act('undo', 'Undo', () => A.undo()), act('redo', 'Redo', () => A.redo()));
 
+  // short, context-sensitive hint over the canvas (what the current tool / selection can do)
+  const hintEl = h('div', { class: 'stage-hint', id: 'stage-hint', role: 'status', style: { position: 'absolute', left: '12px', bottom: '10px', maxWidth: 'calc(100% - 24px)', pointerEvents: 'none', background: 'rgba(255,255,255,.9)', color: '#4b4b55', fontSize: '12px', padding: '6px 10px', borderRadius: '8px', boxShadow: '0 1px 4px rgba(0,0,0,.08)' }, hidden: true });
+  wrap.append(hintEl);
   root.append(h('div', { class: 'stage-top' }, tabs, tools), wrap);
   stage = createStage(cv, wrap);
   window.__stage = stage;
@@ -57,6 +61,8 @@ export function initStage(root) {
     zoomLbl.textContent = Math.round(stage.zoom * 100) + '%';
     if (r === 'loaded') stage.fit();
     cv.style.cursor = S.ui.tool === 'brush' ? 'none' : '';
+    const hint = stageHint();
+    hintEl.hidden = !hint || !V.current; hintEl.textContent = hint;
     stage.draw();
   }
   subscribe(sync); sync();
