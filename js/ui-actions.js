@@ -99,7 +99,7 @@ export async function loadFile(file, viewName = state.activeView) {
     let c = await loadImageToCanvas(file);
     if (!hasTransparentBorder(c)) { try { c = await removeBackground(c); } catch (e) { console.warn('bg removal failed', e); } }
     await installBase(viewName, c);
-    if (viewName === 'front' && !state.name.trim() || state.name === 'Untitled design') state.name = (file.name || 'My design').replace(/\.[^.]+$/, '');
+    if (state.name === 'Untitled design') state.name = (file.name || 'My design').replace(/\.[^.]+$/, '');
     state.activeView = viewName; state.variations = null;
     pushVersion('Uploaded ' + viewName);
     notify('loaded');
@@ -107,15 +107,15 @@ export async function loadFile(file, viewName = state.activeView) {
   } catch (e) { toast(e.message, 'error'); } finally { done(); }
 }
 export function drawSample(kind, view, opts) { return sampleGarment(kind, view, opts || {}); }
-export async function loadSample(kind = 'tee', opts = {}, viewName = null) {
+export async function loadSample(kind = 'tee', opts = null, viewName = null) {
   const done = busy('Making a sample garment…');
   try {
     await tick();
     snapshot();
-    const spec = { kind, color: opts.color || '#6f8fb5', stripe: opts.stripe ?? false };
+    const spec = opts ? { kind, color: opts.color || '#6f8fb5', stripe: opts.stripe ?? false } : { kind, showpiece: true };
     const names = viewName ? [viewName] : ['front', 'back'];
     for (const n of names) {
-      const c = drawSample(kind, n, { color: spec.color, stripe: spec.stripe });
+      const c = drawSample(kind, n, spec.showpiece ? undefined : { color: spec.color, stripe: spec.stripe });
       await installBase(n, c, { sample: spec });
     }
     if (!viewName) { state.activeView = 'front'; state.name = 'Sample ' + ({ tee: 't-shirt', longSleeve: 'long-sleeve tee', polo: 'polo', hoodie: 'hoodie' }[kind] || kind); }
@@ -129,7 +129,7 @@ export async function ensureView(name) {
   const V = state.views[name];
   if (V.base) return;
   const src = VIEWS.map(n => state.views[n].sample).find(Boolean);
-  if (src) await loadSample(src.kind, src, name);
+  if (src) await loadSample(src.kind, src.showpiece ? null : src, name);
 }
 export async function removeBg() {
   const V = activeView(); if (!V.base) return;

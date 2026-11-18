@@ -3,7 +3,7 @@ import { state, activeView, subscribe, notify, snapshot, markFlow, hasMask } fro
 import { h, icon, thumbOf, toast } from './util.js';
 import * as A from './ui-actions.js';
 import { REGION_NAMES } from './segment.js';
-import { createElement, GRAPHIC_LIBRARY } from './elements.js';
+import { createElement, updateElement, GRAPHIC_LIBRARY, FONTS } from './elements.js';
 import { SAMPLE_KINDS } from './samples.js';
 
 const pretty = s => s.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
@@ -80,20 +80,22 @@ export function initLeft(root) {
 
   // ---- 4 Text ----
   const txt = h('input', { type: 'text', value: 'ATHENS', maxlength: 40, 'aria-label': 'Text to add' });
-  const font = h('select', { 'aria-label': 'Font' }, ...['Georgia, serif', 'Impact, sans-serif', '"Courier New", monospace', 'system-ui, sans-serif', '"Brush Script MT", cursive'].map((f, i) => h('option', { value: f }, ['Serif', 'Bold block', 'Typewriter', 'Clean sans', 'Script'][i])));
+  const font = h('select', { 'aria-label': 'Font' }, ...FONTS.map(f => h('option', { value: f.value }, f.label)));
   const tcol = h('input', { type: 'color', value: '#1d1d1f', 'aria-label': 'Text colour' });
   const sec4 = section(4, 'Add text', 'Adds editable text. Drag it on the canvas; use the corner handles to resize and the top handle to rotate.', [
     txt, h('div', { class: 'row gap center' }, font, tcol),
-    h('button', { class: 'btn primary sm', onclick: () => addEl('text', { text: txt.value || 'Text', color: tcol.value, fontFamily: font.value, font: font.value }) }, icon('type', 15), 'Add text'),
+    h('button', { class: 'btn primary sm', onclick: () => addEl('text', { text: txt.value || 'Text', color: tcol.value, font: font.value }) }, icon('type', 15), 'Add text'),
   ], false, 'sec-text');
 
   // ---- 5 Graphics ----
-  const lib = Array.isArray(GRAPHIC_LIBRARY) ? GRAPHIC_LIBRARY : Object.entries(GRAPHIC_LIBRARY || {}).map(([k, v]) => (typeof v === 'string' ? { id: k, name: k, svg: v } : { id: k, name: v.name || k, ...v }));
+  const lib = GRAPHIC_LIBRARY;
   const gcol = h('input', { type: 'color', value: '#c0392b', 'aria-label': 'Trim colour' });
   const libGrid = h('div', { class: 'gfx' }, lib.map(g => {
-    const svg = g.svg || '';
-    const b = h('button', { class: 'gfx-item', tip: pretty(String(g.name || g.id)), onclick: () => addEl(g.type || 'graphic', { svg, key: g.id, id: g.id, name: g.name, color: gcol.value }) });
-    b.innerHTML = svg || '<span>?</span>';
+    const b = h('button', { class: 'gfx-item', tip: g.name, onclick: () => {
+      const type = g.category === 'crest' ? 'crest' : g.category === 'patch' ? 'patch' : 'graphic';
+      addEl(type, g.category === 'stripes' ? { graphicId: g.id, w: 360, h: 170 } : { graphicId: g.id });
+    } });
+    b.innerHTML = (g.svg || '').replace(/\{\{(c\d)\}\}/g, (_, k) => g.colors?.[k] || '#888');
     return b;
   }));
   const sec5 = section(5, 'Add graphics', 'Crests, stripes, piping and patches are vector shapes you can move, resize and recolour.', [
@@ -102,16 +104,15 @@ export function initLeft(root) {
     h('div', { class: 'chips' },
       h('button', { class: 'chip', onclick: () => addEl('stripe', { color: gcol.value }) }, 'Stripes'),
       h('button', { class: 'chip', onclick: () => addEl('piping', { color: gcol.value }) }, 'Piping'),
-      h('button', { class: 'chip', onclick: () => addEl('patch', { color: gcol.value }) }, 'Patch')),
+      h('button', { class: 'chip', onclick: () => addEl('patch', { bg: gcol.value }) }, 'Patch')),
   ], false, 'sec-graphics');
   function addEl(type, props) {
     const V = activeView();
     if (!V.current) { toast('Load a garment first.', 'info'); return; }
     snapshot();
-    const el = createElement(type, props);
-    el.view = S.activeView;
     const b = V.seg?.bbox;
-    if (b) { el.x = b.x + b.w / 2; el.y = b.y + b.h * (type === 'text' ? 0.45 : 0.4); }
+    const pos = b ? { x: b.x + b.w / 2, y: b.y + b.h * (type === 'text' ? 0.45 : 0.4) } : {};
+    const el = createElement(type, { ...props, ...pos, view: S.activeView });
     S.elements.push(el); S.selectedId = el.id; S.ui.tool = 'move';
     markFlow('refined'); notify('elements');
   }
@@ -131,9 +132,10 @@ export function initLeft(root) {
 
   root.append(sec1, sec2, sec3, sec4, sec5, secEl, sec6);
 
-  function sync() {
+  function sync(reason) {
     const V = activeView();
     const has = !!V.base;
+    if (reason === 'loaded') { document.getElementById('sec-upload').open = false; document.getElementById('sec-select').open = true; }
     viewHint.textContent = has ? `Editing the ${state.activeView} view. Use the tabs above the canvas for other views.` : `Uploading to the ${state.activeView} view.`;
     root.querySelector('#btn-removebg').disabled = !has;
     root.querySelectorAll('.tool').forEach(b => b.classList.toggle('on', b.dataset.tool === S.ui.tool));
@@ -145,7 +147,7 @@ export function initLeft(root) {
     const els = S.elements.filter(e => e.view === S.activeView);
     elList.replaceChildren(...(els.length ? els.map(e => {
       const row = h('div', { class: 'erow' + (e.id === S.selectedId ? ' on' : ''), onclick: () => { S.selectedId = e.id; S.ui.tool = 'move'; notify('selection'); } },
-        h('span', { class: 'etype' }, e.type), h('span', { class: 'ename' }, e.props?.text || e.props?.name || e.props?.key || ''),
+        h('span', { class: 'etype' }, e.type), h('span', { class: 'ename' }, e.props?.text || e.name || ''),
         h('button', { class: 'icon-btn', 'aria-label': 'Toggle visibility', onclick: ev => { ev.stopPropagation(); e.visible = e.visible === false; notify('elements'); } }, icon(e.visible === false ? 'eyeoff' : 'eye', 15)),
         h('button', { class: 'icon-btn', 'aria-label': 'Delete layer', onclick: ev => { ev.stopPropagation(); A.removeElement(e.id); } }, icon('trash', 15)));
       return row;
@@ -153,13 +155,14 @@ export function initLeft(root) {
     const sel = A.selectedElement();
     if (sel && sel.view === S.activeView) {
       const ed = h('div', { class: 'eedit' });
-      if (sel.type === 'text') ed.append(h('input', { type: 'text', value: sel.props.text || '', 'aria-label': 'Edit text', oninput: e => { sel.props.text = e.target.value; notify('elements-live'); } }));
-      ed.append(field('Colour', h('input', { type: 'color', value: /^#[0-9a-f]{6}$/i.test(sel.props.color || '') ? sel.props.color : '#1d1d1f', oninput: e => { sel.props.color = e.target.value; notify('elements-live'); } })));
+      const ck = ['text', 'embroidery', 'print', 'stripe', 'piping'].includes(sel.type) ? 'color' : sel.type === 'patch' ? 'bg' : null;
+      if (sel.props.text != null && !sel.props.graphicId) ed.append(h('input', { type: 'text', value: sel.props.text || '', 'aria-label': 'Edit text', oninput: e => { updateElement(sel, { text: e.target.value }); notify('elements-live'); } }));
+      if (ck) ed.append(field('Colour', h('input', { type: 'color', value: /^#[0-9a-f]{6}$/i.test(sel.props[ck] || '') ? sel.props[ck] : '#1d1d1f', oninput: e => { updateElement(sel, { [ck]: e.target.value }); notify('elements-live'); } })));
       elList.append(ed);
     }
     refGrid.replaceChildren(...S.references.map((c, i) => h('div', { class: 'ref' }, thumbOf(c, 64, '#f3f2ef'), h('button', { class: 'x', 'aria-label': 'Remove reference', onclick: () => A.removeReference(i) }, icon('x', 12)))));
   }
-  subscribe(r => { if (r !== 'render' && r !== 'zoom' && r !== 'processing' && r !== 'busy' && r !== 'elements-live') sync(); });
+  subscribe(r => { if (r !== 'render' && r !== 'zoom' && r !== 'processing' && r !== 'busy' && r !== 'elements-live') sync(r); });
   sync();
   return { sync };
 }

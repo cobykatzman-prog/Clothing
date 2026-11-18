@@ -2,7 +2,7 @@
 import { state, activeView, snapshot, notify, subscribe, touchMask, markFlow } from './state.js';
 import { SIZE, makeCanvas, clamp } from './util.js';
 import { regionAt } from './segment.js';
-import { drawElements, hitTest } from './elements.js';
+import { drawElements, hitTest, beginDrag, dragTo } from './elements.js';
 import { toggleRegion } from './ui-actions.js';
 
 const ACCENT = [79, 70, 229];
@@ -71,9 +71,9 @@ export function createStage(el, wrap) {
     ctx.imageSmoothingQuality = 'high';
     if (V.current) {
       ctx.drawImage(V.current, 0, 0);
-      if (state.ui.showMask && V.mask) { ctx.globalAlpha = 0.5; ctx.drawImage(V.mask, 0, 0); ctx.globalAlpha = 1; }
+      if (state.ui.showMask && V.mask) { ctx.globalAlpha = 0.42; ctx.drawImage(V.mask, 0, 0); ctx.globalAlpha = 1; }
       if (state.ui.tool === 'region' && hoverRegion && V.seg?.regions?.[hoverRegion]) ctx.drawImage(tinted(V.seg.regions[hoverRegion], 0.35), 0, 0);
-      drawElements(ctx, state.elements, state.activeView, { selectedId: state.selectedId, handles: state.ui.tool === 'move' });
+      drawElements(ctx, state.elements, state.activeView, { selectedId: state.selectedId, handles: state.ui.tool === 'move', handleScale: 1 / T.zoom });
     }
     // viewport border
     ctx.lineWidth = 1 / T.zoom; ctx.strokeStyle = 'rgba(0,0,0,.08)'; ctx.strokeRect(0, 0, SIZE, SIZE);
@@ -124,6 +124,7 @@ export function createStage(el, wrap) {
     touchMask(V);
   }
 
+  const hitOpts = () => ({ selectedId: state.selectedId, handleScale: 1 / T.zoom, handleSize: 14 / T.zoom });
   // ---- pointer handling ----
   el.addEventListener('pointerdown', e => {
     el.setPointerCapture(e.pointerId);
@@ -147,12 +148,12 @@ export function createStage(el, wrap) {
       return;
     }
     // move tool: elements first, then pan
-    const hit = hitTest(state.elements, state.activeView, p.x, p.y);
+    const hit = hitTest(state.elements, state.activeView, p.x, p.y, hitOpts());
     if (hit && hit.element) {
       const el0 = hit.element;
       state.selectedId = el0.id;
       snapshot();
-      drag = { type: hit.handle || 'move', el: el0, p0: p, s: { x: el0.x, y: el0.y, w: el0.w, h: el0.h, rot: el0.rotation || 0 } };
+      drag = { type: hit.handle || 'move', el: el0, d: beginDrag(el0, hit.handle || 'move', p.x, p.y) };
       notify('selection'); request(); return;
     }
     if (state.selectedId) { state.selectedId = null; notify('selection'); }
@@ -167,7 +168,7 @@ export function createStage(el, wrap) {
         const V = activeView(); const n = V.seg ? regionAt(V.seg, p.x, p.y) : null;
         if (n !== hoverRegion) { hoverRegion = n; el.style.cursor = n ? 'pointer' : 'default'; }
       } else if (state.ui.tool === 'move' && activeView().current) {
-        const hit = hitTest(state.elements, state.activeView, p.x, p.y);
+        const hit = hitTest(state.elements, state.activeView, p.x, p.y, hitOpts());
         el.style.cursor = !hit ? (spaceDown ? 'grab' : 'default') : hit.handle === 'rotate' ? 'alias' : hit.handle?.startsWith('scale') ? 'nwse-resize' : 'move';
       }
       if (state.ui.compare) el.style.cursor = Math.abs(sx - state.ui.comparePos * W) < 20 ? 'ew-resize' : el.style.cursor;
@@ -176,18 +177,7 @@ export function createStage(el, wrap) {
     if (drag.type === 'pan') { T.px = drag.px + sx - drag.sx; T.py = drag.py + sy - drag.sy; }
     else if (drag.type === 'compare') { state.ui.comparePos = clamp(sx / W, 0.03, 0.97); }
     else if (drag.type === 'brush') { stroke(drag.last, p); drag.last = p; }
-    else if (drag.el) {
-      const el0 = drag.el, s = drag.s;
-      if (drag.type === 'move') { el0.x = s.x + p.x - drag.p0.x; el0.y = s.y + p.y - drag.p0.y; }
-      else if (drag.type === 'rotate') {
-        const a0 = Math.atan2(drag.p0.y - s.y, drag.p0.x - s.x), a1 = Math.atan2(p.y - s.y, p.x - s.x);
-        el0.rotation = s.rot + (a1 - a0) * ROT_UNIT;
-      } else if (drag.type.startsWith('scale')) {
-        const d0 = Math.hypot(drag.p0.x - s.x, drag.p0.y - s.y) || 1, d1 = Math.hypot(p.x - s.x, p.y - s.y);
-        const f = clamp(d1 / d0, 0.1, 12);
-        el0.w = s.w * f; el0.h = s.h * f;
-      }
-    }
+    else if (drag.el) dragTo(drag.d, p.x, p.y);
     request();
   });
   const end = e => {
@@ -235,6 +225,3 @@ export function createStage(el, wrap) {
   resize(); api.fit();
   return api;
 }
-// rotation unit used by elements.js (set to 1 for degrees, 180/PI-less radians => 1 for radians). Adjusted by main if needed.
-export let ROT_UNIT = 180 / Math.PI;
-export function setRotationUnit(u) { ROT_UNIT = u; }

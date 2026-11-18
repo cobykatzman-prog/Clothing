@@ -52,6 +52,7 @@ export function hasMask(v = activeView()) { return !maskIsEmpty(v.mask); }
 
 // ---- snapshots ----
 export function cloneElement(e) {
+  if (typeof e.clone === 'function') { const c = e.clone(); c.id = e.id; return c; }
   const c = Object.assign(Object.create(Object.getPrototypeOf(e)), e);
   c.props = { ...(e.props || {}) };
   return c;

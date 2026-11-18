@@ -44,7 +44,7 @@ export function initBottom(root) {
     item('Design sheet', 'Specs, swatches, all views', async () => {
       const views = {}; for (const n of VIEWS) if (S.views[n].current) views[n] = S.views[n].current;
       const params = {}; for (const n of VIEWS) params[n] = { ...S.views[n].params };
-      const blob = await exportDesignSheet({ views, elements: S.elements, params: params[S.activeView], paramsByView: params, notes: S.ui.notes || S.ui.prompt || '', name: S.name });
+      const blob = await exportDesignSheet({ views, elements: S.elements, params: params[S.activeView], paramsByView: params, notes: S.ui.notes || S.ui.prompt || '', name: S.name, fabric: V().fabric.name });
       download(blob, `${slug()}-design-sheet.png`);
     }));
   const expB = h('button', { class: 'btn primary', id: 'btn-export', 'aria-haspopup': 'menu', onclick: e => { e.stopPropagation(); menu.hidden = !menu.hidden; } }, icon('download'), 'Export', icon('chevron', 14));

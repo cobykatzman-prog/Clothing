@@ -125,7 +125,7 @@ const ICONS = {
   layers: 'M12 3l9 5-9 5-9-5zM3 13l9 5 9-5',
   type: 'M5 6V4h14v2M12 4v16M9 20h6',
   chevron: 'M6 9l6 6 6-6',
-  help: 'M9.5 9a2.5 2.5 0 115 0c0 1.7-2.5 2-2.5 4M12 17v.01',
+  help: 'M12 3a9 9 0 100 18 9 9 0 000-18zM9.5 9.5a2.5 2.5 0 115 0c0 1.7-2.5 2-2.5 4M12 17v.01',
   scissors: 'M6 3a3 3 0 100 6 3 3 0 000-6zM6 15a3 3 0 100 6 3 3 0 000-6zM8.5 8L20 19M8.5 16L20 5',
 };
 export function icon(name, size = 18) {
