@@ -215,18 +215,32 @@ export function makeCalibration(refSeg, { kind = 'tee', size = 'M', manual = nul
   if (!raw || !(raw.chest > 1)) return cal;
   const s = chart.chest / raw.chest;
   cal.s = s; cal.sy = s; cal.ss = s;
+  // Calibrate each physical axis independently to the selected size chart. Do not use
+  // broad percentage thresholds here: that made the same selected size report different
+  // body and sleeve lengths depending on the proportions of the source image.
   if (raw.length > 1 && chart.length) {
-    const r = raw.length * s / chart.length;
-    if (r < 0.75 || r > 1.3) { cal.sy = chart.length / raw.length; cal.adjusted.push('length'); }
+    cal.sy = chart.length / raw.length;
+    if (Math.abs(raw.length * s / chart.length - 1) > 0.05) cal.adjusted.push('length');
   }
   const sl = Object.values(raw.sleeves);
   if (sl.length && chart.sleeve) {
-    const len = sl.reduce((a, q) => a + q.len, 0) / sl.length, r = len * s / chart.sleeve;
-    if (r < 0.7 || r > 1.4) { cal.ss = chart.sleeve / len; cal.adjusted.push('sleeve'); }
+    const len = sl.reduce((a, q) => a + q.len, 0) / sl.length;
+    if (len > 1) {
+      cal.ss = chart.sleeve / len;
+      if (Math.abs(len * s / chart.sleeve - 1) > 0.05) cal.adjusted.push('sleeve');
+    }
   }
+  // A manual measurement must only change its own axis. Multiplying all three scales
+  // caused entering a body length to silently change chest width and sleeve length too.
   if (manual && CALIBRATE_KEYS.includes(manual.key) && manual.cm > 0) {
     const v = measureGarment(refSeg, cal)[manual.key];
-    if (v > 0) { const f = manual.cm / v; cal.s *= f; cal.sy *= f; cal.ss *= f; cal.manual = { key: manual.key, cm: manual.cm }; cal.mode = 'manual'; }
+    if (v > 0) {
+      const f = manual.cm / v;
+      if (manual.key === 'length') cal.sy *= f;
+      else cal.s *= f;
+      cal.manual = { key: manual.key, cm: manual.cm };
+      cal.mode = 'manual';
+    }
   }
   return cal;
 }
