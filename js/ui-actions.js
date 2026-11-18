@@ -186,38 +186,45 @@ export async function generateFromPrompt(text, { defaultKind = 'tee', defaultCol
   }
   if (generating) return { ok: false, message: 'Already generating, please wait.' };
   generating = true;
-  let note = '';
-  const spec = parseGarmentText(prompt, { defaultKind, defaultColor, addStripes });
-  if (useAi()) {   // AI makes the front; matching procedural views use the same garment specification.
-    const r = await generateWithAi(prompt, spec, { defaultKind, defaultColor, addStripes });
-    if (r.result) { generating = false; return r.result; }
-    if (r.cancelled) { generating = false; return { ok: false, message: 'Cancelled. Nothing was changed.' }; }
-    note = 'The built-in engine was used instead.';
-  }
-  const done = busy('Generating garment…');
   try {
-    await tick();
-    const views = makeGarmentViews(spec);
-    snapshot();
-    for (const v of GEN_VIEWS) {
-      await installBase(v, views[v], { sample: spec.sample });
-      applyGarmentLook(state.views[v], spec);
+    let note = '';
+    const spec = parseGarmentText(prompt, { defaultKind, defaultColor, addStripes });
+    if (useAi()) {   // AI makes the front; matching procedural views use the same garment specification.
+      const r = await generateWithAi(prompt, spec, { defaultKind, defaultColor, addStripes });
+      if (r.result) return r.result;
+      if (r.cancelled) return { ok: false, message: 'Cancelled. Nothing was changed.' };
+      note = 'The built-in engine was used instead.';
     }
-    for (const v of GEN_VIEWS) await recompute(v);
-    state.activeView = 'front';
-    state.variations = null;
-    state.name = spec.title;
-    pushVersion('Generated');
-    markFlow('generated'); notify('loaded');
-    const message = `Generated: ${spec.summary}. Front, back, side and detail are ready to edit.`;
-    toast(note ? 'AI was not available, so the built-in engine made this garment. Front, back, side and detail are ready to edit.' : 'Generated. Front, back, side and detail are ready to edit.', 'ok', 4500);
-    return { ok: true, message: note ? `${message} ${note}` : message, spec };
+    const done = busy('Generating garment…');
+    try {
+      await tick();
+      const views = makeGarmentViews(spec);
+      snapshot();
+      for (const v of GEN_VIEWS) {
+        await installBase(v, views[v], { sample: spec.sample });
+        applyGarmentLook(state.views[v], spec);
+      }
+      for (const v of GEN_VIEWS) await recompute(v);
+      state.activeView = 'front';
+      state.variations = null;
+      state.name = spec.title;
+      pushVersion('Generated');
+      markFlow('generated'); notify('loaded');
+      const message = `Generated: ${spec.summary}. Front, back, side and detail are ready to edit.`;
+      toast(note ? 'AI was not available, so the built-in engine made this garment. Front, back, side and detail are ready to edit.' : 'Generated. Front, back, side and detail are ready to edit.', 'ok', 4500);
+      return { ok: true, message: note ? `${message} ${note}` : message, spec };
+    } catch (e) {
+      console.error(e);
+      const msg = 'That garment could not be generated. Try a simpler description, such as "red hoodie", or pick a sample.';
+      toast(msg, 'error', 5000);
+      return { ok: false, message: msg };
+    } finally { done(); }
   } catch (e) {
     console.error(e);
-    const msg = 'That garment could not be generated. Try a simpler description, such as "red hoodie", or pick a sample.';
+    const msg = 'The generator hit a problem. Please try again with a simpler garment description.';
     toast(msg, 'error', 5000);
     return { ok: false, message: msg };
-  } finally { generating = false; done(); }
+  } finally { generating = false; }
 }
 
 // AI "Generate garment": the server returns one picture, which becomes the front view (segmented like an upload).
