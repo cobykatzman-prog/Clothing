@@ -8,7 +8,10 @@ import { applyParts, partsActive } from './manual.js';
 import { localVariations } from './variations.js';
 import { parsePrompt } from './prompt.js';
 import { sampleGarment } from './samples.js';
+import { clubEliteViews } from './samples-club.js';
 import { parseGarmentText, makeGarmentViews, GEN_VIEWS } from './generate.js';
+import { aiGenerate, AiError, useAi } from './ai.js';
+import { startTask } from './ai-ui.js';
 
 // ---------- busy overlay ----------
 export function busy(msg = 'Working…') {
@@ -138,6 +141,19 @@ export async function loadSample(kind = 'tee', opts = null, viewName = null) {
     notify('loaded');
   } catch (e) { console.error(e); toast('The sample could not be drawn. Reload the page and try again.', 'error', 5000); } finally { done(); }
 }
+/** The 'Club Élite' test shirt: a photo-like bitmap with the artwork baked in, both views loaded the same way an upload would be. */
+export async function loadClubSample() {
+  const done = busy('Making the Club Élite test shirt…');
+  try {
+    await tick();
+    snapshot();
+    const v = clubEliteViews();
+    for (const n of ['front', 'back']) await installBase(n, v[n], { sample: null });
+    state.activeView = 'front'; state.name = 'Club Élite test shirt'; state.variations = null;
+    pushVersion('Club Élite test shirt');
+    notify('loaded');
+  } catch (e) { console.error(e); toast('The test shirt could not be drawn. Reload the page and try again.', 'error', 5000); } finally { done(); }
+}
 /** Switching to an empty tab of a sample design builds the matching view automatically */
 export async function ensureView(name) {
   const V = state.views[name];
@@ -168,6 +184,13 @@ export async function generateFromPrompt(text, { defaultKind = 'tee' } = {}) {
   }
   if (generating) return { ok: false, message: 'Already generating, please wait.' };
   generating = true;
+  let note = '';
+  if (useAi()) {   // AI engine: one front-view image from the server; any AI failure falls back to the offline generator below
+    const r = await generateWithAi(prompt);
+    if (r.result) { generating = false; return r.result; }
+    if (r.cancelled) { generating = false; return { ok: false, message: 'Cancelled. Nothing was changed.' }; }
+    note = 'The built-in engine was used instead.';
+  }
   const done = busy('Generating garment…');
   try {
     await tick();
@@ -185,14 +208,48 @@ export async function generateFromPrompt(text, { defaultKind = 'tee' } = {}) {
     pushVersion('Generated');
     markFlow('generated'); notify('loaded');
     const message = `Generated: ${spec.summary}. Front, back, side and detail are ready to edit.`;
-    toast('Generated. Front, back, side and detail are ready to edit.', 'ok', 4500);
-    return { ok: true, message, spec };
+    toast(note ? 'AI was not available, so the built-in engine made this garment. Front, back, side and detail are ready to edit.' : 'Generated. Front, back, side and detail are ready to edit.', 'ok', 4500);
+    return { ok: true, message: note ? `${message} ${note}` : message, spec };
   } catch (e) {
     console.error(e);
     const msg = 'That garment could not be generated. Try a simpler description, such as "red hoodie", or pick a sample.';
     toast(msg, 'error', 5000);
     return { ok: false, message: msg };
   } finally { generating = false; done(); }
+}
+
+// AI "Generate garment": the server returns one picture, which becomes the front view (segmented like an upload).
+// Returns {result} on success, {cancelled:true} when the person cancelled, or {} after showing a friendly message (caller falls back).
+async function generateWithAi(prompt) {
+  const task = startTask({ title: 'Generating garment with AI', hint: 'This can take up to a minute. You can keep working or cancel.' });
+  try {
+    const { canvas } = await aiGenerate({ prompt, refs: state.references, view: 'front', signal: task.signal });
+    if (task.closed) return { cancelled: true };
+    task.setStatus('Preparing the garment for editing…');
+    const done = busy('Preparing the garment…');
+    try {
+      await tick();
+      let c = canvas;
+      if (!hasTransparentBorder(c)) { try { c = cropToContent(await removeBackground(c)); } catch (e) { console.warn('bg removal failed', e); } }
+      if (task.closed) return { cancelled: true };
+      snapshot();
+      await installBase('front', c);
+      await recompute('front');
+      state.activeView = 'front'; state.variations = null;
+      state.name = prompt.length > 40 ? prompt.slice(0, 38).trimEnd() + '…' : prompt;
+      pushVersion('Generated with AI');
+      markFlow('generated'); notify('loaded');
+    } finally { done(); }
+    const message = 'Generated with AI. The front view is ready to edit.';
+    task.succeed(message);
+    return { result: { ok: true, message, ai: true } };
+  } catch (e) {
+    if (e instanceof AiError && e.kind === 'aborted') return { cancelled: true };
+    if (!(e instanceof AiError)) console.error(e);
+    const err = e instanceof AiError ? e : new AiError('upstream');
+    task.fail(err, { note: 'The built-in engine will be used instead.', actions: [{ label: 'Try AI again', retry: true, primary: true, fn: () => generateFromPrompt(prompt) }] });
+    return {};
+  }
 }
 
 // ---------- references ----------

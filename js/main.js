@@ -12,10 +12,12 @@ import { state, subscribe, serializeDesign, hydrateDesign, notify, VIEWS } from 
 import * as store from './storage.js';
 import * as R from './remote.js';
 import { initHome, refreshHome } from './home.js';
+import { aiStatus } from './ai.js';
 import { showBanner, hideBanner, bannerShown, lastEditedLine } from './sync.js';
 
 const $ = id => document.getElementById(id);
 initTooltips();
+aiStatus();   // which AI engine (if any) the server offers; plain static hosting makes no request
 initMode();   // Basic (default) or Advanced, remembered in this browser
 initHeader($('header'));
 initLeft($('left'));

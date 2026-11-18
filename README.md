@@ -60,6 +60,18 @@ Things to know, honestly:
 - **Tested against a mock, not a live project.** The server and the browser side were verified end to end against an in-memory imitation of the Supabase API (`test/mock-supabase.mjs`, also used by `npm test`), not a real Supabase project, and the tests do not run `supabase/schema.sql`. The **Check connection** button is the real test of your own setup.
 - There are no per-person accounts: everyone with the site password can edit and delete every shared design, and if two people save at once the second is asked what to do rather than overwriting.
 
+## AI editing (optional, OpenAI)
+
+Threadform always works without AI: the local garment-shape engine does the shape edits in your browser. If you add an OpenAI key, the server also offers AI image editing (masked edits that change only a selected area, text-to-garment generation, instruction understanding and artwork detection). It is off until you set a key.
+
+1. In the Render dashboard open your service, then *Environment*, and add `OPENAI_API_KEY` (create the key at platform.openai.com). Type it only there: never in chat, an issue, the repo or a `.env` file you commit. Redeploy.
+2. Optional variables: `AI_IMAGE_MODEL` (default `gpt-image-1`), `AI_VISION_MODEL` (default `gpt-4.1-mini`), `AI_IMAGE_QUALITY` (`low`, `medium`, `high`; default `medium`), `AI_PROVIDER` (`openai`, or `openai-compatible` together with `AI_BASE_URL`, which must be `https://`), `AI_RATE_LIMIT` (requests per person per window, default 30), `AI_RATE_WINDOW_MIN` (default 10) and `AI_DAILY_LIMIT` (requests per day for the whole site, default 400).
+3. The studio's AI badge shows *AI on* (and the model names) when the server has a key, and says the local engine is in use when it does not. The browser never sees the key: it only talks to this server, which calls OpenAI (the CSP stays `connect-src 'self'`). Prompts and images are not logged.
+
+Spend limits: AI image calls cost real money. In the OpenAI dashboard set a monthly budget cap (and an email alert) for the project that owns the key. The built-in per-person and daily request limits are an extra brake (they are kept in memory and reset when the server restarts), not a substitute for the cap.
+
+Honest note: this backend was verified end to end against a local mock of the OpenAI API (`test/mock-openai.mjs`, run by `npm test`), not against the real service. The request format follows OpenAI's image edit/generation and chat completion APIs, but real-model image quality, and whether a newer model still accepts every parameter, are unverified until you try it with your own key.
+
 ## Using Threadform
 
 1. **Start a garment.** On the home page press *New design*, then pick a sample, upload a photo (the background is removed for you) or describe one, e.g. "navy hoodie with white stripes".
@@ -76,7 +88,7 @@ Press **?** (or the *?* button in the header) for the guided tour, the keyboard 
 Threadform is built so it is safe to share a public link. Without the shared library, everything you design stays in your own browser; with it, designs go only to your own Supabase database, through this server.
 
 **What runs where**
-- The studio is plain files served by `server.mjs`. All image editing, generating and measuring runs in the visitor's browser with a local garment-shape engine; there are no third-party scripts, fonts, analytics or CDNs, and the browser never talks to any site but this one.
+- The studio is plain files served by `server.mjs`. Image editing, generating and measuring runs in the visitor's browser with a local garment-shape engine (optional AI editing is called by this server, never by the browser); there are no third-party scripts, fonts, analytics or CDNs, and the browser never talks to any site but this one.
 - By default designs are saved in the visitor's own browser storage (IndexedDB / localStorage) and never sent anywhere. Clearing site data deletes them. If you turn on the optional shared library (above), designs and their images are instead saved to your own Supabase database, reached only through this server; the Supabase key stays on the server and is never sent to the browser.
 
 **Built-in protections**

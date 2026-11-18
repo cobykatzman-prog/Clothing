@@ -386,7 +386,7 @@ export async function segmentGarment(canvas) {
       const tr = cxx + cyy, dt = Math.sqrt(Math.max(0, (cxx - cyy) * (cxx - cyy) / 4 + cxy * cxy));
       const l1 = tr / 2 + dt, l2 = Math.max(0, tr / 2 - dt);
       const len = Math.sqrt(12 * l1), thick = Math.sqrt(12 * l2);
-      if (len > 0.22 * G && thick < 0.17 * G && thick / len < 0.42) cls[k] = 1;
+      if (len > 0.22 * G && thick < 0.17 * G && thick / len < 0.22) cls[k] = 1;
       else if (len < 0.2 * G && N[k] < 0.04 * W * H && mx > bandL + 0.05 * bandW && mx < bandR - 0.05 * bandW && my > y0 + 0.12 * Ht && my < hemY - 0.03 * Ht) small.push({ k, mx, my, hh: MXY[k] - MNY[k] + 1 });
     }
     for (const s of small) {

@@ -9,6 +9,7 @@
 //   NODE_ENV=production  makes the server refuse to start without SITE_PASSWORD.
 //   ALLOW_OPEN=1    explicitly allow running with no password (local development only).
 //   SUPABASE_URL + SUPABASE_SERVICE_KEY  optional. Both set = shared design library (see shared.mjs, README).
+//   OPENAI_API_KEY  optional. Set = AI editing is on (see ai.mjs, README "AI editing"). Also AI_PROVIDER, AI_BASE_URL, AI_IMAGE_MODEL, AI_VISION_MODEL, AI_IMAGE_QUALITY, AI_RATE_LIMIT.
 //   PORT            listen port (Render sets this).
 //
 // Until a visitor is logged in, no studio file is served at all: only the login page and /healthz.
@@ -18,6 +19,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createShared, OWNS as SHARED_ROUTES } from './shared.mjs';
+import { createAi, OWNS as AI_ROUTES } from './ai.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const COOKIE = 'tf_session';
@@ -155,10 +157,12 @@ ${failed ? '<p class="err" role="alert">That did not match. Please try again.</p
     try { const real = fs.realpathSync(file); if (!real.startsWith(fs.realpathSync(ROOT) + path.sep) || !fs.statSync(real).isFile()) return null; return real; } catch (_) { return null; }
   }
   const shared = createShared({ env, baseHeaders, sameOriginPost });
+  const ai = createAi({ env, baseHeaders, sameOriginPost, clientIp });
   const indexHtml = () => {
     let t = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
     if (gated) t = t.replace('</head>', '<meta name="threadform-auth" content="1">\n</head>');
     if (shared.enabled) t = t.replace('</head>', '<meta name="threadform-shared" content="1">\n</head>');
+    if (ai.enabled) t = t.replace('</head>', '<meta name="threadform-ai" content="1">\n</head>');
     return t;
   };
 
@@ -204,6 +208,7 @@ ${failed ? '<p class="err" role="alert">That did not match. Please try again.</p
         return send(req, res, 401, 'Please log in.');
       }
       if (SHARED_ROUTES.test(pathname)) return shared.handle(req, res, url);
+      if (AI_ROUTES.test(pathname)) return ai.handle(req, res, url);
       if (m !== 'GET' && m !== 'HEAD') return send(req, res, 405, 'Method not allowed', { Allow: 'GET, HEAD' });
 
       const file = resolveStatic(pathname);

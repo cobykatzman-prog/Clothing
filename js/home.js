@@ -309,10 +309,12 @@ const choiceButtons = dlg => [
   h('button', { class: 'btn primary lg', onclick: () => choose('upload', dlg) }, icon('upload', 17), 'Upload photo'),
   h('button', { class: 'btn ghost lg', onclick: () => choose('generate', dlg) }, icon('sparkles', 17), 'Generate from text'),
   h('button', { class: 'btn ghost lg', onclick: () => choose('sample', dlg) }, icon('layers', 17), 'Try a sample shirt'),
+  h('button', { class: 'btn ghost lg', onclick: () => choose('club', dlg) }, icon('layers', 17), 'Club Élite test shirt'),
 ];
 
 /** The three ways to start a design. Upload opens the file picker synchronously (needed for user activation). */
 function choose(kind, dlg) {
+  if (kind === 'club') { dlg?.close(); return api.newDesign(() => A.loadClubSample()); }
   if (kind === 'sample') { dlg?.close(); return api.newDesign(() => A.loadSample('tee')); }
   if (kind === 'upload') {
     const input = h('input', { type: 'file', accept: 'image/*' });
@@ -357,7 +359,8 @@ function chooser(preset) {
     h('div', { class: 'choice-grid' },
       h('button', { class: 'choice', onclick: () => choose('upload', dlg) }, icon('upload', 20), h('b', {}, 'Upload photo'), h('span', {}, 'Start from a photo of a garment')),
       h('button', { class: 'choice', onclick: () => choose('generate', dlg) }, icon('sparkles', 20), h('b', {}, 'Generate from text'), h('span', {}, 'Describe a garment in words')),
-      h('button', { class: 'choice', onclick: () => choose('sample', dlg) }, icon('layers', 20), h('b', {}, 'Try a sample shirt'), h('span', {}, 'Start with a ready-made t-shirt'))),
+      h('button', { class: 'choice', onclick: () => choose('sample', dlg) }, icon('layers', 20), h('b', {}, 'Try a sample shirt'), h('span', {}, 'Start with a ready-made t-shirt')),
+      h('button', { class: 'choice', onclick: () => choose('club', dlg) }, icon('layers', 20), h('b', {}, 'Club Élite test shirt'), h('span', {}, 'Cream shirt with artwork on both sides'))),
     genForm);
   if (preset === 'generate') openGenerate(dlg);
   dlg.querySelector('.choice').focus();

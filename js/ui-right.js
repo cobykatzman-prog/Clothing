@@ -7,6 +7,7 @@ import { section } from './ui-left.js';
 import { createPartPanel, createInspector } from './manual.js';
 import { presetBlock, shapeBlock, wholeColourBlock, fabricBlock } from './ui-look.js';
 import { measureSection } from './ui-measure.js';
+import { engineRow } from './ai-ui.js';
 
 const EXAMPLES = ['make the sleeves flared', 'boxy oversized fit', 'remove the cuffs', 'cropped hem', 'heavyweight cotton', 'red piping on the collar', 'vintage Greek island style'];
 
@@ -74,7 +75,7 @@ export function initRight(root) {
   const cards = h('div', { class: 'cards', id: 'variation-cards' });
   const keepNote = h('div', { class: 'muted small', id: 'mask-note' });
   const secDescribe = section(1, 'Describe your changes', 'Say what you want in plain words. You will get three options: Subtle, Medium and Bold. Pick one to apply it.', [
-    prompt, examples, keepNote, genBtn, h('div', { class: 'muted small engine-row' }, document.querySelector('meta[name="threadform-shared"][content="1"]') ? 'The options are made right here in your browser; the design you keep is saved to the shared library.' : 'Runs entirely in your browser - nothing is uploaded.'), cards,
+    prompt, examples, keepNote, genBtn, engineRow(), cards,
   ], true, 'sec-describe');
 
   // ---- Fit / sleeve presets (ui-look.js: one-click presets, active-preset status, clear) ----

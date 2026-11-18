@@ -230,6 +230,18 @@ function drawSleeve(ctx, g, s, o, behind = false) {
         x -= sw + stripe.gap;
       }
     }
+    // lengthwise shoulder stripes (parallel bands running down the sleeve, over the cuff-free hem)
+    if (o.along) {
+      const a = o.along, tot = a.count * a.w + (a.count - 1) * a.gap; let yy = (a.offset || 0) - tot / 2;
+      for (let i = 0; i < a.count; i++) {
+        c.fillStyle = a.color; c.fillRect(-len, yy, len, a.w);
+        const sg = c.createLinearGradient(0, yy, 0, yy + a.w);
+        sg.addColorStop(0, 'rgba(0,0,0,0.22)'); sg.addColorStop(0.45, 'rgba(255,255,255,0.10)'); sg.addColorStop(1, 'rgba(0,0,0,0.22)');
+        c.fillStyle = sg; c.fillRect(-len, yy, len, a.w);
+        c.fillStyle = 'rgba(255,255,255,0.10)'; for (let xx = -len; xx < 0; xx += 3) c.fillRect(xx, yy, 0.8, a.w);
+        yy += a.w + a.gap;
+      }
+    }
     // cuff / hem
     if (cuffs === 'rib') {
       ribBlock(c, -ribLen, -half, ribLen + 4, half * 2, trim, 'x');
@@ -772,7 +784,7 @@ export function sampleGarment(kind = 'tee', view = 'front', opts) {
   const cuffs = (opts && opts.cuffs) || (long || kind === 'polo' || stripe ? 'rib' : 'hem');
   const collar = (opts && opts.collar) || (kind === 'polo' && !stripe ? shade(body, -0.04) : trim);
   const cord = lum(body) > 0.5 ? '#e9e2cf' : '#d8d2c2';
-  const o = { body, stripe, trim, cuffs, collar, cord };
+  const o = { body, stripe, trim, cuffs, collar, cord, along: (opts && opts.along) || null };
 
   const c = mk(); const ctx = c.getContext('2d');
   Z = 1;

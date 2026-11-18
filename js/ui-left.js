@@ -36,6 +36,7 @@ export function initLeft(root) {
     drop, fileIn, viewHint,
     h('div', { class: 'row gap wrap' },
       h('button', { class: 'btn ghost sm', tip: 'Try the editor with a built-in sample garment', onclick: () => A.loadSample('tee') }, icon('sparkles', 15), 'Try a sample shirt'),
+      h('button', { class: 'btn ghost sm', id: 'btn-club-sample', tip: 'A cream club shirt with a crest, stripes and back artwork baked into the photo (front and back)', onclick: () => A.loadClubSample() }, icon('layers', 15), 'Club Élite test shirt'),
       h('button', { class: 'btn ghost sm', id: 'btn-removebg', tip: 'Cut the garment out of its background again', onclick: () => A.removeBg() }, icon('scissors', 15), 'Remove background')),
   ], true, 'sec-upload');
 

@@ -3,6 +3,8 @@ import { state, subscribe, hasMask, VIEWS } from './state.js';
 import { h, icon, logoutForm } from './util.js';
 import { localNote, revealSection } from './ui-right.js';
 import { getMode } from './ui-guide.js';
+import { engineBadge } from './ai-ui.js';
+import { onAiChange, useAi } from './ai.js';
 
 const STEPS = [
   ['upload', 'Upload', 'Add a garment photo or try a sample', () => { const d = document.getElementById('sec-upload'); open(d); }],
@@ -19,9 +21,12 @@ export function initHeader(root) {
   const name = h('input', { class: 'name', value: state.name, 'aria-label': 'Design name', oninput: e => { state.name = e.target.value; } });
   const steps = h('ol', { class: 'stepper', 'aria-label': 'Workflow' }, STEPS.map(([k, label, tip, fn], i) =>
     h('li', { 'data-k': k, 'data-level': k === 'select' ? 'advanced' : null }, h('button', { class: 'step', tip, 'aria-label': `Step ${i + 1}: ${label}`, onclick: fn }, h('span', { class: 'sn' }, i + 1), h('span', { class: 'sl' }, label)))));
+  const note = localNote();   // "runs in your browser" is not true while AI is on: the engine badge says what happens instead
+  const syncNote = () => { note.hidden = useAi(); };
+  onAiChange(syncNote); syncNote();
   root.append(
     h('div', { class: 'brand' }, h('span', { class: 'logo' }, icon('layers', 18)), h('b', {}, 'Threadform')),
-    name, steps, h('div', { class: 'head-right' }, localNote(), logoutForm()));
+    name, steps, h('div', { class: 'head-right' }, engineBadge(), note, logoutForm()));
   function sync() {
     const f = state.flow;
     const done = {

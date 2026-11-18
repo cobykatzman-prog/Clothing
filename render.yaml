@@ -24,6 +24,13 @@ services:
         sync: false            # e.g. https://abcdxyz.supabase.co, typed in the Render dashboard
       - key: SUPABASE_SERVICE_KEY
         sync: false            # the service_role key: server only, never put it in the repo
+      # Optional AI editing (see README, "AI editing"). Without a key the app uses the local engine only.
+      - key: OPENAI_API_KEY
+        sync: false            # typed in the Render dashboard, never in the repo
+      # - key: AI_IMAGE_MODEL   (default gpt-image-1)
+      # - key: AI_VISION_MODEL  (default gpt-4.1-mini)
+      # - key: AI_IMAGE_QUALITY (low | medium | high, default medium)
+      # - key: AI_RATE_LIMIT / AI_RATE_WINDOW_MIN / AI_DAILY_LIMIT
       # Optional: also require a username (set SITE_USERNAME in the dashboard), or change how long a login lasts:
       # - key: SESSION_DAYS
       #   value: "7"
