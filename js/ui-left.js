@@ -49,7 +49,7 @@ export function initLeft(root) {
     h('div', { class: 'chips' }, kindBtns),
     h('div', { class: 'row gap center' }, field('Colour', colorIn), h('label', { class: 'check' }, stripeIn, 'Stripes')),
     genPrompt,
-    h('div', { class: 'row gap' },
+    h('div', { class: 'row gap wrap' },
       h('button', { class: 'btn primary sm', onclick: () => A.generateFromPrompt(genPrompt.value, genPrompt.value.trim() ? null : kind, colorIn.value) }, icon('sparkles', 15), 'Generate garment'),
       h('button', { class: 'btn ghost sm', tip: 'Draw the chosen sample shape in the chosen colour', onclick: () => A.loadSample(kind, { color: colorIn.value, stripe: stripeIn.checked }, S.views[S.activeView].base ? S.activeView : null) }, 'Use sample')),
   ], false, 'sec-generate');

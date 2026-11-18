@@ -147,9 +147,13 @@ export async function generateFromPrompt(text, kindOverride, colorOverride) {
   try {
     await tick();
     let kind = kindOverride || (KIND_WORDS.find(([, re]) => re.test(text)) || [])[0] || 'tee';
-    let color = colorOverride;
-    for (const [w, hex] of Object.entries(COLOR_WORDS)) if (new RegExp('\\b' + w + '\\b', 'i').test(text)) color = hex;
-    const stripe = /stripe|striped/i.test(text);
+    let color = colorOverride, stripe = false;
+    const found = [...text.toLowerCase().matchAll(/\b([a-z]+)\b/g)].filter(m => COLOR_WORDS[m[1]]);
+    const sm = text.toLowerCase().match(/\b([a-z]+)\s+stripe/);
+    if (sm && /stripe/.test(sm[0])) stripe = COLOR_WORDS[sm[1]] || true;
+    else if (/stripe/i.test(text)) stripe = true;
+    const body = found.find(m => !sm || m[1] !== sm[1]);
+    if (body) color = COLOR_WORDS[body[1]];
     let ai = null;
     if (text.trim()) {
       try { ai = await generateGarment({ prompt: text, refs: state.references, view: state.activeView }); } catch (e) { console.warn(e); }
@@ -168,6 +172,7 @@ export async function generateFromPrompt(text, kindOverride, colorOverride) {
       toast('AI is not configured, so I made a local sample garment from your description.', 'info', 4500);
     }
     state.variations = null;
+    if (state.name === 'Untitled design') state.name = 'Generated ' + (({ tee: 't-shirt', longSleeve: 'long-sleeve', polo: 'polo', hoodie: 'hoodie' })[kind] || 'garment');
     pushVersion('Generated garment');
     markFlow('generated'); notify('loaded');
   } catch (e) { console.error(e); toast('Generate failed: ' + e.message, 'error'); } finally { done(); }
