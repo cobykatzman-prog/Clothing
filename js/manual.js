@@ -320,6 +320,25 @@ export function toggleLock(el) { if (el) change(() => { el.locked = !el.locked; 
 export function toggleVisible(el) { if (el) change(() => { el.visible = el.visible === false; }); }
 /** Reset one element to the look a new one of its type gets (keeps its text, graphic and logo). One undo step. */
 export function resetItem(el) { if (el) change(() => { resetElement(el); }); toast('Reset to the default look.', 'ok'); }
+/** Align by the rotated item's visible bounds, not its unrotated width/height. */
+export function alignElement(el, mode) {
+  if (!el || el.locked) return false;
+  const b = state.views[el.view]?.seg?.bbox || { x: 0, y: 0, w: SIZE, h: SIZE };
+  const a = (Number(el.rotation) || 0) * Math.PI / 180;
+  const hw = Math.abs(Math.cos(a)) * el.w / 2 + Math.abs(Math.sin(a)) * el.h / 2;
+  const hh = Math.abs(Math.sin(a)) * el.w / 2 + Math.abs(Math.cos(a)) * el.h / 2;
+  const next = { x: el.x, y: el.y };
+  if (mode === 'left') next.x = b.x + hw;
+  else if (mode === 'hcenter') next.x = b.x + b.w / 2;
+  else if (mode === 'right') next.x = b.x + b.w - hw;
+  else if (mode === 'top') next.y = b.y + hh;
+  else if (mode === 'vcenter') next.y = b.y + b.h / 2;
+  else if (mode === 'bottom') next.y = b.y + b.h - hh;
+  else return false;
+  if (Math.abs(next.x - el.x) < 0.001 && Math.abs(next.y - el.y) < 0.001) return false;
+  change(() => { el.x = next.x; el.y = next.y; });
+  return true;
+}
 /** Layer order within this view. mode: 'up' (forward one), 'down' (back one), 'front', 'back'. */
 export function reorder(el, mode) {
   const arr = state.elements, i = arr.indexOf(el); if (!el || i < 0) return;
@@ -519,32 +538,14 @@ export function createInspector() {
         h('summary', {}, 'Align to garment'),
         h('div', { class: 'igrp-body' },
           h('div', { class: 'btns' },
-            btn('Centre horizontally', 'Align the item to the garment centre from left to right', x => {
-              const b = activeView().seg?.bbox;
-              if (b) change(() => { x.x = b.x + b.w / 2; });
-            }),
-            btn('Centre vertically', 'Align the item to the garment centre from top to bottom', x => {
-              const b = activeView().seg?.bbox;
-              if (b) change(() => { x.y = b.y + b.h / 2; });
-            })),
+            btn('Centre horizontally', 'Align the item to the garment centre from left to right', x => alignElement(x, 'hcenter')),
+            btn('Centre vertically', 'Align the item to the garment centre from top to bottom', x => alignElement(x, 'vcenter'))),
           h('div', { class: 'btns' },
-            btn('Align left', 'Align the left edge of the item with the garment left edge', x => {
-              const b = activeView().seg?.bbox;
-              if (b) change(() => { x.x = b.x + x.w / 2; });
-            }),
-            btn('Align right', 'Align the right edge of the item with the garment right edge', x => {
-              const b = activeView().seg?.bbox;
-              if (b) change(() => { x.x = b.x + b.w - x.w / 2; });
-            })),
+            btn('Align left', 'Align the visible left edge of the item with the garment left edge', x => alignElement(x, 'left')),
+            btn('Align right', 'Align the visible right edge of the item with the garment right edge', x => alignElement(x, 'right'))),
           h('div', { class: 'btns' },
-            btn('Align top', 'Align the top edge of the item with the garment top edge', x => {
-              const b = activeView().seg?.bbox;
-              if (b) change(() => { x.y = b.y + x.h / 2; });
-            }),
-            btn('Align bottom', 'Align the bottom edge of the item with the garment bottom edge', x => {
-              const b = activeView().seg?.bbox;
-              if (b) change(() => { x.y = b.y + b.h - x.h / 2; });
-            }))),
+            btn('Align top', 'Align the visible top edge of the item with the garment top edge', x => alignElement(x, 'top')),
+            btn('Align bottom', 'Align the visible bottom edge of the item with the garment bottom edge', x => alignElement(x, 'bottom')))),
       h('div', { class: 'muted small' }, 'Drag the item on the shirt to move it. Pull a corner to resize, or use the round handle to rotate it. Arrow keys nudge it; Shift + arrow moves 10 px.')
     ]));
 
