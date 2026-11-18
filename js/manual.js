@@ -273,6 +273,11 @@ export function colorSlots(el) {
     return s;
   }
   if (p.graphicId) return graphicSlots(p);
+  if (p.svg) return [
+    { key: 'color', label: 'SVG main colour', fallback: p.colors?.c1 },
+    { key: 'color2', label: 'SVG accent colour', fallback: p.colors?.c2 },
+    { key: 'color3', label: 'SVG detail colour', fallback: p.colors?.c3 }
+  ].filter(slot => !!slot.fallback);
   if (TEXTY(el)) return [{ key: 'color', label: 'Colour' }];
   return [];
 }
@@ -471,11 +476,42 @@ async function readVector(file) {
     const w = parseFloat(root.getAttribute('width')) || 100, h = parseFloat(root.getAttribute('height')) || 100;
     vb = [0, 0, w, h];
   }
+  // Turn up to three distinct solid fill/stroke colours into editor colour slots.
+  // Keep gradients, patterns, "none", currentColor and other paint servers untouched.
+  const palette = {};
+  const paintToken = value => {
+    const colour = (value || '').trim();
+    if (!colour || /^(none|currentcolor|inherit|initial|unset|transparent)$/i.test(colour) || /^url\(/i.test(colour)) return null;
+    if (!(/^(#[0-9a-f]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\)|[a-z]+)$/i.test(colour))) return null;
+    let index = Object.keys(palette).find(key => palette[key].toLowerCase() === colour.toLowerCase());
+    if (!index) {
+      const used = Object.keys(palette).length;
+      if (used >= 3) return null;
+      index = 'c' + (used + 1);
+      palette[index] = colour;
+    }
+    return '{{' + index + '}}';
+  };
+  const paintNodes = [root, ...root.querySelectorAll('*')];
+  for (const node of paintNodes) {
+    for (const attrName of ['fill', 'stroke']) {
+      if (!node.hasAttribute(attrName)) continue;
+      const token = paintToken(node.getAttribute(attrName));
+      if (token) node.setAttribute(attrName, token);
+    }
+    if (node.hasAttribute('style')) {
+      const style = node.getAttribute('style').replace(/(^|;)\s*(fill|stroke)\s*:\s*([^;]+)/gi, (whole, prefix, property, value) => {
+        const token = paintToken(value);
+        return token ? prefix + property + ':' + token : whole;
+      });
+      node.setAttribute('style', style);
+    }
+  }
   const inner = [...root.childNodes].map(n => new XMLSerializer().serializeToString(n)).join('');
   // A fixed outer viewBox lets the existing editor scale the artwork consistently; the nested SVG
   // preserves the source's original coordinate system and aspect ratio.
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><svg x="0" y="0" width="100" height="100" viewBox="' + vb.join(' ') + '" preserveAspectRatio="xMidYMid meet">' + inner + '</svg></svg>';
-  return { svg, ratio: vb[3] / vb[2] };
+  return { svg, ratio: vb[3] / vb[2], colors: palette };
 }
 function isSVGFile(file) {
   return file?.type === 'image/svg+xml' || /\.svg$/i.test(file?.name || '');
@@ -489,7 +525,7 @@ async function replaceLogo(el, file) {
     // The user may delete the layer while the file is decoding; never resurrect or mutate a stale object.
     if (!state.elements.includes(el) || el.type !== 'logo') return;
     change(() => {
-      if (vector) { el.type = 'graphic'; el.props = { svg: vector.svg }; el.h = el.w * vector.ratio; }
+      if (vector) { el.type = 'graphic'; el.props = { svg: vector.svg, ...(Object.keys(vector.colors).length ? { colors: vector.colors } : {}) }; el.h = el.w * vector.ratio; }
       else { el.props.image = raster.url; el._tint = null; el.h = el.w * raster.ih / raster.iw; }
       el._cache = null; el.base = { w: el.w, h: el.h, size: el.props.size };
     });
