@@ -30,7 +30,7 @@ await t('login page: form, hardened headers, no studio content', async () => {
   const r = await get('/login'); const body = await r.text();
   assert.equal(r.status, 200); assert.match(body, /<form method="post" action="\/login"/); assert.match(body, /type="password"/);
   assert.ok(!/main\.js|index\.html/.test(body));
-  assert.match(r.headers.get('content-security-policy'), /default-src 'self'/); assert.match(r.headers.get('content-security-policy'), /connect-src 'none'/);
+  assert.match(r.headers.get('content-security-policy'), /default-src 'self'/); assert.match(r.headers.get('content-security-policy'), /connect-src 'self'/);
   assert.equal(r.headers.get('x-frame-options'), 'DENY'); assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
   assert.match(r.headers.get('x-robots-tag'), /noindex/); assert.match(r.headers.get('cache-control'), /no-store/);
   assert.equal(r.headers.get('strict-transport-security'), null);   // plain http in the test: HSTS only over https

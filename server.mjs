@@ -8,6 +8,7 @@
 //   SESSION_DAYS    optional, how long a login lasts (default 7).
 //   NODE_ENV=production  makes the server refuse to start without SITE_PASSWORD.
 //   ALLOW_OPEN=1    explicitly allow running with no password (local development only).
+//   SUPABASE_URL + SUPABASE_SERVICE_KEY  optional. Both set = shared design library (see shared.mjs, README).
 //   PORT            listen port (Render sets this).
 //
 // Until a visitor is logged in, no studio file is served at all: only the login page and /healthz.
@@ -16,6 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createShared, OWNS as SHARED_ROUTES } from './shared.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const COOKIE = 'tf_session';
@@ -35,7 +37,7 @@ function loadSecurityHeaders() {
     const cfg = JSON.parse(fs.readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'));
     return Object.fromEntries(cfg.headers[0].headers.map(h => [h.key, h.value]));   // single source of truth for the CSP etc.
   } catch (_) {
-    return { 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'", 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer' };
+    return { 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'", 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer' };
   }
 }
 
@@ -152,7 +154,13 @@ ${failed ? '<p class="err" role="alert">That did not match. Please try again.</p
     if (!MIME[path.extname(file).toLowerCase()]) return null;
     try { const real = fs.realpathSync(file); if (!real.startsWith(fs.realpathSync(ROOT) + path.sep) || !fs.statSync(real).isFile()) return null; return real; } catch (_) { return null; }
   }
-  const indexHtml = () => { const t = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'); return gated ? t.replace('</head>', '<meta name="threadform-auth" content="1">\n</head>') : t; };
+  const shared = createShared({ env, baseHeaders, sameOriginPost });
+  const indexHtml = () => {
+    let t = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    if (gated) t = t.replace('</head>', '<meta name="threadform-auth" content="1">\n</head>');
+    if (shared.enabled) t = t.replace('</head>', '<meta name="threadform-shared" content="1">\n</head>');
+    return t;
+  };
 
   async function handler(req, res) {
     try {
@@ -195,6 +203,7 @@ ${failed ? '<p class="err" role="alert">That did not match. Please try again.</p
         if ((m === 'GET' || m === 'HEAD') && /text\/html/.test(String(req.headers.accept || 'text/html'))) return redirect(req, res, `/login?next=${encodeURIComponent(safeNext(pathname + url.search))}`);
         return send(req, res, 401, 'Please log in.');
       }
+      if (SHARED_ROUTES.test(pathname)) return shared.handle(req, res, url);
       if (m !== 'GET' && m !== 'HEAD') return send(req, res, 405, 'Method not allowed', { Allow: 'GET, HEAD' });
 
       const file = resolveStatic(pathname);

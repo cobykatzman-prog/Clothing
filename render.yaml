@@ -1,7 +1,8 @@
 # Render Blueprint: runs Threadform as a small Node web service behind a password.
 # server.mjs has no dependencies and no build step. It serves nothing until a visitor logs in with
 # SITE_PASSWORD, and sets strict security headers on every response (taken from vercel.json).
-# Threadform makes no network requests of its own: all editing happens in the visitor's browser.
+# The browser only talks to this server. Only if SUPABASE_URL and SUPABASE_SERVICE_KEY are set does the server
+# itself call your Supabase project (shared design library); otherwise nothing leaves the site.
 services:
   - type: web
     name: threadform
@@ -18,6 +19,11 @@ services:
         sync: false            # you type it in the Render dashboard; it is never stored in the repo
       - key: SESSION_SECRET
         generateValue: true    # Render generates a random secret so logins survive restarts
+      # Optional shared design library (see README, "Shared designs (Supabase)"). Both must be set to turn it on.
+      - key: SUPABASE_URL
+        sync: false            # e.g. https://abcdxyz.supabase.co, typed in the Render dashboard
+      - key: SUPABASE_SERVICE_KEY
+        sync: false            # the service_role key: server only, never put it in the repo
       # Optional: also require a username (set SITE_USERNAME in the dashboard), or change how long a login lasts:
       # - key: SESSION_DAYS
       #   value: "7"
