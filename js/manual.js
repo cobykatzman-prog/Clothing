@@ -185,7 +185,7 @@ export function createPartPanel() {
   const sl = {};
   const sliderRow = (k, label, min, max, tip) => {
     const out = h('output', { class: 'val' }, '0');
-    const inp = h('input', { type: 'range', min, max, step: 1, value: 0, 'aria-label': label, tip,
+    const inp = h('input', { type: 'range', min, max, step: 1, value: 0, 'aria-label': 'Part ' + label.toLowerCase(), tip,
       oninput: e => { setP({ [k]: +e.target.value }); }, onchange: closeGate,
       ondblclick: e => { e.target.value = 0; setP({ [k]: 0 }); closeGate(); } });
     sl[k] = { inp, out };
@@ -232,6 +232,7 @@ export function createPartPanel() {
     }
   }
   sync();
+  subscribe(r => { if (r === 'render') sync(); });   // swatches show the colour after the recompute has finished
   return { el: root, sync };
 }
 
