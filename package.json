@@ -1,0 +1,14 @@
+{
+  "name": "threadform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Threadform: a clothing design studio that runs in your browser, served behind an optional password.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node server.test.mjs && node js/prompt.test.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

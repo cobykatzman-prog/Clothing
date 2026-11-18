@@ -222,3 +222,10 @@ export function initTooltips() {
   document.addEventListener('focusout', () => { cur = null; tip.classList.remove('on'); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') { cur = null; tip.classList.remove('on'); } });
 }
+
+// "Log out" button, shown only when server.mjs gates the site behind SITE_PASSWORD (it adds this meta tag to index.html).
+export function logoutForm() {
+  if (typeof document === 'undefined' || !document.querySelector('meta[name="threadform-auth"]')) return null;
+  return h('form', { method: 'post', action: '/logout', class: 'logout' },
+    h('button', { class: 'btn ghost sm', type: 'submit', tip: 'Log out of Threadform on this browser', 'aria-label': 'Log out' }, 'Log out'));
+}

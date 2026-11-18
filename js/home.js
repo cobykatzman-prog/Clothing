@@ -1,7 +1,7 @@
 // Home gallery (owner: home/gallery): design grid, search, tag filters, custom order (drag or up/down),
 // new-design chooser, open / rename / tags / duplicate / delete. Storage lives in storage.js; the studio is driven by main.js.
 // Tags and order are stored on the design record (meta.tags, meta.order, and doc.tags for the document).
-import { h, icon, toast, friendly, userError } from './util.js';
+import { h, icon, toast, friendly, userError, logoutForm } from './util.js';
 import * as store from './storage.js';
 import * as A from './ui-actions.js';
 
@@ -34,7 +34,7 @@ export function initHome(el, actions) {
   root.replaceChildren(
     h('div', { class: 'home-top' },
       h('div', { class: 'brand' }, h('span', { class: 'logo' }, icon('layers', 18)), h('b', {}, 'Threadform')),
-      h('button', { class: 'btn primary', id: 'home-new', onclick: () => chooser() }, icon('plus', 16), 'New design')),
+      h('div', { class: 'home-actions' }, h('button', { class: 'btn primary', id: 'home-new', onclick: () => chooser() }, icon('plus', 16), 'New design'), logoutForm())),
     h('div', { class: 'home-body' },
       h('div', { class: 'home-tools' },
         h('div', {}, h('h1', {}, 'Your designs'), countEl),

@@ -1,6 +1,6 @@
 // Header: brand, design name, workflow stepper, privacy note.
 import { state, subscribe, hasMask, VIEWS } from './state.js';
-import { h, icon } from './util.js';
+import { h, icon, logoutForm } from './util.js';
 import { localNote, revealSection } from './ui-right.js';
 import { getMode } from './ui-guide.js';
 
@@ -21,7 +21,7 @@ export function initHeader(root) {
     h('li', { 'data-k': k, 'data-level': k === 'select' ? 'advanced' : null }, h('button', { class: 'step', tip, 'aria-label': `Step ${i + 1}: ${label}`, onclick: fn }, h('span', { class: 'sn' }, i + 1), h('span', { class: 'sl' }, label)))));
   root.append(
     h('div', { class: 'brand' }, h('span', { class: 'logo' }, icon('layers', 18)), h('b', {}, 'Threadform')),
-    name, steps, h('div', { class: 'head-right' }, localNote()));
+    name, steps, h('div', { class: 'head-right' }, localNote(), logoutForm()));
   function sync() {
     const f = state.flow;
     const done = {
