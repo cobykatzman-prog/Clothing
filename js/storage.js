@@ -187,7 +187,9 @@ function mapRefs(doc, fn) {
   if (Array.isArray(out.versions)) for (const ver of out.versions) if (ver?.snapshot) views(ver.snapshot.views);
   return out;
 }
-const refsOf = doc => { const s = new Set(); mapRefs(doc, k => (s.add(k), k)); return [...s]; };
+const IS_HASH = /^[0-9a-f]{64}$/;
+/** every image hash a document references (keys that never became an upload are left out: the server accepts hashes only) */
+const refsOf = doc => { const s = new Set(); mapRefs(doc, k => (s.add(k), k)); return [...s].filter(k => typeof k === 'string' && IS_HASH.test(k)); };
 
 const toBlob = v => (typeof v === 'string' ? R.dataUrlToBlob(v) : v);
 const stamp = (meta, row) => ({ ...meta, id: row.id, name: row.name, rev: row.rev, createdAt: R.toMs(row.createdAt), updatedAt: R.toMs(row.updatedAt) });

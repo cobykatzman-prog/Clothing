@@ -114,7 +114,8 @@ async function retry(fn, tries = 3) {
 }
 
 // ---- the contract ----
-export const status = () => call('GET', '/api/shared/status', { timeout: 15000 });
+/** fresh: skip the server's 30 s cache (the "Check connection" button) */
+export const status = (fresh = false) => call('GET', '/api/shared/status' + (fresh ? '?fresh=1' : ''), { timeout: 15000 });
 export const list = () => call('GET', '/api/designs');
 export const get = id => call('GET', `/api/designs/${ID(id)}`);
 export const rev = id => call('GET', `/api/designs/${ID(id)}/rev`, { timeout: 12000 });

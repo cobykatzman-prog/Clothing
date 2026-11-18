@@ -74,7 +74,7 @@ export function initRight(root) {
   const cards = h('div', { class: 'cards', id: 'variation-cards' });
   const keepNote = h('div', { class: 'muted small', id: 'mask-note' });
   const secDescribe = section(1, 'Describe your changes', 'Say what you want in plain words. You will get three options: Subtle, Medium and Bold. Pick one to apply it.', [
-    prompt, examples, keepNote, genBtn, h('div', { class: 'muted small engine-row' }, 'Runs entirely in your browser - nothing is uploaded.'), cards,
+    prompt, examples, keepNote, genBtn, h('div', { class: 'muted small engine-row' }, document.querySelector('meta[name="threadform-shared"][content="1"]') ? 'The options are made right here in your browser; the design you keep is saved to the shared library.' : 'Runs entirely in your browser - nothing is uploaded.'), cards,
   ], true, 'sec-describe');
 
   // ---- Fit / sleeve presets (ui-look.js: one-click presets, active-preset status, clear) ----

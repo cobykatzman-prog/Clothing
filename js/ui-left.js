@@ -144,7 +144,7 @@ export function initLeft(root) {
   // ---- 6 References ----
   const refIn = h('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true, onchange: e => { A.addReferences([...e.target.files]); e.target.value = ''; } });
   const refGrid = h('div', { class: 'refs' });
-  const sec6 = section(6, 'References', 'Keep mood-board images (a fabric, a hem, a colour palette) next to your design. They are saved with the design in this browser and never uploaded.', [
+  const sec6 = section(6, 'References', 'Keep mood-board images (a fabric, a hem, a colour palette) next to your design. ' + (document.querySelector('meta[name="threadform-shared"][content="1"]') ? 'They are saved with the design in the shared library, so everyone who has the password sees them.' : 'They are saved with the design in this browser and never uploaded.'), [
     h('button', { class: 'btn ghost sm', onclick: () => refIn.click() }, icon('plus', 15), 'Add reference images'), refIn, refGrid,
     h('div', { class: 'muted small' }, 'For your own reference while you design; they do not change the garment.'),
   ], false, 'sec-refs');

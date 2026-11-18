@@ -63,7 +63,7 @@ export async function refreshHome() {
   catch (e) {
     toast(friendly(e, 'Your saved designs could not be read. Reload the page to try again.'), 'error', 5000);
     if (!SHARED()) metas = [];   // shared mode keeps showing the last list it had
-    else setBadge('bad', 'Cannot reach the shared library right now');
+    else { setBadge('bad', 'Cannot reach the shared library right now'); checkStatus(false); }   // then the exact reason
   }
   render();
 }
@@ -374,7 +374,7 @@ async function checkStatus(announce = true) {
   if (!badgeEl) return;
   if (announce) setBadge('checking', 'checking...');
   try {
-    const st = await R.status();
+    const st = await R.status(announce);
     if (!st.enabled) setBadge('bad', 'switched off on the server');
     else if (st.ok) setBadge('ok', 'Connected');
     else setBadge('bad', st.error || 'not connected');
@@ -457,7 +457,7 @@ async function softRefresh() {
       if (at) { const b = listEl.querySelector(`article[data-id="${CSS.escape(at.id)}"]`)?.querySelectorAll('button')[at.i]; b?.focus(); }
     }
     if (badgeEl?.dataset.state === 'bad') checkStatus(false);
-  } catch (e) { setBadge('bad', 'cannot reach the server right now'); }
+  } catch (e) { setBadge('bad', 'cannot reach the server right now'); checkStatus(false); }
   finally { refreshing = false; }
 }
 let started = false;

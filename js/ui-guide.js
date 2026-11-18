@@ -48,7 +48,9 @@ export function openHelp() {
   const d = openDialog({
     title: 'Help', cls: 'wide help-dlg',
     body: [
-      h('p', { class: 'muted' }, 'Threadform runs entirely in your browser. Nothing is uploaded, and your designs are saved in this browser.'),
+      h('p', { class: 'muted' }, document.querySelector('meta[name="threadform-shared"][content="1"]')
+        ? 'Threadform edits garments right here in your browser. Your designs (including their images) are saved to the shared library on this site\'s server, where everyone who has the password can see and edit them.'
+        : 'Threadform runs entirely in your browser. Nothing is uploaded, and your designs are saved in this browser.'),
       tourBtn,
       h('h3', {}, 'How it works'),
       h('ol', { class: 'how' }, HOW.map(([t, d]) => h('li', {}, h('b', {}, t), h('span', {}, d)))),
@@ -70,7 +72,7 @@ const TOUR = [
   { sel: '#sec-describe', show: () => reveal('sec-describe'), title: 'Describe a change', text: 'Write what you want in plain words, like "make the sleeves flared". Then press "Create 3 options".' },
   { sel: '#variation-cards', show: () => reveal('sec-describe'), title: 'Pick the one you like', text: 'You get a light, a medium and a strong version. Press "Use this" on your favourite. You can always undo.' },
   { sel: '#right-tabs', title: 'Colour, items and measurements', text: 'These tabs hold the colour of each part, your text and graphics, and the garment\'s measurements. The right tab opens by itself when you need it.' },
-  { sel: '#btn-undo', title: 'Nothing is permanent', text: 'Undo and redo any step. Your design saves itself in this browser as you work.' },
+  { sel: '#btn-undo', title: 'Nothing is permanent', text: 'Undo and redo any step. Your design saves itself ' + (document.querySelector('meta[name="threadform-shared"][content="1"]') ? 'to the shared library' : 'in this browser') + ' as you work.' },
   { sel: '#btn-export', title: 'Export when you are happy', text: 'Download a picture, an editable SVG, the measurements or a full design sheet. Press "?" in the header any time to see this tour again.' },
 ];
 let tour = null;

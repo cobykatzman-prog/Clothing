@@ -267,7 +267,7 @@ export function createShared({ env = process.env, baseHeaders, sameOriginPost })
     catch (e) {
       if (res.headersSent) { res.destroy(); return; }
       if (e instanceof HttpErr) return json(req, res, e.status, { error: e.message, ...(e.extra && e.extra.currentRev !== undefined ? { currentRev: e.extra.currentRev } : {}) }, e.extra && e.extra.allow ? { Allow: e.extra.allow } : {});
-      if (e instanceof Upstream) return json(req, res, e.kind === 'http' && e.status < 500 ? 502 : 503, { error: GENERIC });
+      if (e instanceof Upstream) { cache = null; return json(req, res, e.kind === 'http' && e.status < 500 ? 502 : 503, { error: GENERIC }); }   // next status check is fresh
       return json(req, res, 500, { error: 'something went wrong' });   // never echo internals
     }
   }
