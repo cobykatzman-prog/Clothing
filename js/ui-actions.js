@@ -177,7 +177,7 @@ const applyGarmentLook = (V, spec) => {
   V.presets = { fit: FIT_PRESETS[spec.fit] ? spec.fit : null, sleeve: SLEEVE_PRESETS[spec.sleeve] ? spec.sleeve : null };
   V.fabric = spec.fabric ? { name: spec.fabric.name, amount: spec.fabric.amount } : { name: null, amount: 0.6 };
 };
-export async function generateFromPrompt(text, { defaultKind = 'tee' } = {}) {
+export async function generateFromPrompt(text, { defaultKind = 'tee', defaultColor = null, addStripes = false } = {}) {
   const prompt = String(text || '').trim();
   if (!prompt) {
     const msg = 'Describe a garment first, for example "navy hoodie with white stripes". Or use "Use sample" to draw the chosen shape.';
@@ -187,8 +187,9 @@ export async function generateFromPrompt(text, { defaultKind = 'tee' } = {}) {
   if (generating) return { ok: false, message: 'Already generating, please wait.' };
   generating = true;
   let note = '';
-  if (useAi()) {   // AI engine: one front-view image from the server; any AI failure falls back to the offline generator below
-    const r = await generateWithAi(prompt);
+  const spec = parseGarmentText(prompt, { defaultKind, defaultColor, addStripes });
+  if (useAi()) {   // AI makes the front; matching procedural views use the same garment specification.
+    const r = await generateWithAi(prompt, spec, { defaultKind, defaultColor, addStripes });
     if (r.result) { generating = false; return r.result; }
     if (r.cancelled) { generating = false; return { ok: false, message: 'Cancelled. Nothing was changed.' }; }
     note = 'The built-in engine was used instead.';
@@ -196,7 +197,6 @@ export async function generateFromPrompt(text, { defaultKind = 'tee' } = {}) {
   const done = busy('Generating garment…');
   try {
     await tick();
-    const spec = parseGarmentText(prompt, { defaultKind });
     const views = makeGarmentViews(spec);
     snapshot();
     for (const v of GEN_VIEWS) {
@@ -222,10 +222,11 @@ export async function generateFromPrompt(text, { defaultKind = 'tee' } = {}) {
 
 // AI "Generate garment": the server returns one picture, which becomes the front view (segmented like an upload).
 // Returns {result} on success, {cancelled:true} when the person cancelled, or {} after showing a friendly message (caller falls back).
-async function generateWithAi(prompt) {
+async function generateWithAi(prompt, spec, options = {}) {
   const task = startTask({ title: 'Generating garment with AI', hint: 'This can take up to a minute. You can keep working or cancel.' });
   try {
-    const { canvas } = await aiGenerate({ prompt, refs: state.references, view: 'front', signal: task.signal });
+    const aiPrompt = `${prompt}\n\nGarment details: ${spec.summary}. Body colour: ${spec.color}. ${spec.stripe ? `Include ${spec.stripeName || 'contrasting'} stripes.` : 'Do not add stripes unless specifically described.'} Keep the design clean and suitable for a clothing mockup.`;
+    const { canvas } = await aiGenerate({ prompt: aiPrompt, refs: state.references, view: 'front', signal: task.signal });
     if (task.closed) return { cancelled: true };
     task.setStatus('Preparing the garment for editing…');
     const done = busy('Preparing the garment…');
@@ -244,21 +245,28 @@ async function generateWithAi(prompt) {
       }
       if (task.closed) return { cancelled: true };
       snapshot();
-      await installBase('front', c);
-      await recompute('front');
+      await installBase('front', c, { sample: spec.sample, label: 'AI front' });
+      applyGarmentLook(state.views.front, spec);
+      const matchingViews = makeGarmentViews(spec);
+      for (const view of GEN_VIEWS) {
+        if (view === 'front') continue;
+        await installBase(view, matchingViews[view], { sample: spec.sample, label: 'Matching ' + view });
+        applyGarmentLook(state.views[view], spec);
+      }
+      for (const view of GEN_VIEWS) await recompute(view);
       state.activeView = 'front'; state.variations = null;
-      state.name = prompt.length > 40 ? prompt.slice(0, 38).trimEnd() + '…' : prompt;
+      state.name = spec.title || (prompt.length > 40 ? prompt.slice(0, 38).trimEnd() + '…' : prompt);
       pushVersion('Generated with AI');
       markFlow('generated'); notify('loaded');
     } finally { done(); }
-    const message = 'Generated with AI. The front view is ready to edit.';
+    const message = 'AI front generated. Matching back, side and detail views were built from the same garment specification and are ready to edit.';
     task.succeed(message);
     return { result: { ok: true, message, ai: true } };
   } catch (e) {
     if (e instanceof AiError && e.kind === 'aborted') return { cancelled: true };
     if (!(e instanceof AiError)) console.error(e);
     const err = e instanceof AiError ? e : new AiError('upstream');
-    task.fail(err, { note: 'Using the built-in engine instead.', actions: [{ label: 'Try AI again', retry: true, primary: true, fn: () => generateFromPrompt(prompt) }] });
+    task.fail(err, { note: 'Using the built-in engine instead.', actions: [{ label: 'Try AI again', retry: true, primary: true, fn: () => generateFromPrompt(prompt, options) }] });
     return {};
   }
 }
