@@ -466,7 +466,7 @@ async function readVector(file) {
   const safeCss = new Set(['fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'fill-rule', 'clip-rule', 'fill-opacity', 'stroke-opacity', 'opacity']);
   for (const styleNode of styleNodes) {
     const css = styleNode.textContent || '';
-    for (const match of css.matchAll(/([^{}]+)\\{([^{}]*)\\}/g)) {
+    for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const selectors = match[1].trim().split(',');
       const declarations = [];
       for (const declaration of match[2].split(';')) {
@@ -474,12 +474,12 @@ async function readVector(file) {
         if (at < 1) continue;
         const property = declaration.slice(0, at).trim().toLowerCase();
         const value = declaration.slice(at + 1).trim();
-        if (safeCss.has(property) && value && !/url\\s*\\(|javascript:|expression\\s*\\(/i.test(value)) declarations.push([property, value]);
+        if (safeCss.has(property) && value && !/url\s*\(|javascript:|expression\s*\(/i.test(value)) declarations.push([property, value]);
       }
       if (declarations.length) for (const selector of selectors) {
         const clean = selector.trim();
         // Restrict selectors to simple tag/class/id combinations; ignore complex or active selectors.
-        if (/^(?:[a-z][\\w-]*)?(?:[.#][\\w-]+)*$/i.test(clean) && clean) cssRules.push({ selector: clean, declarations });
+        if (/^(?:[a-z][\w-]*)?(?:[.#][\w-]+)*$/i.test(clean) && clean) cssRules.push({ selector: clean, declarations });
       }
     }
   }
