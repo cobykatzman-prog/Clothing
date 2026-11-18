@@ -430,7 +430,7 @@ async function replaceLogo(el, file) {
   } catch (e) { toast(friendly(e, 'That logo could not be used. Try a PNG or JPG.'), 'error', 5000); }
 }
 /** Adds an uploaded picture as a logo on the active view, centred on the garment's body. */
-async function addLogo(file) {
+export async function addLogo(file) {
   const V = activeView();
   if (!V.current) { toast('Load a garment first.', 'info'); return; }
   try {
@@ -488,6 +488,21 @@ export function createInspector() {
     const p = c.props, parts = [], lib = getGraphic(p.graphicId);
     parts.push(h('div', { class: 'ptitle' }, (TYPE_LABEL[c.type] || c.type) + (lib ? ' · ' + lib.name : '')));
     parts.push(textIn('Name', x => x.name, (x, v) => { x.name = v; }, 'A name for this item in the layers list'));
+
+    // Beginner-friendly controls first: the common actions are visible before the detailed controls.
+    parts.push(group('Quick edit', [
+      h('div', { class: 'num2' },
+        numIn('Size %', x => Math.round(scalePct(x)), (x, v) => setScalePct(x, clamp(v, 2, 800)), { min: 2, max: 800, tip: 'Resize the selected item without changing its proportions' }),
+        numIn('Rotation °', x => Math.round(x.rotation), (x, v) => { x.rotation = ((v % 360) + 360) % 360; }, { min: 0, max: 359, tip: 'Turn the selected item' })),
+      h('div', { class: 'btns' },
+        btn('Centre on garment', 'Place this item in the middle of the garment', x => {
+          const b = activeView().seg?.bbox;
+          if (b) change(() => { x.x = b.x + b.w / 2; x.y = b.y + b.h * 0.4; });
+        }),
+        btn('Duplicate', 'Make another copy of this item', x => duplicateElement(x)),
+        btn('Delete', 'Remove this item', x => deleteElement(x), 'btn ghost sm danger')),
+      h('div', { class: 'muted small' }, 'You can also drag the item on the shirt, pull a corner to resize, or use the round handle to rotate it.')
+    ]));
 
     // ---- content: what the item says or shows
     const content = [];
@@ -560,13 +575,10 @@ export function createInspector() {
     parts.push(group('Shadow', shadowRows, !!(p.shadow && p.shadow.on)));
 
     // ---- position, size, appearance
-    parts.push(group('Position & size', [
+    parts.push(group('Fine position & appearance', [
       h('div', { class: 'num2' },
         numIn('X', x => Math.round(x.x), (x, v) => { x.x = v; }, { tip: 'Left-right position on the canvas (0 = left edge, 1024 = right edge)' }),
         numIn('Y', x => Math.round(x.y), (x, v) => { x.y = v; }, { tip: 'Up-down position on the canvas (0 = top, 1024 = bottom)' })),
-      h('div', { class: 'num2' },
-        numIn('Scale %', x => Math.round(scalePct(x)), (x, v) => setScalePct(x, v), { min: 2, max: 800, tip: '100 = the size it was added at' }),
-        numIn('Rotation °', x => Math.round(x.rotation), (x, v) => { x.rotation = ((v % 360) + 360) % 360; }, { tip: 'Degrees (0 = upright)' })),
       rangeIn('Opacity %', x => Math.round((x.opacity ?? 1) * 100), (x, v) => { x.opacity = clamp(v, 0, 100) / 100; }, 0, 100, 'See-through amount'),
       h('div', { class: 'row gap' },
         check('Flip horizontally', x => !!x.flipX, (x, v) => { x.flipX = v; }, 'Mirror left to right'),
