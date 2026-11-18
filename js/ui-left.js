@@ -4,7 +4,7 @@ import { h, icon, thumbOf, toast, setDisabled } from './util.js';
 import * as A from './ui-actions.js';
 import { selectionSection } from './ui-select.js';
 import { createElement, GRAPHIC_LIBRARY, FONTS } from './elements.js';
-import { createLayers } from './manual.js';
+import { createLayers, addLogo } from './manual.js';
 import { SAMPLE_KINDS } from './samples.js';
 
 const pretty = s => s.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
@@ -83,6 +83,10 @@ export function initLeft(root) {
   // ---- 5 Graphics ----
   const lib = GRAPHIC_LIBRARY;
   const gcol = h('input', { type: 'color', value: '#c0392b', 'aria-label': 'Trim colour' });
+  const logoIn = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/svg+xml', hidden: true, 'aria-label': 'Choose a logo image', onchange: e => {
+    const f = e.target.files?.[0]; e.target.value = ''; if (f) addLogo(f);
+  } });
+
   const libGrid = h('div', { class: 'gfx' }, lib.map(g => {
     const b = h('button', { class: 'gfx-item', tip: g.name, 'aria-label': 'Add ' + g.name, onclick: () => {
       const type = g.category === 'crest' ? 'crest' : g.category === 'patch' ? 'patch' : 'graphic';
@@ -91,7 +95,10 @@ export function initLeft(root) {
     b.innerHTML = (g.svg || '').replace(/\{\{(c\d)\}\}/g, (_, k) => g.colors?.[k] || '#888');
     return b;
   }));
-  const sec5 = section(5, 'Add graphics', 'Crests, stripes, piping and patches are vector shapes you can move, resize and recolour.', [
+  const sec5 = section(5, 'Add graphics', 'Add your own logo or choose editable crests, stripes, piping and patches.', [
+    h('div', { class: 'row gap wrap' },
+      h('button', { class: 'btn primary sm', tip: 'Upload a transparent PNG, JPG, WebP or SVG logo and place it on the garment', onclick: () => logoIn.click() }, icon('image', 15), 'Upload logo…'),
+      logoIn),
     libGrid,
     h('div', { class: 'row gap center' }, field('Colour', gcol)),
     h('div', { class: 'chips' },
