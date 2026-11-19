@@ -7,6 +7,7 @@ import { REGION_NAMES } from './segment.js';
 import * as S from './selection.js';
 import { retunePick } from './sel-tools.js';
 import { recompute } from './ui-actions.js';
+import { extractExistingLogo } from './existing-logo.js';
 
 const pretty = s => s.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
 const REGION_TIPS = {
@@ -144,6 +145,8 @@ export function selectionSection({ section }) {
   const modes = modeGroup('');
   const toolGrid = h('div', { class: 'tool-grid', role: 'group', 'aria-label': 'Selection tools' }, toolButtons('ptool', 'data-ptool'));
   const readout = h('div', { class: 'readout', id: 'sel-readout', role: 'status', 'aria-live': 'polite' });
+  const extractLogoBtn = h('button', { type: 'button', class: 'btn primary sm', 'data-act': 'extract-existing-logo', tip: 'Use AI to remove the selected logo from the fabric and turn it into its own movable layer', onclick: () => extractExistingLogo() }, 'Separate existing logo');
+  const extractLogoHelp = h('div', { class: 'muted small' }, 'Select an existing logo with Smart select, Lasso or Brush, then separate it to move, resize, rotate or replace it. AI restores the fabric underneath.');
   const selInfo = h('div', { class: 'muted small', id: 'sel-info' });
 
   // modify
@@ -251,7 +254,7 @@ export function selectionSection({ section }) {
     const info = S.selHistInfo();
     setDisabled(undoB, !info.canUndo, 'Nothing to undo in the selection yet'); setDisabled(redoB, !info.canRedo, 'Nothing to redo in the selection');
     histInfo.textContent = info.count > 1 ? `Step ${info.index} of ${info.count - 1}` : '';
-    const has = hasMask(V), st = S.selectionStats(V);
+    const has = hasMask(V), st = S.selectionStats(V);\n    setDisabled(extractLogoBtn, !has || state.ui.busy > 0, !has ? 'Select the logo first' : 'Wait for the current task to finish');
     readout.textContent = !has ? 'Nothing selected.' : `Selected ${st.pct != null ? st.pct.toFixed(1) + '% of the garment' : st.area + ' px'} · ${st.bounds ? `${st.bounds.w} × ${st.bounds.h} px at (${st.bounds.x}, ${st.bounds.y})` : ''}`;
     readout.dataset.pct = st.pct != null ? st.pct.toFixed(2) : ''; readout.dataset.w = st.bounds?.w ?? 0; readout.dataset.h = st.bounds?.h ?? 0; readout.dataset.x = st.bounds?.x ?? 0; readout.dataset.y = st.bounds?.y ?? 0;
     selInfo.textContent = has ? 'Selection active. Only highlighted pixels will change.' : 'Nothing selected yet: the whole garment may change.';
