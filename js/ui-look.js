@@ -90,7 +90,9 @@ export function shapeBlock() {
     set: v => A.setParam(s.k, v),
   }));
   const resetAll = h('button', { class: 'btn ghost sm', tip: 'Set every shape slider back to 0 (original). Undo brings them back.', onclick: () => { A.endEdit(); A.resetParams(); toast('Shape reset to the original.', 'ok', 4000, { label: 'Undo', fn: () => A.undo() }); } }, 'Reset shape');
-  const el = h('div', { class: 'stack-col' }, ...ctls.map(c => c.el), resetAll);
+  const el = h('div', { class: 'stack-col' },
+    h('div', { class: 'lk-note' }, 'Shape changes stay aligned across the front, back and side views.'),
+    ...ctls.map(c => c.el), resetAll);
   return {
     el,
     sync(V) { ctls.forEach(c => c.sync(V)); resetAll.disabled = !V.base; },
@@ -112,12 +114,8 @@ const presetState = (V, kind) => {
 
 /** Clear: sets the sliders this preset changed back to 0 and forgets the preset. Other sliders keep their values. */
 export function clearPreset(kind) {
-  const V = activeView(); const st = presetState(V, kind); if (!st) return;
-  snapshot();
-  const params = { ...V.params };
-  for (const k of Object.keys(st.p)) params[k] = 0;
-  V.params = params; V.presets = { ...(V.presets || {}), [kind]: null };
-  notify('params'); A.recompute();
+  const st = presetState(activeView(), kind); if (!st) return;
+  A.clearPreset(kind);
 }
 
 export function presetBlock() {
