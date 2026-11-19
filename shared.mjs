@@ -45,7 +45,10 @@ export function createShared({ env = process.env, baseHeaders, sameOriginPost })
   /* ---------------- PostgREST ---------------- */
   async function rest(method, pathQuery, { body, prefer } = {}) {
     if (!origin) throw new Upstream('config');
-    const headers = { apikey: KEY, Authorization: `Bearer ${KEY}`, Accept: 'application/json' };
+    // Supabase's new sb_secret_* keys are opaque API keys, not JWTs: send them
+    // only in apikey. Legacy service_role keys are JWTs and still need Bearer auth.
+    const headers = { apikey: KEY, Accept: 'application/json' };
+    if (!KEY.startsWith('sb_secret_')) headers.Authorization = `Bearer ${KEY}`;
     let payload;
     if (body !== undefined) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }
     if (prefer) headers.Prefer = prefer;
