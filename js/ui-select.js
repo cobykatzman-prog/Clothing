@@ -94,16 +94,16 @@ export function selectionBar() {
   const act = (ic, label, tip, fn, extra = {}) => h('button', { type: 'button', class: 'sb-act', 'aria-label': label, tip, onclick: fn, ...extra }, icon(ic, 16), h('span', { class: 'tl' }, label));
   const undoB = act('undo', 'Undo selection', 'Undo the last selection step (Ctrl+Z while a selection tool is active)', () => S.selUndo(), { 'data-act': 'sel-undo', 'data-level': 'advanced' });
   const redoB = act('redo', 'Redo selection', 'Redo the selection step you undid', () => S.selRedo(), { 'data-act': 'sel-redo', 'data-level': 'advanced' });
-  const clearB = act('x', 'Clear', 'Clear the selection (nothing selected)', () => S.clearSelection(), { 'data-act': 'clear' });
+  const unhighlightB = act('x', 'Unhighlight', 'Remove every highlighted area from this garment view', () => S.clearSelection(), { 'data-act': 'unhighlight-all' });
   const allB = act('selall', 'Select garment', 'Select the entire garment (Ctrl+A)', () => S.selectEntireGarment(), { 'data-act': 'select-all', 'data-level': 'advanced' });
   const invB = act('invert', 'Invert', 'Swap the selected and the unselected parts of the garment (Ctrl+I)', () => S.invertSelection(), { 'data-act': 'invert', 'data-level': 'advanced' });
   const zoomB = act('zoomSel', 'Zoom to it', 'Zoom the canvas to the selection (Z)', () => stageApi()?.zoomToSelection(), { 'data-act': 'zoom-sel', 'data-level': 'advanced' });
   const eyeB = act('eye', 'Outline', 'Show or hide the selection outline', () => { state.ui.ovl.show = !state.ui.ovl.show; notify('tool'); }, { 'data-act': 'toggle-overlay' });
   const bothB = h('button', { type: 'button', class: 'sb-act accent', 'data-act': 'both-sleeves-bar', tip: 'Select both sleeves at once, then describe the change in the Look tab', onclick: () => S.selectBothSleeves() }, icon('both', 16), h('span', { class: 'tl' }, 'Both sleeves'));
   const modes = modeGroup('sb-modes'); modes.dataset.level = 'advanced';
-  for (const b of [bothB, clearB]) b.classList.add('keep');
+  for (const b of [bothB, unhighlightB]) b.classList.add('keep');
   const row1 = h('div', { class: 'sb-row' }, tools, h('span', { class: 'sep', 'data-level': 'advanced' }), modes);
-  const actions = h('div', { class: 'sb-actions' }, bothB, allB, invB, clearB, h('span', { class: 'sep' }), undoB, redoB, h('span', { class: 'sep', 'data-level': 'advanced' }), zoomB, eyeB);
+  const actions = h('div', { class: 'sb-actions' }, bothB, allB, invB, unhighlightB, h('span', { class: 'sep' }), undoB, redoB, h('span', { class: 'sep', 'data-level': 'advanced' }), zoomB, eyeB);
   // options for the active tool
   const opt = (tools_, ...kids) => h('div', { class: 'sb-opt', 'data-for': tools_.join(' ') }, ...kids);
   const opts = h('div', { class: 'sb-row sb-opts' },
@@ -125,7 +125,7 @@ export function selectionBar() {
     setDisabled(undoB, !info.canUndo, 'Nothing to undo in the selection yet');
     setDisabled(redoB, !info.canRedo, 'Nothing to redo in the selection');
     const has = hasMask(V);
-    setDisabled(clearB, !has && !V.regionSel.length, 'Nothing is selected');
+    setDisabled(unhighlightB, !has && !V.regionSel.length, 'Nothing is selected');
     setDisabled(zoomB, !has, 'Select an area first');
     setDisabled(invB, !V.seg, 'Needs the garment outline');
     setDisabled(allB, !V.seg, 'Needs the garment outline');
@@ -230,7 +230,7 @@ export function selectionSection({ section }) {
     h('div', { class: 'row gap wrap' },
       btn('Select garment', 'select-all', 'Select the entire garment (Ctrl+A)', () => S.selectEntireGarment()),
       btn('Invert', 'invert', 'Swap selected and unselected (Ctrl+I)', () => S.invertSelection()),
-      btn('Clear', 'clear', 'Clear the selection', () => S.clearSelection()),
+      btn('Unhighlight', 'unhighlight-all', 'Remove every highlighted garment area', () => S.clearSelection()),
       btn('Zoom to selection', 'zoom-sel', 'Zoom the canvas to the selection (Z)', () => stageApi()?.zoomToSelection())),
     readout,
     h('div', { class: 'lbl' }, 'Modify the selection'), modify,
