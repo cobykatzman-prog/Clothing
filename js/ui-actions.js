@@ -111,6 +111,18 @@ export function applySleeve(name) {
   }
   markFlow('refined'); notify('params'); recomputeLinkedViews();
 }
+export function clearPreset(kind) {
+  snapshot();
+  const table = kind === 'fit' ? FIT_PRESETS : SLEEVE_PRESETS;
+  for (const name of linkedShapeViews()) {
+    const V = state.views[name], preset = table[V.presets?.[kind]] || {};
+    const params = { ...V.params };
+    for (const key of Object.keys(preset)) params[key] = 0;
+    V.params = params;
+    V.presets = { ...(V.presets || {}), [kind]: null };
+  }
+  markFlow('refined'); notify('params'); recomputeLinkedViews();
+}
 export function setColor(patch) { beginEdit(); Object.assign(activeView().color, patch); markFlow('refined'); notify('color'); scheduleRecompute(); }
 export function setFabric(name, amount) {
   beginEdit(); const V = activeView(); V.fabric.name = name; if (amount != null) V.fabric.amount = amount;
