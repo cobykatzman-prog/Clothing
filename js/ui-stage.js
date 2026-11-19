@@ -50,6 +50,12 @@ export function initStage(root) {
   stage = createStage(cv, wrap);
   window.__stage = stage;
 
+  // Clicking away from the canvas deselects the active artwork so its purple handles/highlight disappear.
+  root.addEventListener('pointerdown', e => {
+    if (wrap.contains(e.target)) return;
+    if (S.selectedId) { S.selectedId = null; notify('selection'); stage.draw(); }
+  });
+
   // drag & drop on whole window
   window.addEventListener('dragover', e => e.preventDefault());
   window.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer?.files?.[0]; if (f && f.type.startsWith('image/')) A.loadFile(f); });
