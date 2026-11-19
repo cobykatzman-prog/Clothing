@@ -361,8 +361,8 @@ export async function generateVariations(promptText) {
 
   // Artwork placement (logos, text and graphics) is not a shape-slider operation.
   // Use the image model for these requests; never return three unchanged local options.
-  const artworkMove = /\\b(move|put|place|position|centre|center|middle|relocat|shift|align)\\b/i.test(instruction)
-    && /\\b(logo|logos|crest|badge|emblem|text|lettering|graphic|artwork|print)\\b/i.test(instruction);
+  const artworkMove = /\b(move|put|place|position|centre|center|middle|relocat|shift|align)\b/i.test(instruction)
+    && /\b(logo|logos|crest|badge|emblem|text|lettering|graphic|artwork|print)\b/i.test(instruction);
   if (artworkMove && !useAi()) {
     toast('Moving logos and artwork needs AI editing. Turn on AI editing in the Describe panel and make sure the site has its AI key configured. No unchanged options were created.', 'error', 7000);
     return;
