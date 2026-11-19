@@ -122,4 +122,4 @@ Threadform is built so it is safe to share a public link. Without the shared lib
 **Known limits**
 - One shared password, not per-person accounts. Anyone who has it can use the studio, and you cannot revoke one person without changing it for everyone (changing it logs everyone out).
 - Without the shared library, designs are stored per browser, so you and a friend do not see each other's designs (turn on the shared library above, or export a PNG, SVG or design sheet).
-- Login attempt limits are kept in memory, so they reset when the server restarts.
+- Login attempt limits and the shared API's 240-requests-per-5-minutes-per-IP limit are kept in memory, so they reset when the server restarts. They are a useful baseline, not a substitute for hosting-level rate limiting or monitoring.
