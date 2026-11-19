@@ -50,7 +50,8 @@ export function initLeft(root) {
     genBtn.disabled = true; genLabel.textContent = 'Generating…'; genStatus.textContent = '';
     try {
       const r = await A.generateFromPrompt(genPrompt.value, { defaultKind: kind, defaultColor: colorIn.value, addStripes: stripeIn.checked });
-      genStatus.textContent = r.message;
+      genStatus.textContent = r.message || (r.ok ? 'Garment generated.' : 'Could not generate the garment. Try a simpler description or use a sample.');
+      genStatus.dataset.state = r.ok ? 'success' : 'error';
       if (r.spec) { // keep "Use sample" in step with what was just generated
         kind = r.spec.kind; kindBtns.forEach(b => b.classList.toggle('on', b.dataset.k === kind));
         colorIn.value = r.spec.color;
@@ -70,7 +71,7 @@ export function initLeft(root) {
     h('div', { class: 'row gap wrap' },
       genBtn,
       h('button', { class: 'btn ghost sm', tip: 'Draw the chosen sample shape in the chosen colour', onclick: () => A.loadSample(kind, { color: colorIn.value, stripe: stripeIn.checked }, S.views[S.activeView].base ? S.activeView : null) }, 'Use sample')),
-  ], false, 'sec-generate');
+  ], true, 'sec-generate');
 
   // ---- 3 Select (tools, modes, modify, refine, history, overlay, saved selections: ui-select.js) ----
   const sec3 = selectionSection({ section });
