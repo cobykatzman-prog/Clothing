@@ -33,7 +33,6 @@ export async function extractExistingLogo() {
   const bounds = SEL.eng.bounds(alpha);
   if (!bounds || !bounds.w || !bounds.h) { toast('Select the logo first using Smart select, Lasso or Brush.', 'info'); return; }
 
-  let stop;
   try {
     state.ui.busy++; state.ui.busyMsg = 'Separating logo and restoring fabric…'; notify('busy');
     // Keep a little fabric around the selection so the removal patch can blend naturally.
