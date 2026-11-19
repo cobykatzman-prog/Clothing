@@ -84,7 +84,7 @@ export function normalizeMeasureState(o) {
   const man = o.manual && typeof o.manual === 'object' && CALIBRATE_KEYS.includes(o.manual.key) && o.manual.cm > 0 && o.manual.cm < 400
     ? { key: o.manual.key, cm: +o.manual.cm } : null;
   return {
-    size: SIZES.includes(o.size) ? o.size : d.size, unit: o.unit === 'in' ? 'in' : 'cm',
+    size: SIZES.includes(o.size) ? o.size : d.size, unit: 'cm',
     kind: KINDS.includes(o.kind) ? o.kind : null, manual: man, show: !!o.show,
   };
 }
@@ -319,7 +319,7 @@ export function designMeasure(state, viewName = state.activeView) {
 /** Same, shaped for the exporters: {seg, rows, unit, size, kind, basis, view}. */
 export function exportMeasureData(state, viewName = state.activeView, { unit } = {}) {
   const d = designMeasure(state, viewName); if (!d) return null;
-  return { ...d, unit: unit || d.unit, basis: calibrationText(d.cal, d.unit) };
+  return { ...d, unit: 'cm', basis: calibrationText(d.cal, 'cm') };
 }
 export function calibrationText(cal, unit = 'cm') {
   if (cal.manual) return `your ${SHORT[cal.manual.key].toLowerCase()} = ${formatMeasure(cal.manual.cm, unit)}`;
@@ -331,7 +331,7 @@ export const NOTE = 'Approximate flat-garment measurements estimated from the pi
 const csvCell = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
 /** Measurements as CSV text. data = exportMeasureData(...). Values are in data.unit; the change column carries a sign. */
 export function measurementsCSV(data, { design = 'design', view = 'front' } = {}) {
-  const u = data.unit, head = ['design', 'view', 'garment', 'size', 'measurement', 'unit', 'original', 'edited', 'change', 'basis'];
+  const u = 'cm', head = ['design', 'view', 'garment', 'size', 'measurement', 'unit', 'original_cm', 'edited_cm', 'change_cm', 'basis'];
   const lines = [head.join(',')];
   for (const r of data.rows) {
     lines.push([design, view, KIND_LABELS[data.kind] || data.kind, data.size, r.label, u,
@@ -341,6 +341,46 @@ export function measurementsCSV(data, { design = 'design', view = 'front' } = {}
   lines.push('');
   lines.push(csvCell('# ' + NOTE));
   return lines.join('\r\n') + '\r\n';
+}
+
+/** Manufacturer-facing measurement CSV. Values are centimetres and remain explicitly marked
+ * as estimates until the garment has been physically measured and approved.
+ */
+export function manufacturerSpecCSV(data, { design = 'Untitled design', view = 'front', toleranceCm = '' } = {}) {
+  if (!data || !Array.isArray(data.rows)) throw new TypeError('Measurement data is required');
+  const codes = { chest: 'POM-01', length: 'POM-02', shoulder: 'POM-03', sleeve: 'POM-04',
+    sleeveOpening: 'POM-05', hem: 'POM-06', neck: 'POM-07', neckDrop: 'POM-08' };
+  const definitions = {
+    chest: 'Half chest width, measured flat from 2.5 cm below armhole to armhole',
+    length: 'Body length from high point shoulder (HPS) to bottom hem',
+    shoulder: 'Shoulder width, seam to seam',
+    sleeve: 'Sleeve length from shoulder seam to sleeve opening',
+    sleeveOpening: 'Sleeve opening width, measured flat',
+    hem: 'Bottom hem width, measured flat',
+    neck: 'Neck opening width, seam to seam',
+    neckDrop: 'Front neck drop from HPS to neck seam',
+  };
+  const cell = csvCell;
+  const lines = [
+    ['THREADFORM MANUFACTURER MEASUREMENT SPEC'].map(cell).join(','),
+    ['Style', design].map(cell).join(','),
+    ['View used for measurements', view].map(cell).join(','),
+    ['Garment type', KIND_LABELS[data.kind] || data.kind].map(cell).join(','),
+    ['Base size', data.size].map(cell).join(','),
+    ['Units', 'cm'].map(cell).join(','),
+    ['Measurement status', 'ESTIMATE - verify against a physical sample before production'].map(cell).join(','),
+    ['Scale basis', data.basis || 'Selected size chart'].map(cell).join(','),
+    [],
+    ['POM code', 'Point of measure', 'How to measure', 'Target (cm)', 'Tolerance (cm)', 'Factory actual (cm)', 'Comments'].map(cell).join(','),
+  ];
+  for (const r of data.rows) {
+    lines.push([codes[r.key] || '', r.label, definitions[r.key] || r.label,
+      formatMeasure(r.cm, 'cm', { unitLabel: false }), toleranceCm, '', ''].map(cell).join(','));
+  }
+  lines.push([]);
+  lines.push(['Factory / sample comments', ''].map(cell).join(','));
+  lines.push(['IMPORTANT', 'These values are image-derived estimates, not verified pattern measurements. Measure a physical sample, confirm all points of measure, tolerances, grading, fabric shrinkage and construction before bulk production.'].map(cell).join(','));
+  return lines.map(line => Array.isArray(line) ? line.join(',') : line).join('\r\n') + '\r\n';
 }
 
 /* ------------------------------------------------------------------ dimension lines: layout */
