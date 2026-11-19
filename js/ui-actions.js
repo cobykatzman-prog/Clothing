@@ -10,7 +10,7 @@ import { parsePrompt } from './prompt.js';
 import { sampleGarment } from './samples.js';
 import { clubEliteViews } from './samples-club.js';
 import { parseGarmentText, makeGarmentViews, GEN_VIEWS } from './generate.js';
-import { aiGenerate, AiError, useAi } from './ai.js';
+import { aiGenerate, aiEdit, AiError, useAi } from './ai.js';
 import { startTask } from './ai-ui.js';
 import * as SEL from './selection.js';
 
@@ -355,23 +355,52 @@ export async function generateVariations(promptText) {
   const instruction = String(promptText || '').trim();
   if (!V.current) { toast('Load or generate a garment first.', 'info'); return; }
   if (!instruction) { toast('Describe what you would like to change, e.g. "make the sleeves flared".', 'info'); return; }
-  const done = busy('Creating three options…');
+  const ops = parsePrompt(instruction);
+  state.lastOps = ops;
+  markFlow('described');
+
+  // Artwork placement (logos, text and graphics) is not a shape-slider operation.
+  // Use the image model for these requests; never return three unchanged local options.
+  const artworkMove = /\\b(move|put|place|position|centre|center|middle|relocat|shift|align)\\b/i.test(instruction)
+    && /\\b(logo|logos|crest|badge|emblem|text|lettering|graphic|artwork|print)\\b/i.test(instruction);
+  if (artworkMove && !useAi()) {
+    toast('Moving logos and artwork needs AI editing. Turn on AI editing in the Describe panel and make sure the site has its AI key configured. No unchanged options were created.', 'error', 7000);
+    return;
+  }
+
+  const done = busy(artworkMove && useAi() ? 'Generating AI design suggestions…' : 'Creating three options…');
+  let task = null;
   try {
     await tick();
-    markFlow('described');
-    const ops = parsePrompt(instruction);
-    state.lastOps = ops;
     const mask = effectiveMask(V);
     const src = V.current, seg = V.seg;
-    const local = await localVariations(src, seg, mask, ops);
-    const out = local.slice(0, 3).map(l => ({ label: l.label, canvas: mask ? enforceMask(src, l.canvas, mask) : l.canvas, seg: mask ? null : (l.seg || null) }));
+    let out;
+    if (artworkMove && useAi()) {
+      task = startTask({ title: 'Generating design suggestions', hint: 'AI is interpreting the placement instruction and creating three alternatives.' });
+      const levels = [['Subtle', 'subtle'], ['Medium', 'medium'], ['Bold', 'bold']];
+      const results = await Promise.all(levels.map(async ([label, level]) => {
+        const r = await aiEdit({
+          image: src, mask, prompt: instruction,
+          constraints: { keep: ops.keep || [], avoid: ops.avoid || [] },
+          refs: state.references, view: state.activeView, level, signal: task.signal
+        });
+        return { label, canvas: r.canvas, seg: null };
+      }));
+      if (task.closed) return;
+      out = results;
+      task.succeed('Three AI suggestions are ready. Review them and choose the one you want.');
+    } else {
+      const local = await localVariations(src, seg, mask, ops);
+      out = local.slice(0, 3).map(l => ({ label: l.label, canvas: mask ? enforceMask(src, l.canvas, mask) : l.canvas, seg: mask ? null : (l.seg || null) }));
+    }
     state.variations = out.map(o => ({ ...o, ops }));
     state.applied = null;
     markFlow('generated'); notify('variations');
     if (!mask) toast('No area selected: changes may touch any matching part of the garment.', 'info', 3800);
   } catch (e) {
     console.error('Variation generation failed:', e);
-    toast('Threadform hit an internal problem while building the options. Your original design is unchanged. Reload the editor and try again.', 'error', 6500);
+    if (task && e instanceof AiError) task.fail(e, { note: 'Your original design has not been changed.' });
+    else toast(e instanceof AiError ? e.message : 'Threadform hit an internal problem while building the options. Your original design is unchanged. Try again.', 'error', 6500);
   } finally { done(); }
 }
 async function bake(canvas, seg, label) {
