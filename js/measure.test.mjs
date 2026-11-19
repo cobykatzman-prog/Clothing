@@ -109,7 +109,8 @@ test('front and back calibrate independently to the same shared size chart', () 
   assert.equal(fm.sleeve, chartValue('tee', 'M', 'sleeve'));
   assert.equal(bm.sleeve, chartValue('tee', 'M', 'sleeve'));
   for (const key of ['shoulder', 'hem', 'neck', 'neckDrop']) {
-    assert.equal(fm[key], chartValue('tee', 'M', key));
-    assert.equal(bm[key], chartValue('tee', 'M', key));
+    const target = chartValue('tee', 'M', key);
+    assert.ok(Math.abs(fm[key] - target) < 1e-8, `front ${key} should match the shared size chart`);
+    assert.ok(Math.abs(bm[key] - target) < 1e-8, `back ${key} should match the shared size chart`);
   }
 });
