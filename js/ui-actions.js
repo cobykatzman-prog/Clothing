@@ -351,13 +351,15 @@ function enforceMask(original, result, mask) {
   return out;
 }
 export async function generateVariations(promptText) {
-  const V = activeView(); if (!V.current) { toast('Load or generate a garment first.', 'info'); return; }
-  if (!promptText.trim()) { toast('Describe what you would like to change, e.g. "make the sleeves flared".', 'info'); return; }
+  const V = activeView();
+  const instruction = String(promptText || '').trim();
+  if (!V.current) { toast('Load or generate a garment first.', 'info'); return; }
+  if (!instruction) { toast('Describe what you would like to change, e.g. "make the sleeves flared".', 'info'); return; }
   const done = busy('Creating three options…');
   try {
     await tick();
     markFlow('described');
-    const ops = parsePrompt(promptText);
+    const ops = parsePrompt(instruction);
     state.lastOps = ops;
     const mask = effectiveMask(V);
     const src = V.current, seg = V.seg;
@@ -367,7 +369,10 @@ export async function generateVariations(promptText) {
     state.applied = null;
     markFlow('generated'); notify('variations');
     if (!mask) toast('No area selected: changes may touch any matching part of the garment.', 'info', 3800);
-  } catch (e) { console.error(e); toast('The options could not be created. Try different words, for example "make the sleeves longer".', 'error', 5000); } finally { done(); }
+  } catch (e) {
+    console.error('Variation generation failed:', e);
+    toast('Threadform hit an internal problem while building the options. Your original design is unchanged. Reload the editor and try again.', 'error', 6500);
+  } finally { done(); }
 }
 async function bake(canvas, seg, label) {
   const V = activeView();
