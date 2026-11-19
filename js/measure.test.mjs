@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chartValue, makeCalibration, measureGarment, normalizeMeasureState, manufacturerSpecCSV } from './measure.js';
+import { chartValue, makeCalibration, measureGarment, normalizeMeasureState, manufacturerSpecCSV, designCalibration } from './measure.js';
 
 function mockGarment({ chest = 100, length = 150, sleeve = 90 } = {}) {
   return {
@@ -82,4 +82,30 @@ test('manufacturer spec is labelled in cm and warns that image-derived values ne
   assert.match(csv, /53/);
   assert.match(csv, /ESTIMATE - verify against a physical sample/);
   assert.match(csv, /Factory actual \(cm\)/);
+});
+
+
+test('front and back calibrate independently to the same shared size chart', () => {
+  const front = mockGarment({ chest: 100, length: 150, sleeve: 90 });
+  const back = mockGarment({ chest: 180, length: 210, sleeve: 130 });
+  const state = {
+    activeView: 'front',
+    measure: { size: 'M', kind: 'tee', manual: null },
+    views: {
+      front: { baseSeg: front, sample: null },
+      back: { baseSeg: back, sample: null },
+      side: { baseSeg: null, sample: null },
+      detail: { baseSeg: null, sample: null },
+    },
+  };
+  const frontCal = designCalibration(state, 'front');
+  const backCal = designCalibration(state, 'back');
+  const fm = measureGarment(front, frontCal);
+  const bm = measureGarment(back, backCal);
+  assert.equal(fm.chest, chartValue('tee', 'M', 'chest'));
+  assert.equal(bm.chest, chartValue('tee', 'M', 'chest'));
+  assert.equal(fm.length, chartValue('tee', 'M', 'length'));
+  assert.equal(bm.length, chartValue('tee', 'M', 'length'));
+  assert.equal(fm.sleeve, chartValue('tee', 'M', 'sleeve'));
+  assert.equal(bm.sleeve, chartValue('tee', 'M', 'sleeve'));
 });
