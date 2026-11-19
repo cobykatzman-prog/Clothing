@@ -279,9 +279,24 @@ async function remoteGet(id) {
   let d;
   try { d = await R.get(id); } catch (e) { if (e.kind === 'notfound') return null; throw e; }
   const assets = {};
-  const hashes = [...new Set([...(d.assets || []), ...refsOf(d.doc)])].filter(h => /^[0-9a-f]{64}$/.test(h));
+  // The server's asset list is authoritative. Older documents can retain hashes in
+  // saved-version snapshots after those images have been garbage-collected. Trying
+  // to download every hash found anywhere in the document made one stale snapshot
+  // prevent the entire design from opening.
+  const hashes = [...new Set(d.assets || [])].filter(h => /^[0-9a-f]{64}$/.test(h));
   let i = 0;
-  const worker = async () => { while (i < hashes.length) { const h = hashes[i++]; assets[h] = await R.getAsset(id, h); } };
+  const worker = async () => {
+    while (i < hashes.length) {
+      const h = hashes[i++];
+      try { assets[h] = await R.getAsset(id, h); }
+      catch (e) {
+        // A missing image should not make the whole design inaccessible. Hydration
+        // treats absent assets as null; connection/server errors still surface.
+        if (e.kind !== 'assetmissing' && e.kind !== 'notfound') throw e;
+        console.warn('Shared design has a missing image asset', id, h);
+      }
+    }
+  };
   await Promise.all(Array.from({ length: Math.min(5, hashes.length) }, worker));
   revs.set(id, d.rev); metaSeen.set(id, d.meta || {});
   return { id, rev: d.rev, meta: stamp(d.meta || {}, d), doc: d.doc, assets };
