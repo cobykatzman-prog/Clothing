@@ -211,10 +211,17 @@ export function guessKind(seg, sampleKind) {
 export function makeCalibration(refSeg, { kind = 'tee', size = 'M', manual = null } = {}) {
   const raw = rawPixels(refSeg);
   const chart = Object.fromEntries(MEASURES.map(m => [m.key, chartValue(kind, size, m.key)]));
-  const cal = { s: 0, sy: 0, ss: 0, kind, size, manual: null, adjusted: [], chart, mode: 'chart' };
+  const cal = { s: 0, sy: 0, ss: 0, shoulderScale: 0, hemScale: 0, neckScale: 0, neckDropScale: 0, kind, size, manual: null, adjusted: [], chart, mode: 'chart' };
   if (!raw || !(raw.chest > 1)) return cal;
   const s = chart.chest / raw.chest;
   cal.s = s; cal.sy = s; cal.ss = s;
+  // Front and back are calibrated point-by-point to the same base spec. This corrects
+  // small differences in camera scale, cropping and segmentation between the two photos.
+  const widthScale = (rawValue, target) => rawValue > 1 && target > 0 ? target / rawValue : s;
+  cal.shoulderScale = widthScale(raw.shoulder * SHOULDER_SEAM, chart.shoulder);
+  cal.hemScale = widthScale(raw.hem, chart.hem);
+  cal.neckScale = widthScale(raw.neck, chart.neck);
+  cal.neckDropScale = widthScale(raw.neckDrop, chart.neckDrop);
   // Calibrate each physical axis independently to the selected size chart. Do not use
   // broad percentage thresholds here: that made the same selected size report different
   // body and sleeve lengths depending on the proportions of the source image.
@@ -237,6 +244,8 @@ export function makeCalibration(refSeg, { kind = 'tee', size = 'M', manual = nul
     if (v > 0) {
       const f = manual.cm / v;
       if (manual.key === 'length') cal.sy *= f;
+      else if (manual.key === 'shoulder') cal.shoulderScale *= f;
+      else if (manual.key === 'hem') cal.hemScale *= f;
       else cal.s *= f;
       cal.manual = { key: manual.key, cm: manual.cm };
       cal.mode = 'manual';
@@ -255,12 +264,12 @@ export function measureGarment(seg, cal) {
   return {
     chest: raw.chest * cal.s,
     length: raw.length * cal.sy,
-    shoulder: raw.shoulder * SHOULDER_SEAM * cal.s,
+    shoulder: raw.shoulder * SHOULDER_SEAM * (cal.shoulderScale || cal.s),
     sleeve: avg(q => q.len * cal.ss),
     sleeveOpening: avg(q => Math.hypot(q.n.x * q.open * cal.s, q.n.y * q.open * cal.sy)),
-    hem: raw.hem * cal.s,
-    neck: raw.neck * cal.s,
-    neckDrop: raw.neckDrop * cal.s,
+    hem: raw.hem * (cal.hemScale || cal.s),
+    neck: raw.neck * (cal.neckScale || cal.s),
+    neckDrop: raw.neckDrop * (cal.neckDropScale || cal.sy),
     sleeveLeft: raw.sleeves.L ? raw.sleeves.L.len * cal.ss : null,
     sleeveRight: raw.sleeves.R ? raw.sleeves.R.len * cal.ss : null,
   };
@@ -305,7 +314,7 @@ export function designCalibration(state, viewName = state.activeView) {
   // size chart. This removes differences caused by photo scale, crop and camera distance,
   // while keeping all views on one shared garment specification.
   const fallback = referenceSeg(state);
-  const viewBase = state.views[viewName] && state.views[viewName].baseSeg;
+  const viewBase = ['front', 'back'].includes(viewName) && state.views[viewName] && state.views[viewName].baseSeg;
   const ref = viewBase && rawPixels(viewBase) ? viewBase : fallback;
   if (!ref) return null;
   const m = state.measure || defaultMeasureState(), kind = designKind(state, fallback || ref);
