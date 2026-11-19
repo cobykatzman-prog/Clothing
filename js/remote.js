@@ -10,11 +10,12 @@ const MESSAGES = {
   auth: 'Your login has expired. Reload the page and log in again.',
   conflict: 'Someone else changed this design while you were editing it.',
   notfound: 'That design is no longer in the shared library. It may have been deleted.',
+  assetmissing: 'The design is there, but one of its images is still syncing. Wait a moment and open it again.',
   toolarge: 'This design is too large for the shared library. Remove some images or old versions and try again.',
   bad: 'The shared library could not accept that change. Try again in a moment.',
 };
 export class RemoteError extends Error {
-  /** kind: offline | unavailable | auth | conflict | notfound | toolarge | bad */
+  /** kind: offline | unavailable | auth | conflict | notfound | assetmissing | toolarge | bad */
   constructor(kind, { status = 0, currentRev = null, cause = null } = {}) {
     super(MESSAGES[kind] || MESSAGES.bad);
     this.name = 'RemoteError'; this.kind = kind; this.status = status; this.currentRev = currentRev; this.cause = cause; this.user = true;
@@ -104,11 +105,16 @@ function remember(key, blob) {
     const [k, v] = assetCache.entries().next().value; assetCache.delete(k); assetBytes -= v.size;
   }
 }
-async function retry(fn, tries = 3) {
+async function retry(fn, tries = 3, retryNotFound = false) {
   let last;
   for (let i = 0; i < tries; i++) {
     try { return await fn(); }
-    catch (e) { last = e; if (!(e instanceof RemoteError) || !e.transient) throw e; await new Promise(r => setTimeout(r, 400 * (i + 1))); }
+    catch (e) {
+      last = e;
+      const canRetry = e instanceof RemoteError && (e.transient || (retryNotFound && e.kind === 'notfound'));
+      if (!canRetry || i === tries - 1) break;
+      await new Promise(r => setTimeout(r, 400 * (i + 1)));
+    }
   }
   throw last;
 }
@@ -132,7 +138,15 @@ export async function putAsset(id, hash, blob) {
 export async function getAsset(id, hash) {
   const key = `${id}/${hash}`;
   if (assetCache.has(key)) return assetCache.get(key);
-  const blob = await retry(() => call('GET', `/api/designs/${ID(id)}/assets/${hash}`, { raw: true, timeout: 60000 }));
+  let blob;
+  try {
+    // A new design row appears in the shared list before its images finish uploading.
+    // Retry a missing image for a short window so opening it immediately is safe.
+    blob = await retry(() => call('GET', `/api/designs/${ID(id)}/assets/${hash}`, { raw: true, timeout: 60000 }), 8, true);
+  } catch (e) {
+    if (e.kind === 'notfound') throw new RemoteError('assetmissing', { status: e.status, cause: e });
+    throw e;
+  }
   remember(key, blob);
   return blob;
 }
