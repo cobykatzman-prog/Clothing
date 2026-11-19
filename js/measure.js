@@ -300,9 +300,15 @@ export function designKind(state, ref) {
   const sample = VIEW_ORDER.map(n => state.views[n] && state.views[n].sample).find(Boolean);
   return guessKind(ref, sample && sample.kind);
 }
-export function designCalibration(state) {
-  const ref = referenceSeg(state); if (!ref) return null;
-  const m = state.measure || defaultMeasureState(), kind = designKind(state, ref);
+export function designCalibration(state, viewName = state.activeView) {
+  // Each view is calibrated from its own untouched base image against the SAME selected
+  // size chart. This removes differences caused by photo scale, crop and camera distance,
+  // while keeping all views on one shared garment specification.
+  const fallback = referenceSeg(state);
+  const viewBase = state.views[viewName] && state.views[viewName].baseSeg;
+  const ref = viewBase && rawPixels(viewBase) ? viewBase : fallback;
+  if (!ref) return null;
+  const m = state.measure || defaultMeasureState(), kind = designKind(state, fallback || ref);
   const key = [kind, m.size, m.manual ? m.manual.key + ':' + m.manual.cm : ''].join('|');
   let per = calCache.get(ref); if (!per) { per = new Map(); calCache.set(ref, per); }
   let cal = per.get(key); if (!cal) { cal = makeCalibration(ref, { kind, size: m.size, manual: m.manual }); per.set(key, cal); }
@@ -311,7 +317,7 @@ export function designCalibration(state) {
 /** Live measurements of one view: {rows, cal, kind, size, unit, seg} or null while there is nothing to measure. */
 export function designMeasure(state, viewName = state.activeView) {
   const V = state.views[viewName]; if (!V || !V.seg || !rawPixels(V.seg)) return null;
-  const cal = designCalibration(state); if (!cal) return null;
+  const cal = designCalibration(state, viewName); if (!cal) return null;
   const m = state.measure || defaultMeasureState();
   const rows = measurementRows(V.seg, V.baseSeg || V.seg, cal);
   return { rows, cal, kind: cal.kind, size: m.size, unit: m.unit, seg: V.seg, view: viewName };
