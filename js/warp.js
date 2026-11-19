@@ -35,9 +35,12 @@ function sleeveGeom(seg, key, M) {
   const L = seg.landmarks, sg = key === 'L' ? 1 : -1;
   const m = M.sleeves && M.sleeves[key];
   const sh = key === 'L' ? L.shoulderL : L.shoulderR, ar = key === 'L' ? L.armpitL : L.armpitR, cu = key === 'L' ? L.cuffL : L.cuffR;
-  const root = m ? m.root : { x: (sh.x + ar.x) / 2, y: (sh.y + ar.y) / 2 };
+  const root = m?.root || { x: (sh.x + ar.x) / 2, y: (sh.y + ar.y) / 2 };
   let a, n, len, hw, cl, has;
-  if (m && m.a) { a = m.a; n = m.n; len = m.L; hw = m.hw; cl = m.cuffLen; has = m.has; }
+  // Segmentation can return a placeholder direction even when it failed to find a sleeve.
+  // Only trust its sleeve geometry when it actually found a usable sleeve; otherwise fall
+  // back to the shoulder/armpit/cuff landmarks so short sleeves still respond to controls.
+  if (m && m.has && m.a && m.L > 20) { a = m.a; n = m.n; len = m.L; hw = m.hw; cl = m.cuffLen; has = true; }
   else {
     const dx = cu.x - root.x, dy = cu.y - root.y; len = Math.hypot(dx, dy);
     has = len > 30; a = has ? { x: dx / len, y: dy / len } : { x: sg, y: 0.3 }; n = { x: -a.y, y: a.x };
@@ -177,7 +180,13 @@ export async function applyShape(srcCanvas, seg, params, opts = {}) {
   if (Object.keys(DEFAULT_PARAMS).every(k => !P[k]) || (seg.metrics && seg.metrics.empty)) return { canvas: copy, seg };
 
   const smw = {};
-  if (seg.regions && seg.regions.leftSleeve) { smw.L = makeRegionWeight(seg.regions.leftSleeve, w, h, 3, 3); smw.R = makeRegionWeight(seg.regions.rightSleeve, w, h, 3, 3); }
+  // Empty segmentation canvases are truthy too. An all-zero sleeve mask would suppress
+  // the geometric warp completely, so only use region weighting when pixels were found.
+  if (seg.regions && seg.regions.leftSleeve && seg.regions.rightSleeve) {
+    const leftAlpha = alphaOf(seg.regions.leftSleeve), rightAlpha = alphaOf(seg.regions.rightSleeve);
+    if (leftAlpha.some(v => v > 100)) smw.L = makeRegionWeight(seg.regions.leftSleeve, w, h, 3, 3);
+    if (rightAlpha.some(v => v > 100)) smw.R = makeRegionWeight(seg.regions.rightSleeve, w, h, 3, 3);
+  }
   const F = makeField(seg, P, smw);
   const rw = opts.region ? makeRegionWeight(opts.region, w, h) : null;
   const tmp = { x: 0, y: 0, w: 0 };
