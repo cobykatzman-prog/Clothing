@@ -67,26 +67,49 @@ export async function recompute(name = state.activeView) {
 }
 export const scheduleRecompute = debounce(() => recompute(), 90);
 
+// Shape is a property of the garment, not of a camera view. Keep the front, back and
+// side on the same shape settings, while leaving each view's artwork, colour and fabric alone.
+const linkedShapeViews = () => ['front', 'back', 'side'].filter(name => state.views[name] && state.views[name].base);
+async function recomputeLinkedViews() {
+  for (const name of linkedShapeViews()) await recompute(name);
+}
+const scheduleShapeRecompute = debounce(() => recomputeLinkedViews(), 90);
+
 let sliderSnapped = false;
 export function beginEdit() { if (!sliderSnapped) { snapshot(); sliderSnapped = true; } }
 export function endEdit() { sliderSnapped = false; }
 
 export function setParam(key, val) {
   beginEdit();
-  activeView().params[key] = val; markFlow('refined'); notify('params'); scheduleRecompute();
+  for (const name of linkedShapeViews()) state.views[name].params[key] = val;
+  markFlow('refined'); notify('params'); scheduleShapeRecompute();
 }
 export function resetParams() {
-  snapshot(); const V = activeView(); V.params = { ...DEFAULT_PARAMS }; V.presets = { fit: null, sleeve: null }; notify('params'); recompute();
+  snapshot();
+  for (const name of linkedShapeViews()) {
+    const V = state.views[name]; V.params = { ...DEFAULT_PARAMS }; V.presets = { fit: null, sleeve: null };
+  }
+  markFlow('refined'); notify('params'); recomputeLinkedViews();
 }
 export function applyFit(name) {
-  snapshot(); const V = activeView();
-  V.params = { ...DEFAULT_PARAMS, ...FIT_PRESETS[name] }; V.presets = { fit: name, sleeve: null }; markFlow('refined'); notify('params'); recompute();
+  snapshot();
+  for (const view of linkedShapeViews()) {
+    const V = state.views[view];
+    V.params = { ...DEFAULT_PARAMS, ...FIT_PRESETS[name] };
+    V.presets = { fit: name, sleeve: null };
+  }
+  markFlow('refined'); notify('params'); recomputeLinkedViews();
 }
 export function applySleeve(name) {
-  snapshot(); const V = activeView();
+  snapshot();
   const keys = ['sleeveLength', 'sleeveWidth', 'sleeveFlare', 'sleeveShape'];
-  for (const k of keys) V.params[k] = 0;
-  Object.assign(V.params, SLEEVE_PRESETS[name]); V.presets = { ...(V.presets || {}), sleeve: name }; markFlow('refined'); notify('params'); recompute();
+  for (const view of linkedShapeViews()) {
+    const V = state.views[view];
+    for (const k of keys) V.params[k] = 0;
+    Object.assign(V.params, SLEEVE_PRESETS[name]);
+    V.presets = { ...(V.presets || {}), sleeve: name };
+  }
+  markFlow('refined'); notify('params'); recomputeLinkedViews();
 }
 export function setColor(patch) { beginEdit(); Object.assign(activeView().color, patch); markFlow('refined'); notify('color'); scheduleRecompute(); }
 export function setFabric(name, amount) {
