@@ -235,6 +235,7 @@ export function selectionSection({ section }) {
       btn('Invert', 'invert', 'Swap selected and unselected (Ctrl+I)', () => S.invertSelection()),
       btn('Clear', 'clear', 'Clear the selection', () => S.clearSelection()),
       btn('Zoom to selection', 'zoom-sel', 'Zoom the canvas to the selection (Z)', () => stageApi()?.zoomToSelection())),
+    extractLogoBtn, extractLogoHelp,
     readout,
     h('div', { class: 'lbl' }, 'Modify the selection'), modify,
     h('details', { class: 'sub', id: 'sel-refine' }, h('summary', {}, 'Refine edges'), refineBox),
@@ -254,7 +255,8 @@ export function selectionSection({ section }) {
     const info = S.selHistInfo();
     setDisabled(undoB, !info.canUndo, 'Nothing to undo in the selection yet'); setDisabled(redoB, !info.canRedo, 'Nothing to redo in the selection');
     histInfo.textContent = info.count > 1 ? `Step ${info.index} of ${info.count - 1}` : '';
-    const has = hasMask(V), st = S.selectionStats(V);\n    setDisabled(extractLogoBtn, !has || state.ui.busy > 0, !has ? 'Select the logo first' : 'Wait for the current task to finish');
+    const has = hasMask(V), st = S.selectionStats(V);
+    setDisabled(extractLogoBtn, !has || state.ui.busy > 0, !has ? 'Select the logo first' : 'Wait for the current task to finish');
     readout.textContent = !has ? 'Nothing selected.' : `Selected ${st.pct != null ? st.pct.toFixed(1) + '% of the garment' : st.area + ' px'} · ${st.bounds ? `${st.bounds.w} × ${st.bounds.h} px at (${st.bounds.x}, ${st.bounds.y})` : ''}`;
     readout.dataset.pct = st.pct != null ? st.pct.toFixed(2) : ''; readout.dataset.w = st.bounds?.w ?? 0; readout.dataset.h = st.bounds?.h ?? 0; readout.dataset.x = st.bounds?.x ?? 0; readout.dataset.y = st.bounds?.y ?? 0;
     selInfo.textContent = has ? 'Selection active. Only highlighted pixels will change.' : 'Nothing selected yet: the whole garment may change.';
