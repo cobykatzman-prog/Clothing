@@ -341,6 +341,12 @@ initHome(home, {
   recover: recoverBackups,
 });
 
+// Safety-net autosave: flush any pending edits at least once per minute.
+// Normal edits are still saved sooner by the debounced save above.
+setInterval(() => {
+  if (dirty && !loading && !conflict) flushSave();
+}, 60_000);
+
 // Leaving the page: write any pending change now
 document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); });
 window.addEventListener('pagehide', () => { flushSave(); });
