@@ -205,11 +205,12 @@ const wrap = e => (e instanceof RemoteError ? e : Object.assign(new StorageError
 async function prepare(rec) {
   const assets = rec.assets || {};
   const hashOf = new Map(), blobs = new Map();
-  for (const [k, v] of Object.entries(assets)) {
-    if (v == null) continue;
+  // Hash independent image assets concurrently; Web Crypto handles these without blocking the UI.
+  await Promise.all(Object.entries(assets).map(async ([k, v]) => {
+    if (v == null) return;
     const b = toBlob(v), h = await R.hashBlob(b);
     hashOf.set(k, h); blobs.set(h, b);
-  }
+  }));
   const doc0 = JSON.parse(JSON.stringify(rec.doc || {}));
   if (Array.isArray(doc0.versions) && doc0.versions.length > MAX_VERSIONS_SHARED) doc0.versions = doc0.versions.slice(0, MAX_VERSIONS_SHARED);   // free database: newest 20 only
   const doc = mapRefs(doc0, k => hashOf.get(k) || k);
@@ -218,7 +219,15 @@ async function prepare(rec) {
 async function uploadMissing(id, blobs, keep) {
   const have = keep.filter(h => blobs.has(h));
   const need = await R.missing(id, have);
-  for (const h of need) await R.putAsset(id, h, blobs.get(h));
+  // Upload a few images at once instead of waiting for each network round-trip.
+  let next = 0;
+  const worker = async () => {
+    while (next < need.length) {
+      const h = need[next++];
+      await R.putAsset(id, h, blobs.get(h));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, need.length) }, worker));
 }
 
 /** Saves a design. First save creates it; later saves send baseRev. Throws RemoteError (kind: conflict, offline, unavailable, ...). */
