@@ -81,7 +81,10 @@ export function endEdit() { sliderSnapped = false; }
 
 export function setParam(key, val) {
   beginEdit();
-  for (const name of linkedShapeViews()) state.views[name].params[key] = val;
+  // Use the active view as the source of truth for the COMPLETE shape, not just
+  // the slider being moved. This also reconciles any older view-specific differences.
+  const params = { ...activeView().params, [key]: val };
+  for (const name of linkedShapeViews()) state.views[name].params = { ...params };
   markFlow('refined'); notify('params'); scheduleShapeRecompute();
 }
 export function resetParams() {
@@ -103,10 +106,12 @@ export function applyFit(name) {
 export function applySleeve(name) {
   snapshot();
   const keys = ['sleeveLength', 'sleeveWidth', 'sleeveFlare', 'sleeveShape'];
+  const params = { ...activeView().params };
+  for (const k of keys) params[k] = 0;
+  Object.assign(params, SLEEVE_PRESETS[name]);
   for (const view of linkedShapeViews()) {
     const V = state.views[view];
-    for (const k of keys) V.params[k] = 0;
-    Object.assign(V.params, SLEEVE_PRESETS[name]);
+    V.params = { ...params };
     V.presets = { ...(V.presets || {}), sleeve: name };
   }
   markFlow('refined'); notify('params'); recomputeLinkedViews();
@@ -114,11 +119,12 @@ export function applySleeve(name) {
 export function clearPreset(kind) {
   snapshot();
   const table = kind === 'fit' ? FIT_PRESETS : SLEEVE_PRESETS;
+  const source = activeView(), preset = table[source.presets?.[kind]] || {};
+  const params = { ...source.params };
+  for (const key of Object.keys(preset)) params[key] = 0;
   for (const name of linkedShapeViews()) {
-    const V = state.views[name], preset = table[V.presets?.[kind]] || {};
-    const params = { ...V.params };
-    for (const key of Object.keys(preset)) params[key] = 0;
-    V.params = params;
+    const V = state.views[name];
+    V.params = { ...params };
     V.presets = { ...(V.presets || {}), [kind]: null };
   }
   markFlow('refined'); notify('params'); recomputeLinkedViews();
