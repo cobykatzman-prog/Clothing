@@ -420,15 +420,25 @@ async function moveLocal() {
   moving = true;
   const btn = moveEl.querySelector('button');
   const done = [];
-  let failed = 0;
+  let failed = 0, completed = 0, next = 0;
+  if (btn) { btn.disabled = true; btn.textContent = `Moving 0 of ${n}...`; }
   try {
-    for (const [i, m] of list.entries()) {
-      if (btn) { btn.disabled = true; btn.textContent = `Moving ${i + 1} of ${n}...`; }
-      try {
-        const r = await store.moveLocalDesign(m.id);
-        if (r !== 'missing') { done.push(m.id); await store.local.patch(m.id, { meta: { sharedCopy: true } }).catch(() => { }); }
-      } catch (e) { console.error(e); failed++; }
-    }
+    // Move up to three designs at once. Each design also uploads its images in small parallel batches.
+    const worker = async () => {
+      while (next < list.length) {
+        const m = list[next++];
+        try {
+          const r = await store.moveLocalDesign(m.id);
+          if (r !== 'missing') {
+            done.push(m.id);
+            await store.local.patch(m.id, { meta: { sharedCopy: true } }).catch(() => { });
+          }
+        } catch (e) { console.error(e); failed++; }
+        completed++;
+        if (btn) btn.textContent = `Moving ${completed} of ${n}...`;
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, list.length) }, worker));
   } finally { moving = false; }
   await refreshHome();
   if (failed) toast(`${failed} design${failed === 1 ? '' : 's'} could not be moved. Check the connection and press the button again.`, 'error', 6000);
