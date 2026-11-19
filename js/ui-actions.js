@@ -378,14 +378,18 @@ export async function generateVariations(promptText) {
     if (artworkMove && useAi()) {
       task = startTask({ title: 'Generating design suggestions', hint: 'AI is interpreting the placement instruction and creating three alternatives.' });
       const levels = [['Subtle', 'subtle'], ['Medium', 'medium'], ['Bold', 'bold']];
-      const results = await Promise.all(levels.map(async ([label, level]) => {
+      // Run image edits one at a time: parallel image-generation calls can trigger
+      // OpenAI account rate limits even when Threadform's own request limit is not hit.
+      const results = [];
+      for (const [label, level] of levels) {
+        if (task.signal.aborted || task.closed) return;
         const r = await aiEdit({
           image: src, mask, prompt: instruction,
           constraints: { keep: ops.keep || [], avoid: ops.avoid || [] },
           refs: state.references, view: state.activeView, level, signal: task.signal
         });
-        return { label, canvas: r.canvas, seg: null };
-      }));
+        results.push({ label, canvas: r.canvas, seg: null });
+      }
       if (task.closed) return;
       out = results;
       task.succeed('Three AI suggestions are ready. Review them and choose the one you want.');
