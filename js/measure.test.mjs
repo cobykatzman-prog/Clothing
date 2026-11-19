@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chartValue, makeCalibration, measureGarment } from './measure.js';
+import { chartValue, makeCalibration, measureGarment, normalizeMeasureState, manufacturerSpecCSV } from './measure.js';
 
 function mockGarment({ chest = 100, length = 150, sleeve = 90 } = {}) {
   return {
@@ -66,4 +66,20 @@ test('manual chest calibration does not change body length or sleeve calibration
   assert.equal(b.chest, 58);
   assert.equal(b.length, a.length);
   assert.equal(b.sleeve, a.sleeve);
+});
+
+test('measurement settings always use centimetres, including older saved inch settings', () => {
+  assert.equal(normalizeMeasureState({ size: 'M', unit: 'in' }).unit, 'cm');
+  assert.equal(normalizeMeasureState({ size: 'L', unit: 'cm' }).unit, 'cm');
+});
+
+test('manufacturer spec is labelled in cm and warns that image-derived values need sample approval', () => {
+  const csv = manufacturerSpecCSV({
+    kind: 'tee', size: 'M', basis: 'typical T-shirt size M',
+    rows: [{ key: 'chest', label: 'Chest width (pit to pit)', cm: 53 }],
+  }, { design: 'Test Tee', view: 'front' });
+  assert.match(csv, /Target \(cm\)/);
+  assert.match(csv, /53/);
+  assert.match(csv, /ESTIMATE - verify against a physical sample/);
+  assert.match(csv, /Factory actual \(cm\)/);
 });
