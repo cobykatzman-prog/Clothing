@@ -8,6 +8,7 @@ import { applyColor, applyFabric, mergeChanged, commitPixels } from './fabric.js
 // Medium and Subtle are clearly smaller so the three options look different.
 const LEVELS = [['Subtle', 0.4], ['Medium', 0.75], ['Bold', 1]];
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const uniq = values => [...new Set(values || [])];
 
 function regionAlpha(seg, name) { const c = seg && seg.regions && seg.regions[name]; return c ? alphaOf(c) : null; }
 
