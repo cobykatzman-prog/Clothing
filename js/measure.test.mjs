@@ -2,15 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chartValue, makeCalibration, measureGarment, normalizeMeasureState, manufacturerSpecCSV, designCalibration } from './measure.js';
 
-function mockGarment({ chest = 100, length = 150, sleeve = 90 } = {}) {
+function mockGarment({ chest = 100, length = 150, sleeve = 90, shoulder = 80, hem = 100, neck = 18, neckDrop = 8 } = {}) {
   return {
     landmarks: {
       armpitL: { x: 100 + chest / 2, y: 80 },
       armpitR: { x: 100 - chest / 2, y: 80 },
-      hemL: { x: 150, y: 180 },
-      hemR: { x: 50, y: 180 },
-      shoulderL: { x: 140, y: 40 },
-      shoulderR: { x: 60, y: 40 },
+      hemL: { x: 100 + hem / 2, y: 180 },
+      hemR: { x: 100 - hem / 2, y: 180 },
+      shoulderL: { x: 100 + shoulder / 2, y: 40 },
+      shoulderR: { x: 100 - shoulder / 2, y: 40 },
       neckTop: { x: 100, y: 30 },
       centerX: 100,
       cuffL: { x: 20, y: 120 },
@@ -18,8 +18,8 @@ function mockGarment({ chest = 100, length = 150, sleeve = 90 } = {}) {
     },
     metrics: {
       fitScale: 1,
-      neckRx: 10,
-      neckRy: 8,
+      neckRx: neck / (2 * 0.937),
+      neckRy: neckDrop,
       sleeves: {
         L: { has: true, L: sleeve, hw: 10, a: { x: -1, y: 0 }, n: { x: 0, y: 1 } },
         R: { has: true, L: sleeve, hw: 10, a: { x: 1, y: 0 }, n: { x: 0, y: 1 } },
@@ -86,8 +86,8 @@ test('manufacturer spec is labelled in cm and warns that image-derived values ne
 
 
 test('front and back calibrate independently to the same shared size chart', () => {
-  const front = mockGarment({ chest: 100, length: 150, sleeve: 90 });
-  const back = mockGarment({ chest: 180, length: 210, sleeve: 130 });
+  const front = mockGarment({ chest: 100, length: 150, sleeve: 90, shoulder: 72, hem: 96, neck: 16, neckDrop: 7 });
+  const back = mockGarment({ chest: 180, length: 210, sleeve: 130, shoulder: 105, hem: 145, neck: 25, neckDrop: 13 });
   const state = {
     activeView: 'front',
     measure: { size: 'M', kind: 'tee', manual: null },
@@ -108,4 +108,8 @@ test('front and back calibrate independently to the same shared size chart', () 
   assert.equal(bm.length, chartValue('tee', 'M', 'length'));
   assert.equal(fm.sleeve, chartValue('tee', 'M', 'sleeve'));
   assert.equal(bm.sleeve, chartValue('tee', 'M', 'sleeve'));
+  for (const key of ['shoulder', 'hem', 'neck', 'neckDrop']) {
+    assert.equal(fm[key], chartValue('tee', 'M', key));
+    assert.equal(bm[key], chartValue('tee', 'M', key));
+  }
 });
