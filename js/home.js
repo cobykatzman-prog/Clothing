@@ -225,50 +225,117 @@ function moveTo(fromId, toId, after) {
 
 
 
+
 /* ---------------------------------------------------------------- materials library */
 const MATERIALS_KEY = 'threadform.materials.v1';
+const MATERIAL_TYPES = ['Cotton','Polyester','Fleece','Nylon','Wool','Linen','Mesh','Rib knit','Jersey','French terry','Denim','Other'];
 function readMaterials() {
-  try { const v = JSON.parse(localStorage.getItem(MATERIALS_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+  try {
+    const v = JSON.parse(localStorage.getItem(MATERIALS_KEY) || '[]');
+    return Array.isArray(v) ? v.map((item, i) => ({
+      ...item,
+      id: item.id || ('mat-legacy-' + i),
+      name: String(item.name || 'Untitled material'),
+      type: item.type || 'Other',
+      color: /^#[0-9a-f]{6}$/i.test(item.color || '') ? item.color : '#d6d3d1',
+      notes: item.notes || '',
+      composition: item.composition || '',
+      weightGsm: item.weightGsm ?? '',
+      widthCm: item.widthCm ?? '',
+      supplier: item.supplier || '',
+      sku: item.sku || '',
+      pricePerMetre: item.pricePerMetre ?? '',
+      care: item.care || '',
+    })) : [];
+  } catch { return []; }
 }
 function writeMaterials(items) {
-  try { localStorage.setItem(MATERIALS_KEY, JSON.stringify(items)); return true; } catch { toast('Could not save the materials library on this device.', 'error'); return false; }
+  try { localStorage.setItem(MATERIALS_KEY, JSON.stringify(items)); return true; }
+  catch { toast('Could not save the materials library on this device.', 'error'); return false; }
+}
+function materialEditor(existing, onSaved) {
+  const item = existing || {};
+  const dlg = makeDialog('material-edit-dialog');
+  const field = (label, value, attrs = {}) => {
+    const input = h('input', { value: value ?? '', ...attrs });
+    return { input, node: h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, label), input) };
+  };
+  const name = field('Material name *', item.name || '', { type: 'text', maxlength: 60, required: true, placeholder: 'e.g. 280 GSM heavyweight cotton' });
+  const type = h('select', {}, ...MATERIAL_TYPES.map(v => h('option', { value: v }, v)));
+  type.value = MATERIAL_TYPES.includes(item.type) ? item.type : 'Other';
+  const colour = h('input', { type: 'color', value: item.color || '#d6d3d1', 'aria-label': 'Material swatch colour' });
+  const composition = field('Composition', item.composition, { type: 'text', maxlength: 100, placeholder: 'e.g. 80% cotton / 20% polyester' });
+  const weight = field('Fabric weight (GSM)', item.weightGsm, { type: 'number', min: 1, max: 2000, step: 1, placeholder: 'e.g. 280' });
+  const width = field('Fabric width (cm)', item.widthCm, { type: 'number', min: 1, max: 500, step: 1, placeholder: 'e.g. 150' });
+  const supplier = field('Supplier', item.supplier, { type: 'text', maxlength: 80, placeholder: 'Supplier or mill' });
+  const sku = field('Supplier code / SKU', item.sku, { type: 'text', maxlength: 50, placeholder: 'Optional reference' });
+  const price = field('Price per metre', item.pricePerMetre, { type: 'number', min: 0, max: 100000, step: '0.01', placeholder: 'Optional' });
+  const care = field('Care instructions', item.care, { type: 'text', maxlength: 120, placeholder: 'e.g. Cold wash, do not tumble dry' });
+  const notes = field('Notes', item.notes, { type: 'text', maxlength: 160, placeholder: 'Finish, stretch, hand-feel, usage...' });
+  const form = h('form', { class: 'material-edit-form', onsubmit: e => {
+    e.preventDefault();
+    const cleanName = name.input.value.trim();
+    if (!cleanName) { name.input.focus(); return; }
+    const numeric = value => value === '' ? '' : Number(value);
+    const next = {
+      id: item.id || ('mat-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)),
+      name: cleanName, type: type.value, color: colour.value,
+      composition: composition.input.value.trim(), weightGsm: numeric(weight.input.value),
+      widthCm: numeric(width.input.value), supplier: supplier.input.value.trim(),
+      sku: sku.input.value.trim(), pricePerMetre: numeric(price.input.value),
+      care: care.input.value.trim(), notes: notes.input.value.trim(),
+    };
+    const all = readMaterials();
+    const index = all.findIndex(x => x.id === next.id);
+    if (index >= 0) all[index] = next; else all.push(next);
+    if (writeMaterials(all)) { dlg.close(); onSaved?.(next); }
+  } },
+    name.node,
+    h('div', { class: 'materials-fields' },
+      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Fabric type'), type),
+      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Swatch colour'), colour)),
+    composition.node,
+    h('div', { class: 'materials-fields' }, weight.node, width.node),
+    h('div', { class: 'materials-fields' }, supplier.node, sku.node),
+    price.node, care.node, notes.node,
+    h('div', { class: 'dlg-actions' },
+      h('button', { type: 'button', class: 'btn ghost', onclick: () => dlg.close() }, 'Cancel'),
+      h('button', { type: 'submit', class: 'btn primary' }, existing ? 'Save changes' : 'Add material')));
+  dlg.append(h('div', { class: 'dlg-head' }, h('h2', {}, existing ? 'Edit material' : 'Add material'),
+    h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => dlg.close() }, icon('x', 18))), form);
+  name.input.focus();
 }
 function editMaterialsLibrary() {
   const dlg = makeDialog('materials-dialog');
-  const name = h('input', { type: 'text', maxlength: 50, placeholder: 'e.g. Heavyweight cotton' });
-  const type = h('select', {}, ...['Cotton','Polyester','Fleece','Nylon','Wool','Linen','Mesh','Rib knit','Other'].map(v => h('option', { value: v }, v)));
-  const colour = h('input', { type: 'color', value: '#d6d3d1', 'aria-label': 'Material colour' });
-  const notes = h('input', { type: 'text', maxlength: 120, placeholder: 'Weight, finish, supplier...' });
+  const search = h('input', { type: 'search', placeholder: 'Search materials, suppliers or fabric types...', 'aria-label': 'Search materials' });
   const list = h('div', { class: 'materials-list' });
+  const count = h('span', { class: 'muted small' });
   const draw = () => {
-    const items = readMaterials();
-    list.replaceChildren(...items.map(item => h('div', { class: 'material-row' },
+    const all = readMaterials();
+    const q = search.value.trim().toLowerCase();
+    const items = all.filter(item => [item.name,item.type,item.composition,item.supplier,item.sku,item.notes].join(' ').toLowerCase().includes(q));
+    count.textContent = all.length + (all.length === 1 ? ' saved material' : ' saved materials');
+    list.replaceChildren(...items.map(item => h('article', { class: 'material-row material-library-card' },
       h('i', { class: 'material-swatch', style: `background:${item.color}` }),
-      h('div', { class: 'material-row-copy' }, h('b', {}, item.name), h('span', {}, [item.type, item.notes].filter(Boolean).join(' · '))),
-      h('button', { type: 'button', class: 'btn ghost sm danger-txt', onclick: () => {
-        const next = readMaterials().filter(x => x.id !== item.id);
-        if (writeMaterials(next)) draw();
-      } }, 'Remove'))));
-    if (!items.length) list.append(h('p', { class: 'muted small' }, 'No saved materials yet. Add your first fabric below.'));
+      h('div', { class: 'material-row-copy' },
+        h('b', {}, item.name),
+        h('span', {}, [item.type, item.weightGsm ? item.weightGsm + ' GSM' : '', item.composition].filter(Boolean).join(' · ')),
+        h('span', {}, [item.supplier, item.sku ? 'SKU ' + item.sku : '', item.widthCm ? item.widthCm + ' cm wide' : ''].filter(Boolean).join(' · '))),
+      h('div', { class: 'material-row-actions' },
+        h('button', { type: 'button', class: 'btn ghost sm', onclick: () => materialEditor(item, draw) }, 'Edit'),
+        h('button', { type: 'button', class: 'btn ghost sm danger-txt', onclick: async () => {
+          const ok = await ask({ title: 'Remove material?', label: 'This removes it from the library. Existing designs keep their saved material details.', value: item.name, ok: 'Remove' });
+          if (ok === null) return;
+          if (writeMaterials(readMaterials().filter(x => x.id !== item.id))) draw();
+        } }, 'Remove')))));
+    if (!items.length) list.append(h('p', { class: 'muted small' }, all.length ? 'No materials match that search.' : 'No saved materials yet. Add your first fabric below.'));
   };
-  const form = h('form', { class: 'materials-form', onsubmit: e => {
-    e.preventDefault();
-    const clean = name.value.trim();
-    if (!clean) { name.focus(); return; }
-    const items = readMaterials();
-    items.push({ id: 'mat-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6), name: clean, type: type.value, color: colour.value, notes: notes.value.trim() });
-    if (writeMaterials(items)) { name.value = ''; notes.value = ''; draw(); }
-  } },
-    h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Material name'), name),
-    h('div', { class: 'materials-fields' },
-      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Fabric'), type),
-      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Colour'), colour)),
-    h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Notes'), notes),
-    h('div', { class: 'dlg-actions' }, h('button', { class: 'btn primary', type: 'submit' }, 'Add material')));
+  search.addEventListener('input', draw);
   dlg.append(h('div', { class: 'dlg-head' }, h('h2', {}, 'Materials library'), h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => dlg.close() }, icon('x', 18))),
-    h('p', { class: 'muted small materials-intro' }, 'Save fabric references and attach them to designs. Material definitions are stored in this browser; each design keeps its selected material details.'),
-    list, form);
-  draw(); name.focus();
+    h('p', { class: 'muted small materials-intro' }, 'Keep fabric specifications, supplier references and care details organised. Designs retain a snapshot of the material assigned to them.'),
+    h('div', { class: 'materials-toolbar' }, search, count), list,
+    h('div', { class: 'materials-library-footer' }, h('button', { type: 'button', class: 'btn primary', onclick: () => materialEditor(null, draw) }, icon('plus', 15), ' Add material')));
+  draw(); search.focus();
 }
 function assignMaterial(m) {
   const items = readMaterials();
@@ -276,8 +343,17 @@ function assignMaterial(m) {
   const dlg = makeDialog('assign-material-dialog');
   const select = h('select', { class: 'material-select' },
     h('option', { value: '' }, 'No material'),
-    ...items.map(item => h('option', { value: item.id }, item.name + ' · ' + item.type)));
+    ...items.map(item => h('option', { value: item.id }, item.name + ' · ' + item.type + (item.weightGsm ? ' · ' + item.weightGsm + ' GSM' : ''))));
   if (m.material?.id) select.value = m.material.id;
+  const detail = h('div', { class: 'material-assignment-preview' });
+  const preview = () => {
+    const item = items.find(x => x.id === select.value);
+    detail.replaceChildren(...(item ? [
+      h('i', { class: 'material-swatch', style: `background:${item.color}` }),
+      h('div', {}, h('b', {}, item.name), h('span', {}, [item.composition, item.weightGsm ? item.weightGsm + ' GSM' : '', item.widthCm ? item.widthCm + ' cm width' : '', item.supplier].filter(Boolean).join(' · ')))
+    ] : [h('span', { class: 'muted small' }, 'No material will be assigned to this design.')]));
+  };
+  select.addEventListener('change', preview);
   const form = h('form', { class: 'dlg-body', onsubmit: async e => {
     e.preventDefault();
     const item = items.find(x => x.id === select.value);
@@ -290,9 +366,9 @@ function assignMaterial(m) {
   } },
     h('h2', {}, 'Design material'),
     h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Choose a saved material'), select),
+    detail,
     h('div', { class: 'dlg-actions' }, h('button', { type: 'button', class: 'btn ghost', onclick: () => dlg.close() }, 'Cancel'), h('button', { type: 'submit', class: 'btn primary' }, 'Save')));
-  dlg.append(form);
-  select.focus();
+  dlg.append(form); preview(); select.focus();
 }
 
 /* ---------------------------------------------------------------- collections + brand kit */
