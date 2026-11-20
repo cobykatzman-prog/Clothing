@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chartValue, makeCalibration, measureGarment, normalizeMeasureState, manufacturerSpecCSV, designCalibration, designMeasure } from './measure.js';
+import { chartValue, makeCalibration, measureGarment, normalizeMeasureState, manufacturerSpecCSV, designCalibration, designMeasure, dimensionLayout } from './measure.js';
 
 function mockGarment({ chest = 100, length = 150, sleeve = 90, shoulder = 80, hem = 100, neck = 18, neckDrop = 8 } = {}) {
   return {
@@ -157,4 +157,20 @@ test('side and detail crops do not masquerade as flat garment measurements', () 
   };
   assert.equal(designMeasure(state, 'side'), null);
   assert.equal(designMeasure(state, 'detail'), null);
+});
+
+
+test('dimension callouts use the same HPS and shoulder-to-cuff points as the table', () => {
+  const seg = mockGarment({ length: 150, sleeve: 90 });
+  const layout = dimensionLayout(seg, [
+    { key: 'length', cm: 70 },
+    { key: 'sleeve', cm: 20 },
+  ], { fontPx: 12 });
+  const length = layout.dims.find(d => d.key === 'length');
+  const sleeve = layout.dims.find(d => d.key === 'sleeve');
+  assert.ok(length);
+  assert.equal(length.a.y, 40);
+  assert.equal(length.b.y, 190);
+  assert.ok(sleeve);
+  assert.ok(Math.abs(Math.hypot(sleeve.b.x - sleeve.a.x, sleeve.b.y - sleeve.a.y) - 90) < 1e-8);
 });
