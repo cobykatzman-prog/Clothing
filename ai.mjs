@@ -8,7 +8,7 @@
 //   AI_BASE_URL      default https://api.openai.com/v1 (https only; http only for localhost, used by tests)
 //   AI_IMAGE_MODEL   default gpt-image-1        AI_VISION_MODEL  default gpt-4.1-mini
 //   AI_IMAGE_QUALITY low | medium | high (default medium)
-//   AI_RATE_LIMIT (default 30 requests per IP per window), AI_RATE_WINDOW_MIN (default 10), AI_DAILY_LIMIT (default 400)
+//   AI_RATE_LIMIT (default 120 requests per IP per window), AI_RATE_WINDOW_MIN (default 10), AI_DAILY_LIMIT (default 400)
 //   AI_TIMEOUT_MS    upstream timeout, default 60000 (a test hook; there is rarely a reason to change it)
 //
 // Routes (see PLAN.md, "API contract for the AI backend"): GET /api/ai/status, POST /api/ai/edit|generate|understand|analyze.
@@ -342,7 +342,7 @@ export function createAi({ env = process.env, baseHeaders, sameOriginPost, clien
     visionModel: clean(env.AI_VISION_MODEL, 80) || 'gpt-4.1-mini',
     quality: ['low', 'medium', 'high'].includes(String(env.AI_IMAGE_QUALITY || '').trim()) ? String(env.AI_IMAGE_QUALITY).trim() : 'medium'
   };
-  const perIp = Math.max(1, Math.floor(Number(env.AI_RATE_LIMIT)) || 30);
+  const perIp = Math.max(1, Math.floor(Number(env.AI_RATE_LIMIT)) || 120);
   const windowMs = Math.max(1, Number(env.AI_RATE_WINDOW_MIN) || 10) * 60000;
   const daily = Math.max(1, Math.floor(Number(env.AI_DAILY_LIMIT)) || 400);
   const timeoutMs = Math.max(200, Number(env.AI_TIMEOUT_MS) || 60000);

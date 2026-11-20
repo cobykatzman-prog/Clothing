@@ -13,6 +13,9 @@ const MESSAGES = {
   disabled: 'AI editing is not switched on for this site, so the built-in engine is used.',
   auth: 'Your login has expired. Reload the page and log in again.',
   ratelimit: 'The AI service is busy right now. Wait a moment and try again.',
+  localLimit: 'Threadform has reached its AI request limit. Please wait for the cooldown to finish.',
+  providerLimit: 'OpenAI is temporarily limiting requests for this API account. Check its usage and billing if this keeps happening.',
+  queueBusy: 'Several AI jobs are already running. Wait for one to finish, then try again.',
   toolarge: 'That image is too large to send. Try a smaller image or a simpler selection.',
   upstream: 'The AI service did not answer properly. Try again in a moment.',
   offline: 'Could not reach the server. Check your internet connection and try again.',
@@ -116,7 +119,12 @@ async function post(path, body, { signal, timeout = TIMEOUT_MS } = {}) {
   if (s === 413) throw new AiError('toolarge', { status: s });
   if (s === 429) {
     const ra = Number(res.headers.get('retry-after'));
-    throw new AiError('ratelimit', { status: s, retryAfter: ra > 0 && ra < 3600 ? Math.ceil(ra) : 30 });
+    const retryAfter = ra > 0 && ra < 86400 ? Math.ceil(ra) : 30;
+    const message = code === 'rate_limited' ? MESSAGES.localLimit
+      : code === 'ai_provider_busy' ? MESSAGES.providerLimit
+      : code === 'busy' ? MESSAGES.queueBusy
+      : MESSAGES.ratelimit;
+    throw new AiError('ratelimit', { status: s, retryAfter, message });
   }
   if (s === 404) throw new AiError('disabled', { status: s });
   if (s === 400 || s === 422) throw new AiError('bad', { status: s });

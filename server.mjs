@@ -52,7 +52,9 @@ export function createApp(env = process.env) {
   } else if (PASSWORD.length < 8) throw new Error('SITE_PASSWORD must be at least 8 characters (12 or more is recommended).');
   const gated = !!PASSWORD;
   const SECRET = env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
-  const SESSION_MS = (Number(env.SESSION_DAYS) > 0 ? Number(env.SESSION_DAYS) : 7) * 86400000;
+  // Keep sessions short-lived even if an environment value is accidentally excessive.
+  const SESSION_DAYS = Math.min(30, Number(env.SESSION_DAYS) > 0 ? Number(env.SESSION_DAYS) : 7);
+  const SESSION_MS = SESSION_DAYS * 86400000;
   const SEC = loadSecurityHeaders();
   const pwTag = sha(PASSWORD).toString('hex');   // changing the password invalidates every existing session
 
@@ -89,6 +91,30 @@ export function createApp(env = process.env) {
   function recordFail(ip, now = Date.now()) {
     const r = fails.get(ip) || { n: 0, start: now }; r.n++; fails.set(ip, r); global.n++;
     if (fails.size > 5000) for (const [k, v] of fails) if (now - v.start > FAIL_WINDOW) fails.delete(k);
+  }
+
+  /* ---------------- API abuse protection ----------------
+   * This is an in-process safety net. For multiple server instances, use a shared
+   * rate-limit store at the hosting/proxy layer as well.
+   */
+  const apiHits = new Map();
+  const API_WINDOW = 5 * 60 * 1000, API_MAX = 240;
+  function apiRateLimit(ip, now = Date.now()) {
+    let rec = apiHits.get(ip);
+    if (!rec || now - rec.start >= API_WINDOW) {
+      rec = { start: now, n: 0 };
+      apiHits.set(ip, rec);
+    }
+    if (rec.n >= API_MAX) return Math.max(1, Math.ceil((rec.start + API_WINDOW - now) / 1000));
+    rec.n++;
+    if (apiHits.size > 5000) {
+      for (const [key, value] of apiHits) {
+        if (now - value.start >= API_WINDOW) apiHits.delete(key);
+      }
+      // Bound memory even if requests arrive from many unique addresses.
+      while (apiHits.size > 5000) apiHits.delete(apiHits.keys().next().value);
+    }
+    return 0;
   }
 
   /* ---------------- helpers ---------------- */
@@ -206,6 +232,10 @@ ${failed ? '<p class="err" role="alert">That did not match. Please try again.</p
       if (!authed(req)) {
         if ((m === 'GET' || m === 'HEAD') && /text\/html/.test(String(req.headers.accept || 'text/html'))) return redirect(req, res, `/login?next=${encodeURIComponent(safeNext(pathname + url.search))}`);
         return send(req, res, 401, 'Please log in.');
+      }
+      if (pathname.startsWith('/api/')) {
+        const wait = apiRateLimit(clientIp(req));
+        if (wait) return send(req, res, 429, 'Too many requests. Please wait and try again.', { 'Retry-After': String(wait) });
       }
       if (SHARED_ROUTES.test(pathname)) return shared.handle(req, res, url);
       if (AI_ROUTES.test(pathname)) return ai.handle(req, res, url);

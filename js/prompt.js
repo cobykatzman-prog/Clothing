@@ -179,12 +179,14 @@ export function parsePrompt(text) {
     params: {}, regions: [], keep: [], keepAllExcept: null, keepRest: false, keepColor: false, keepNotes: [],
     sleevePreset: undefined, fitPreset: undefined, fabric: undefined, fabricAmount: undefined, color: undefined,
     style: undefined, styleDegree: 0.8, collarStyle: undefined, garmentKind: undefined, sleeveFrom: undefined,
-    removeParts: [], addElements: [], notes: [], unparsed: [], removeCuffs: false, flare: false
+    removeParts: [], addElements: [], notes: [], unparsed: [], removeCuffs: false, flare: false,
+    avoid: [], lock: [], extract: null, matchBackToFront: false, openHem: false
   };
   const setP = (k, v) => { o.params[k] = clamp(Math.round((o.params[k] || 0) + v)); };
   const reg = (...r) => o.regions.push(...r.flat());
   const note = (s) => o.notes.push(s);
 
+  o.extract = detectExtract(lower);
   const clauses = splitClauses(lower, original);
   let understood = 0;
 
@@ -226,7 +228,10 @@ export function parsePrompt(text) {
   o.keep = uniq(o.keep).filter((r) => !o.regions.includes(r));
 
   const paramDeltas = {};
-  for (const [k, v] of Object.entries(o.params)) if (v) paramDeltas[k] = v;
+  for (const [k, v] of Object.entries(o.params)) if (v && !o.lock.includes(k)) paramDeltas[k] = v;
+  o.avoid = uniq(o.avoid);
+  o.lock = uniq(o.lock);
+  if (o.avoid.includes('cuffs') && o.sleevePreset === 'ribbedCuff') o.sleevePreset = 'openHem';
 
   const total = clauses.length;
   const confidence = total === 0 || understood === 0 ? 0 : +(0.35 + 0.65 * (understood / total)).toFixed(2);
@@ -254,6 +259,11 @@ export function parsePrompt(text) {
   if (o.keepColor) result.keepColor = true;
   if (o.keepNotes.length) result.keepNotes = o.keepNotes;
   if (o.unparsed.length) result.unparsed = o.unparsed;
+  result.avoid = o.avoid;
+  result.lock = o.lock;
+  result.extract = o.extract;
+  result.matchBackToFront = o.matchBackToFront;
+  if (o.openHem) result.openHem = true;
   result.text = original;
   return result;
 }
@@ -280,9 +290,81 @@ function splitClauses(lower, original) {
   return out;
 }
 
+// Lock words -> the shape params that must stay exactly as they are ("without changing the length").
+const LOCK_WORDS = [
+  [/^sleeve length$/, ['sleeveLength']], [/^sleeve width$/, ['sleeveWidth']],
+  [/^(length|height)$/, ['bodyLength', 'cropLength']], [/^hem(line)?$/, ['bodyLength', 'cropLength', 'hemShape']],
+  [/^width$/, ['bodyWidth']], [/^shoulders?$/, ['shoulderWidth']], [/^collar$/, ['collarSize']], [/^neck/, ['neckOpening']]
+];
+// Things a clause may ask us not to add: word -> canonical name (cuffs are the ribbed band the presets add).
+const AVOID_WORDS = [
+  [/^(cuffs?|ribs?|ribbing|ribbed)$/, 'cuffs'], [/^(logos?|crests?|badges?|emblems?)$/, 'logos'], [/^(text|lettering)$/, 'text'],
+  [/^(stripes?|piping)$/, 'stripes'], [/^collars?$/, 'collar'], [/^hems?$/, 'hem']
+];
+const EXTRACT_TARGET = /\b(logos?|crests?|badges?|emblems?|text|lettering|wordmarks?|graphics?|artwork|racket|tennis|balls?|illustrations?|motifs?|prints?)\b/;
+const EXTRACT_VERB = /\b(layers?|separate(?:ly)?|editable|extract\w*|lift\w*|isolate\w*)\b/;
+
+// Extraction ("remove the logo ... and put it on a separate editable layer") is decided once for the whole prompt.
+export function detectExtract(lower) {
+  if (!EXTRACT_VERB.test(lower)) return null;
+  const logo = /\b(logos?|crests?|badges?|emblems?)\b/.test(lower);
+  const text = /\b(text|lettering|wordmarks?|typography)\b/.test(lower);
+  const graphics = /\b(graphics?|artwork|racket|tennis|balls?|illustrations?|motifs?|prints?)\b/.test(lower);
+  if (!logo && !text && !graphics) return null;
+  return { logo, text, graphics, separateLayer: /\b(layers?|separate(?:ly)?|editable)\b/.test(lower) };
+}
+
+// Clause-level negotiation: lock / avoid / keep-unchanged / extraction / match-back-to-front.
+// Returns {hit, consumed} where consumed means the whole clause was an extraction and must not be parsed as a removal.
+function negotiate(s, o, { setP, reg, note, eat }) {
+  let hit = false, consumed = false;
+  // match the back to the front
+  if (/\bback\b/.test(s) && (/\b(match\w*|same as|like)\s+the\s+front\b/.test(s) || /\bfront\b.*\bproportions?\b/.test(s))) {
+    o.matchBackToFront = true; note('back matches front proportions'); hit = true;
+  }
+  // extraction of artwork into its own layer
+  if (o.extract && (EXTRACT_TARGET.test(s) || EXTRACT_VERB.test(s))) {
+    const what = [o.extract.logo && 'logo', o.extract.text && 'text', o.extract.graphics && 'graphics'].filter(Boolean);
+    note(`lift ${what.join(' and ') || 'artwork'} onto ${o.extract.separateLayer ? 'a separate editable layer' : 'its own layer'}`);
+    hit = true; consumed = true;
+    return { hit, consumed };
+  }
+  // lock shape parameters ("without changing the length")
+  const lockM = s.match(/\b(?:without|don'?t|do not|never)\s+(?:(?:changing|change|altering|alter|touching|touch|modifying|modify|affecting|affect|shortening|lengthening|making|moving)\s+)?(?:the\s+)?(sleeve length|sleeve width|length|height|hemline|hem|width|shoulders?|collar|neckline|neck opening|neck)\b/)
+    || s.match(/\bkeep(?:ing)?\s+(?:the\s+)?(sleeve length|sleeve width|length|height|hemline|hem|width|shoulders?|collar|neckline)\s+(?:the\s+)?(?:same|unchanged|as is)\b/);
+  if (lockM) {
+    const word = lockM[1];
+    const entry = LOCK_WORDS.find(([re]) => re.test(word));
+    if (entry) {
+      o.lock.push(...entry[1]); note(`keep the ${word} unchanged`); hit = true;
+      if (!/^\s*(please\s+)?keep/.test(s)) eat(lockM[0]);   // "keep ..." clauses are also parsed by the keep branch
+    }
+  }
+  // avoid adding things ("don't add cuffs", "no logo", "without ribbed cuffs")
+  const avoidRe = /\b(?:don'?t|do not|never|avoid|without|no)\s+(?:(?:add|adding|put|putting|give|giving|include|including|use|using|have|having|any|a|an|the|extra|new)\s+)*(cuffs?|ribs?|ribbing|ribbed|logos?|crests?|badges?|emblems?|text|lettering|stripes?|piping|collars?|hems?)\b/;
+  const avoidM = s.match(avoidRe);
+  if (avoidM && !/\b(remove|take off|get rid of|delete|lose|drop)\b/.test(s)) {
+    const entry = AVOID_WORDS.find(([re]) => re.test(avoidM[1]));
+    if (entry) {
+      o.avoid.push(entry[1]); note(`no ${entry[1]} added`); hit = true; eat(avoidM[0]);
+      if (entry[1] === 'cuffs') { o.openHem = true; o.removeCuffs = true; o.sleevePreset = o.sleevePreset === 'ribbedCuff' ? 'openHem' : o.sleevePreset; }
+    }
+  }
+  // "... unchanged / alone / as is" after a list of parts: those parts are kept
+  const unch = s.match(/\b(unchanged|untouched|alone|as is|as they are)\b/);
+  if (unch && !/^\s*(please\s+)?(keep|preserve|retain|leave|maintain)\b/.test(s)) {
+    const regs = regionsIn(s.slice(0, unch.index), { colorAsFabric: false });
+    if (regs.length) { regs.forEach((r) => o.keep.push(r)); note(`keep the ${regs.join(', ')} unchanged`); hit = true; eat(unch[0]); }
+  }
+  return { hit, consumed };
+}
+
 function parseClause(s, raw, o, { setP, reg, note }) {
   let hit = false;
   const eat = (re) => { s = s.replace(re, ' '); };
+  const neg = negotiate(s, o, { setP, reg, note, eat });
+  if (neg.hit) hit = true;
+  if (neg.consumed) return true;
 
   /* ---- keep / preserve clauses ---- */
   const keepM = s.match(/^\s*(?:please\s+)?(keep|preserve|retain|leave|maintain|don'?t (?:change|touch|alter|modify)|do not (?:change|touch|alter|modify))\b(.*)$/);
@@ -332,7 +414,13 @@ function parseClause(s, raw, o, { setP, reg, note }) {
       o.collarStyle = 'none'; setP('collarSize', -100); reg('collar'); note('remove the collar'); hit = true; eat(/collar/g);
     } else {
       const sty = COLLAR_STYLES.find(([re]) => re.test(s));
-      if (sty) {
+      if (!sty && /\b(vintage|retro|old[- ]school)\b/.test(s)) {
+        o.collarStyle = 'vintage'; reg('collar'); note('vintage collar'); hit = true;
+        eat(/\b(vintage|retro|old[- ]school)\b/g); eat(/\b(collar|neckline|neck)\b/g);
+        const grow = /\b(wider|bigger|larger|broader|more|fuller|generous)\b/.test(s);
+        setP('collarSize', grow ? Math.round(40 * degree(s, 0.6)) : 20);
+        note(grow ? 'bigger collar' : 'collar size');
+      } else if (sty) {
         o.collarStyle = sty[1];
         if (sty[2]) setP('collarSize', sty[2]);
         reg('collar'); if (['crew', 'vneck', 'henley'].includes(sty[1])) reg('neckline');
