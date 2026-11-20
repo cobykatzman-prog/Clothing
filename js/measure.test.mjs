@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chartValue, makeCalibration, measureGarment, normalizeMeasureState, manufacturerSpecCSV, designCalibration, designMeasure, dimensionLayout, measurementRows } from './measure.js';
+import { chartValue, makeCalibration, measureGarment, normalizeMeasureState, manufacturerSpecCSV, gradedMeasurementCSV, designCalibration, designMeasure, dimensionLayout, measurementRows } from './measure.js';
 
 function mockGarment({ chest = 100, length = 150, sleeve = 90, shoulder = 80, hem = 100, neck = 18, neckDrop = 8, sleeveOpening = 17 } = {}) {
   return {
@@ -249,4 +249,24 @@ test('dimension callouts use the same HPS and shoulder-to-cuff points as the tab
   assert.equal(neckDrop.name, 'Back neck drop');
   assert.equal(neckDrop.a.y, 40);
   assert.equal(neckDrop.b.y, 48);
+});
+
+
+test('graded size chart carries the selected-size style adjustment across chart increments', () => {
+  const data = {
+    kind: 'tee', size: 'M',
+    rows: [
+      { key: 'chest', label: 'Chest width', cm: 55 },
+      { key: 'neckDrop', label: 'Back neck drop', cm: 4 },
+    ],
+  };
+  const csv = gradedMeasurementCSV(data, { design: 'Test Tee', view: 'back' });
+  assert.match(csv, /XS \(cm\),S \(cm\),M \(cm\),L \(cm\),XL \(cm\),XXL \(cm\)/);
+  assert.match(csv, /Chest width,55,2,49,52,55,58,61,64/);
+  assert.match(csv, /Back neck drop,4,1\.5,4,4\.5,5,5\.5,6,6\.5/);
+  assert.match(csv, /verify every size against physical samples/);
+});
+
+test('graded size chart rejects missing measurement data', () => {
+  assert.throws(() => gradedMeasurementCSV(null), /Measurement data is required/);
 });
