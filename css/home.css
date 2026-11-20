@@ -253,3 +253,18 @@ body.view-home{background:#f2f0eb;color:var(--home-ink)}.home{background:#f2f0eb
 .material-assignment-preview>div{display:flex;flex-direction:column;gap:3px;min-width:0}
 .material-assignment-preview span{font-size:11px;color:var(--home-muted,#77746c);line-height:1.4}
 @media(max-width:520px){.materials-toolbar{align-items:stretch;flex-direction:column;gap:6px}.material-library-card{align-items:flex-start;flex-wrap:wrap}.material-row-actions{width:100%;justify-content:flex-end}.material-edit-form .materials-fields{grid-template-columns:1fr}}
+
+/* Stage 5 — bulk design organisation and clearer selection state */
+.home-filters{flex-wrap:wrap}
+.home-filters .home-search{flex:1 1 220px;min-width:160px}
+.home-filters .home-sort{flex:0 1 190px;min-width:150px}
+.home-filters .btn{flex:none}
+.bulk-toolbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:0 0 14px;padding:10px 12px;border:1px solid var(--home-line,#e5e1d8);border-radius:10px;background:#fffefa}
+.bulk-toolbar>b{font-size:12px;margin-right:auto}
+.dcard{position:relative}
+.dcard-select{position:absolute;z-index:3;top:10px;left:10px;display:flex;align-items:center;gap:6px;padding:6px 9px;border:1px solid rgba(0,0,0,.12);border-radius:999px;background:rgba(255,254,250,.96);box-shadow:0 2px 8px rgba(0,0,0,.08);font-size:11px;font-weight:650;cursor:pointer}
+.dcard-select input{width:15px;height:15px;margin:0;accent-color:#292820}
+.dcard:has(.dcard-select input:checked){outline:2px solid #292820;outline-offset:1px}
+.dcard:has(.dcard-select) .dcard-open{cursor:default}
+.dcard .dactions .mv{min-width:30px}
+@media(max-width:720px){.bulk-toolbar{align-items:stretch}.bulk-toolbar>b{width:100%}.bulk-toolbar .btn{flex:1}}
