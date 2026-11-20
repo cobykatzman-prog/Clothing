@@ -6,6 +6,20 @@ const SIZE = 1024;
 const PAD = 14; // internal raster padding (px at res 1) for shadows
 
 let _id = 1;
+/** Clone editable data without copying browser image/canvas objects used by logo layers. */
+function cloneElementValue(value) {
+  if (Array.isArray(value)) return value.map(cloneElementValue);
+  if (value && typeof value === 'object') {
+    const proto = Object.getPrototypeOf(value);
+    if (proto === Object.prototype || proto === null) {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneElementValue(item)]));
+    }
+  }
+  return value;
+}
+function cloneElementProps(props = {}) {
+  return Object.fromEntries(Object.entries(props).map(([key, value]) => [key, cloneElementValue(value)]));
+}
 export const ELEMENT_TYPES = ['text', 'logo', 'crest', 'graphic', 'stripe', 'piping', 'embroidery', 'print', 'patch'];
 // Fonts: no web-font loading (the site makes no runtime network requests), so every entry is a family name
 // with a generic fallback. A family renders as designed only where it is installed; manual.js marks the rest.
@@ -44,7 +58,8 @@ export class ElementLayer {
     this.flipX = false; this.flipY = false;   // mirror horizontally / vertically (drawn about the element centre)
   }
   clone() {
-    const e = new ElementLayer(this.type, { ...this.props });
+    // Undo history and duplicates must not share nested style objects (shadow, colour maps, etc.).
+    const e = new ElementLayer(this.type, cloneElementProps(this.props));
     Object.assign(e, { x: this.x, y: this.y, w: this.w, h: this.h, rotation: this.rotation, view: this.view, visible: this.visible, locked: this.locked, name: this.name, opacity: this.opacity, base: this.base ? { ...this.base } : null, flipX: !!this.flipX, flipY: !!this.flipY });
     return e;
   }
