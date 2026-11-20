@@ -64,11 +64,12 @@ export class ElementLayer {
     return e;
   }
   toJSON() {
-    const p = { ...this.props }; if (p.image) { p.image = imageToDataURL(p.image); }
+    // Freeze the saved representation before asynchronous storage/network work begins.
+    const p = cloneElementProps(this.props); if (p.image) { p.image = imageToDataURL(p.image); }
     return { id: this.id, type: this.type, x: this.x, y: this.y, w: this.w, h: this.h, rotation: this.rotation, props: p, view: this.view, visible: this.visible, locked: this.locked, name: this.name, opacity: this.opacity, base: this.base, flipX: !!this.flipX, flipY: !!this.flipY };
   }
   static fromJSON(o) {
-    const e = new ElementLayer(o.type, { ...o.props });
+    const e = new ElementLayer(o.type, cloneElementProps(o.props || {}));
     Object.assign(e, { id: o.id || e.id, x: o.x, y: o.y, w: o.w, h: o.h, rotation: o.rotation || 0, view: o.view || 'front', visible: o.visible !== false, locked: !!o.locked, name: o.name || o.type, opacity: o.opacity ?? 1, base: o.base || null, flipX: !!o.flipX, flipY: !!o.flipY });
     return e;
   }
