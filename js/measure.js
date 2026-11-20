@@ -338,7 +338,7 @@ export function designCalibration(state, viewName = state.activeView) {
   const ref = viewBase && rawPixels(viewBase) ? viewBase : fallback;
   if (!ref) return null;
   const m = state.measure || defaultMeasureState(), kind = designKind(state, fallback || ref);
-  const key = [kind, m.size, m.manual ? m.manual.key + ':' + m.manual.cm : ''].join('|');
+  const key = [viewName, kind, m.size, m.manual ? m.manual.key + ':' + m.manual.cm : ''].join('|');
   let per = calCache.get(ref); if (!per) { per = new Map(); calCache.set(ref, per); }
   let cal = per.get(key); if (!cal) { cal = makeCalibration(ref, { kind, size: m.size, manual: m.manual, view: viewName }); per.set(key, cal); }
   return cal;
