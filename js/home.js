@@ -7,9 +7,10 @@ import * as R from './remote.js';
 import * as A from './ui-actions.js';
 
 const MAX_TAGS = 12, MAX_TAG_LEN = 24;
-let root, api, qEl, sortEl, countEl, listEl, emptyEl, noteEl, chipsEl;
+let root, api, qEl, sortEl, countEl, listEl, emptyEl, noteEl, chipsEl, collectionEl;
 let metas = [];
 let activeTags = new Set();   // tag filter, lower-case keys (a design must have every selected tag)
+let activeCollection = '';
 const SORT_KEY = 'threadform.home.sort';   // remembered in this browser only (a convenience, not design data)
 let dragId = null;
 let sharedEl, badgeEl, badgeTxt, moveEl, movable = [], refreshing = false, tick = 0;   // shared-library mode only
@@ -27,6 +28,7 @@ export function initHome(el, actions) {
   try { const saved = localStorage.getItem(SORT_KEY); if (saved && [...sortEl.options].some(o => o.value === saved)) sortEl.value = saved; } catch { }
   countEl = h('span', { class: 'muted small' });
   chipsEl = h('div', { class: 'tag-filters', role: 'group', 'aria-label': 'Filter by tag' });
+  collectionEl = h('div', { class: 'collection-strip', role: 'group', 'aria-label': 'Design collections' });
   listEl = h('div', { class: 'home-grid', role: 'list' });
   noteEl = h('p', { class: 'home-note small muted' });
   emptyEl = h('div', { class: 'home-empty', hidden: true },
@@ -40,12 +42,12 @@ export function initHome(el, actions) {
   root.replaceChildren(
     h('div', { class: 'home-top' },
       h('div', { class: 'brand' }, h('span', { class: 'logo' }, icon('layers', 18)), h('b', {}, 'Threadform')),
-      h('div', { class: 'home-actions' }, h('button', { class: 'btn primary', id: 'home-new', onclick: () => chooser() }, icon('plus', 16), 'New design'), logoutForm())),
+      h('div', { class: 'home-actions' }, h('button', { class: 'btn ghost sm', onclick: () => editBrandKit() }, 'Brand kit'), h('button', { class: 'btn ghost sm', onclick: () => createCollection() }, 'New collection'), h('button', { class: 'btn primary', id: 'home-new', onclick: () => chooser() }, icon('plus', 16), 'New design'), logoutForm())),
     h('div', { class: 'home-body' },
       h('div', { class: 'home-tools' },
         h('div', {}, h('h1', {}, SHARED() ? 'Shared designs' : 'Your designs'), countEl),
         h('div', { class: 'home-filters' }, qEl, sortEl)),
-      sharedEl || null, chipsEl, listEl, emptyEl, noteEl));
+      sharedEl || null, collectionEl, chipsEl, listEl, emptyEl, noteEl));
   if (SHARED()) startSharedRefresh();
 }
 
@@ -77,6 +79,7 @@ const ago = t => {
 };
 
 const tagsOf = m => (Array.isArray(m.tags) ? m.tags : []);
+const collectionOf = m => String(m.collection || '').trim();
 const byName = (a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
 /** Custom order: designs with an order first (lowest first), then the rest, newest first. */
 function customSorted(list) {
@@ -114,6 +117,10 @@ function renderChips() {
     onclick: () => { activeTags.has(key) ? activeTags.delete(key) : activeTags.add(key); render(); },
   }, name, h('span', { class: 'tcount' }, String(n)))));
   if (activeTags.size) chipsEl.append(h('button', { class: 'tchip clear', onclick: () => { activeTags.clear(); render(); } }, 'Clear tags'));
+  const collections = [...new Set(metas.map(collectionOf).filter(Boolean))].sort((a,b) => a.localeCompare(b));
+  collectionEl.hidden = !collections.length;
+  collectionEl.replaceChildren(h('button', { class: 'collection-chip' + (!activeCollection ? ' active' : ''), 'aria-pressed': String(!activeCollection), onclick: () => { activeCollection = ''; render(); } }, 'All designs'));
+  for (const name of collections) collectionEl.append(h('button', { class: 'collection-chip' + (activeCollection === name ? ' active' : ''), 'aria-pressed': String(activeCollection === name), onclick: () => { activeCollection = name; render(); } }, name));
 }
 
 function render() {
@@ -123,7 +130,7 @@ function render() {
   try { localStorage.setItem(SORT_KEY, sortKey); } catch { }
   const base = sortKey === 'custom' ? customSorted(metas) : metas.slice().sort(sorters[sortKey] || sorters.edited);
   const list = base.filter(m => (!q || (m.name || '').toLowerCase().includes(q) || tagsOf(m).some(t => t.toLowerCase().includes(q)))
-    && [...activeTags].every(k => hasTag(m, k)));
+    && [...activeTags].every(k => hasTag(m, k)) && (!activeCollection || collectionOf(m) === activeCollection));
   countEl.textContent = metas.length ? `${metas.length} design${metas.length === 1 ? '' : 's'}` : '';
   emptyEl.hidden = metas.length > 0;
   listEl.hidden = metas.length === 0;
@@ -168,6 +175,7 @@ function card(m, orderList, canDrag) {
       h('button', { class: 'btn ghost sm mv', 'aria-label': `Move ${m.name} down`, tip: 'Move down', disabled: pos < 0 || pos >= orderList.length - 1, onclick: () => move(m, 1) }, '▼'),
       h('button', { class: 'btn ghost sm', onclick: () => rename(m) }, 'Rename'),
       h('button', { class: 'btn ghost sm', onclick: () => editTags(m) }, 'Tags'),
+      h('button', { class: 'btn ghost sm', onclick: () => assignCollection(m) }, collectionOf(m) ? 'Collection' : 'Add to collection'),
       h('button', { class: 'btn ghost sm', onclick: () => duplicate(m) }, 'Duplicate'),
       h('button', { class: 'btn ghost sm danger-txt', onclick: () => remove(m) }, icon('trash', 14), 'Delete')));
   return art;
@@ -209,6 +217,68 @@ function moveTo(fromId, toId, after) {
     sortEl.value = 'custom';
     await persistOrder(rest);
   });
+}
+
+
+/* ---------------------------------------------------------------- collections + brand kit */
+async function createCollection() {
+  const name = await ask({ title: 'New collection', label: 'Collection name', value: '', ok: 'Create' });
+  if (!name) return;
+  const clean = name.trim().slice(0, 40);
+  if (!clean) return;
+  activeCollection = clean;
+  toast('Collection created. Add designs using “Add to collection”.', 'ok');
+  render();
+}
+function assignCollection(m) {
+  return guarded(async () => {
+    const name = await ask({ title: 'Organise design', text: 'Enter a collection name, or leave it empty to remove this design from its collection.', label: 'Collection', value: collectionOf(m), ok: 'Save', allowEmpty: true, hint: 'Examples: Summer 2027, Teamwear, Client projects' });
+    if (name === null) return;
+    const collection = name.trim().slice(0, 40);
+    await store.patchDesign(m.id, { meta: { collection } });
+    activeCollection = collection;
+    toast(collection ? 'Added to ' + collection + '.' : 'Removed from its collection.', 'ok');
+  });
+}
+const BRAND_KEY = 'threadform.brand-kit.v1';
+function readBrandKit() {
+  try { return JSON.parse(localStorage.getItem(BRAND_KEY) || '{}') || {}; } catch { return {}; }
+}
+function editBrandKit() {
+  const saved = readBrandKit();
+  const dlg = makeDialog('brand-kit-dialog');
+  const brandName = h('input', { type: 'text', maxlength: 60, value: saved.name || '', placeholder: 'Your clothing label' });
+  const primary = h('input', { type: 'color', value: saved.primary || '#292820', 'aria-label': 'Primary brand colour' });
+  const secondary = h('input', { type: 'color', value: saved.secondary || '#e9e5dc', 'aria-label': 'Secondary brand colour' });
+  const accent = h('input', { type: 'color', value: saved.accent || '#a18a68', 'aria-label': 'Accent brand colour' });
+  const logoInput = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/svg+xml' });
+  const preview = h('div', { class: 'brand-kit-preview' }, saved.logo ? h('img', { src: saved.logo, alt: 'Saved brand logo' }) : h('span', {}, 'No logo added'));
+  logoInput.addEventListener('change', () => {
+    const file = logoInput.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { toast('Please choose a logo under 2 MB.', 'error'); logoInput.value = ''; return; }
+    const reader = new FileReader();
+    reader.onload = () => { saved.logo = String(reader.result || ''); preview.replaceChildren(h('img', { src: saved.logo, alt: 'Brand logo preview' })); };
+    reader.readAsDataURL(file);
+  });
+  const form = h('form', { class: 'brand-kit-form', onsubmit: e => {
+    e.preventDefault();
+    try {
+      localStorage.setItem(BRAND_KEY, JSON.stringify({ name: brandName.value.trim(), primary: primary.value, secondary: secondary.value, accent: accent.value, logo: saved.logo || '' }));
+      dlg.close(); toast('Brand kit saved on this device.', 'ok');
+    } catch { toast('Could not save the brand kit. The logo may be too large.', 'error', 5000); }
+  } },
+    h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Brand name'), brandName),
+    h('div', { class: 'brand-kit-colours' },
+      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Primary'), primary),
+      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Secondary'), secondary),
+      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Accent'), accent)),
+    h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Logo'), logoInput),
+    preview,
+    h('p', { class: 'muted small' }, 'Your brand kit is currently saved in this browser only. Shared team brand kits will come in a later stage.'),
+    h('div', { class: 'dlg-actions' }, h('button', { type: 'button', class: 'btn ghost', onclick: () => dlg.close() }, 'Cancel'), h('button', { type: 'submit', class: 'btn primary' }, 'Save brand kit')));
+  dlg.append(h('div', { class: 'dlg-head' }, h('h2', {}, 'Brand kit'), h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => dlg.close() }, icon('x', 18))), form);
+  dlg.querySelector('input').focus();
 }
 
 /* ------------------------------------------------------------------ actions */
