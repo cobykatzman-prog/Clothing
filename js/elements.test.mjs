@@ -70,7 +70,10 @@ test('element JSON round-trip preserves geometry, view flags and nested styling'
     name: 'Back title', base: { w: 160, h: 64, size: 54 }, flipX: true, flipY: false,
   });
 
-  const restored = ElementLayer.fromJSON(source.toJSON());
+  const savedDoc = JSON.parse(JSON.stringify(source.toJSON()));
+  const restored = ElementLayer.fromJSON(savedDoc);
+  savedDoc.props.shadow.offset.x = 999;
+  assert.equal(source.props.shadow.offset.x, 2);
   assert.equal(restored.id, source.id);
   assert.equal(restored.x, source.x);
   assert.equal(restored.y, source.y);
