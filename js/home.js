@@ -10,7 +10,8 @@ const MAX_TAGS = 12, MAX_TAG_LEN = 24;
 let root, api, qEl, sortEl, countEl, listEl, emptyEl, noteEl, chipsEl, collectionEl;
 let metas = [];
 let activeTags = new Set();   // tag filter, lower-case keys (a design must have every selected tag)
-let activeCollection = '';
+let activeCollection = '', activeReview = '';
+let reviewEl;
 let selectMode = false, selectedIds = new Set(), visibleIds = [], selectBtn, bulkEl;
 const SORT_KEY = 'threadform.home.sort';   // remembered in this browser only (a convenience, not design data)
 let dragId = null;
@@ -30,6 +31,7 @@ export function initHome(el, actions) {
   countEl = h('span', { class: 'muted small' });
   chipsEl = h('div', { class: 'tag-filters', role: 'group', 'aria-label': 'Filter by tag' });
   collectionEl = h('div', { class: 'collection-strip', role: 'group', 'aria-label': 'Design collections' });
+  reviewEl = h('div', { class: 'review-filters', role: 'group', 'aria-label': 'Filter by review status' });
   listEl = h('div', { class: 'home-grid', role: 'list' });
   noteEl = h('p', { class: 'home-note small muted' });
   selectBtn = h('button', { type: 'button', class: 'btn ghost sm', 'aria-pressed': 'false', onclick: () => toggleSelectMode() }, 'Select designs');
@@ -50,7 +52,7 @@ export function initHome(el, actions) {
       h('div', { class: 'home-tools' },
         h('div', {}, h('h1', {}, SHARED() ? 'Shared designs' : 'Your designs'), countEl),
         h('div', { class: 'home-filters' }, qEl, sortEl, selectBtn)),
-      sharedEl || null, collectionEl, chipsEl, bulkEl, listEl, emptyEl, noteEl));
+      sharedEl || null, collectionEl, chipsEl, reviewEl, bulkEl, listEl, emptyEl, noteEl));
   if (SHARED()) startSharedRefresh();
 }
 
@@ -82,6 +84,11 @@ const ago = t => {
 };
 
 const tagsOf = m => (Array.isArray(m.tags) ? m.tags : []);
+const REVIEW_STATES = { draft: 'Draft', review: 'In review', approved: 'Approved' };
+const reviewOf = m => {
+  const r = m.review && typeof m.review === 'object' ? m.review : {};
+  return { status: REVIEW_STATES[r.status] ? r.status : 'draft', reviewer: String(r.reviewer || ''), note: String(r.note || ''), updatedAt: Number(r.updatedAt) || 0 };
+};
 const collectionOf = m => String(m.collection || '').trim();
 const byName = (a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
 /** Custom order: designs with an order first (lowest first), then the rest, newest first. */
@@ -128,22 +135,37 @@ function renderChips() {
   for (const name of collections) collectionEl.append(h('button', { class: 'collection-chip' + (activeCollection === name ? ' active' : ''), 'aria-pressed': String(activeCollection === name), onclick: () => { activeCollection = name; render(); } }, name));
 }
 
+function renderReviewFilters() {
+  const options = [
+    ['', 'All statuses', metas.length],
+    ...Object.entries(REVIEW_STATES).map(([key, label]) => [key, label, metas.filter(m => reviewOf(m).status === key).length]),
+  ];
+  reviewEl.hidden = !metas.length;
+  reviewEl.replaceChildren(...options.map(([key, label, count]) => h('button', {
+    type: 'button', class: 'review-filter' + (activeReview === key ? ' active' : ''),
+    'aria-pressed': String(activeReview === key),
+    onclick: () => { activeReview = key; render(); },
+  }, label, h('span', { class: 'review-filter-count' }, String(count)))));
+}
+
 function render() {
   const q = qEl.value.trim().toLowerCase();
   renderChips();
+  renderReviewFilters();
   const sortKey = sortEl.value;
   try { localStorage.setItem(SORT_KEY, sortKey); } catch { }
   const base = sortKey === 'custom' ? customSorted(metas) : metas.slice().sort(sorters[sortKey] || sorters.edited);
-  const list = base.filter(m => (!q || [m.name, collectionOf(m), m.material?.name, ...tagsOf(m)].join(' ').toLowerCase().includes(q))
-    && [...activeTags].every(k => hasTag(m, k)) && (!activeCollection || collectionOf(m) === activeCollection));
+  const list = base.filter(m => (!q || [m.name, collectionOf(m), m.material?.name, reviewOf(m).reviewer, reviewOf(m).note, REVIEW_STATES[reviewOf(m).status], ...tagsOf(m)].join(' ').toLowerCase().includes(q))
+    && [...activeTags].every(k => hasTag(m, k)) && (!activeCollection || collectionOf(m) === activeCollection)
+    && (!activeReview || reviewOf(m).status === activeReview));
   visibleIds = list.map(m => m.id);
   for (const id of [...selectedIds]) if (!metas.some(m => m.id === id)) selectedIds.delete(id);
-  const filtered = q || activeTags.size || activeCollection;
+  const filtered = q || activeTags.size || activeCollection || activeReview;
   countEl.textContent = metas.length ? (filtered ? `${list.length} of ${metas.length} designs` : `${metas.length} design${metas.length === 1 ? '' : 's'}`) : '';
   emptyEl.hidden = metas.length > 0;
   listEl.hidden = metas.length === 0;
-  const canDrag = sortKey === 'custom' && !q && activeTags.size === 0 && !activeCollection && !selectMode;
-  listEl.replaceChildren(...(list.length ? list.map(m => card(m, base, canDrag)) : metas.length ? [h('p', { class: 'home-nomatch' }, 'No designs match' + (q ? ' “' + qEl.value.trim() + '”' : '') + (activeTags.size ? ' with those tags' : activeCollection ? ' in this collection' : '.') + '.')] : []));
+  const canDrag = sortKey === 'custom' && !q && activeTags.size === 0 && !activeCollection && !activeReview && !selectMode;
+  listEl.replaceChildren(...(list.length ? list.map(m => card(m, base, canDrag)) : metas.length ? [h('p', { class: 'home-nomatch' }, 'No designs match' + (q ? ' “' + qEl.value.trim() + '”' : '') + (activeTags.size ? ' with those tags' : '') + (activeCollection ? ' in this collection' : '') + (activeReview ? ' with status ' + REVIEW_STATES[activeReview].toLowerCase() : '') + '.')] : []));
   renderBulkToolbar(list);
 }
 
@@ -225,6 +247,7 @@ function card(m, orderList, canDrag) {
     : h('div', { class: 'dthumb-empty' }, icon('layers', 30), h('span', {}, 'No artwork yet'));
   const views = m.views || 0;
   const tags = tagsOf(m);
+  const review = reviewOf(m);
   const pos = orderList.findIndex(x => x.id === m.id);
   const art = h('article', {
     class: 'dcard' + (selectMode ? ' selectable' : '') + (selectedIds.has(m.id) ? ' selected' : ''), role: 'listitem', 'data-id': m.id,
@@ -255,6 +278,7 @@ function card(m, orderList, canDrag) {
       h('div', { class: 'dinfo' },
         h('div', { class: 'dname' }, m.name || 'Untitled design'),
         h('div', { class: 'dmeta' }, `Edited ${ago(m.updatedAt)} · ${views} ${views === 1 ? 'view' : 'views'}${m.kind ? ' · ' + m.kind : ''}`),
+        h('div', { class: 'dreview' }, h('span', { class: 'review-pill review-' + review.status }, REVIEW_STATES[review.status]), review.reviewer ? h('span', { class: 'review-by' }, 'by ' + review.reviewer) : null),
         m.material?.name ? h('div', { class: 'design-material' }, h('i', { style: `background:${m.material.color || '#d6d3d1'}` }), m.material.name) : null,
         tags.length ? h('div', { class: 'dtags' }, tags.map(t => h('span', { class: 'dtag' }, t))) : null)),
     h('div', { class: 'dactions' },
@@ -262,6 +286,8 @@ function card(m, orderList, canDrag) {
       canDrag ? h('button', { class: 'btn ghost sm mv', 'aria-label': `Move ${m.name} down`, tip: 'Move down', disabled: pos < 0 || pos >= orderList.length - 1, onclick: () => move(m, 1) }, '▼') : null,
       h('button', { class: 'btn ghost sm', onclick: () => rename(m) }, 'Rename'),
       h('button', { class: 'btn ghost sm', onclick: () => editTags(m) }, 'Tags'),
+      h('button', { class: 'btn ghost sm', onclick: () => editReview(m) }, 'Review'),
+      SHARED() ? h('button', { class: 'btn ghost sm', onclick: () => copySharedLink(m) }, 'Copy link') : null,
       h('button', { class: 'btn ghost sm', onclick: () => assignCollection(m) }, collectionOf(m) ? 'Collection' : 'Add to collection'),
       h('button', { class: 'btn ghost sm', onclick: () => assignMaterial(m) }, 'Material'),
       h('button', { class: 'btn ghost sm', onclick: () => duplicate(m) }, 'Duplicate'),
@@ -672,6 +698,45 @@ function editTags(m) {
     await store.patchDesign(m.id, { meta: { tags }, doc: { tags } });
     toast(tags.length ? 'Tags saved.' : 'Tags removed.', 'ok');
   });
+}
+
+function editReview(m) {
+  const current = reviewOf(m);
+  const dlg = makeDialog('review-dialog');
+  const status = h('select', {}, ...Object.entries(REVIEW_STATES).map(([value, label]) => h('option', { value }, label)));
+  status.value = current.status;
+  const reviewer = h('input', { type: 'text', maxlength: 60, value: current.reviewer, placeholder: 'Name of reviewer (optional)' });
+  const note = h('textarea', { rows: 3, maxlength: 500, placeholder: 'Feedback, requested changes or approval notes...' }, current.note);
+  const form = h('form', { class: 'dlg-body review-form', onsubmit: async e => {
+    e.preventDefault();
+    const review = { status: status.value, reviewer: reviewer.value.trim(), note: note.value.trim(), updatedAt: Date.now() };
+    try {
+      await store.patchDesign(m.id, { meta: { review } });
+      dlg.close(); toast('Review status saved.', 'ok'); await refreshHome();
+    } catch (err) { toast(friendly(err, 'Could not save the review status.'), 'error', 5000); }
+  } },
+    h('h2', {}, 'Design review'),
+    h('p', { class: 'muted small' }, 'Track progress for your team. Approval is a workflow label; it does not lock the design or verify factory measurements.'),
+    h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Status'), status),
+    h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Reviewer'), reviewer),
+    h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Review notes'), note),
+    h('div', { class: 'dlg-actions' },
+      h('button', { type: 'button', class: 'btn ghost', onclick: () => dlg.close() }, 'Cancel'),
+      h('button', { type: 'submit', class: 'btn primary' }, 'Save review')));
+  dlg.append(h('div', { class: 'dlg-head' }, h('h2', {}, 'Review: ' + (m.name || 'Untitled design')), h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => dlg.close() }, icon('x', 18))), form);
+  status.focus();
+}
+async function copySharedLink(m) {
+  const url = new URL(location.href);
+  url.hash = '#/design/' + encodeURIComponent(m.id);
+  const link = url.toString();
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+    await navigator.clipboard.writeText(link);
+    toast('Shared design link copied. Anyone opening it still needs shared-library access.', 'ok');
+  } catch {
+    window.prompt('Copy this shared design link. Anyone opening it still needs shared-library access:', link);
+  }
 }
 
 function duplicate(m) {
