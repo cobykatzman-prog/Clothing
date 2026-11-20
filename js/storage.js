@@ -92,22 +92,25 @@ async function localGet(id) {
   } catch (e) { throw new StorageError('That design could not be opened. Reload the page to try again.', { cause: e }); }
 }
 
-/**
- * Home-page fields (tags, order) survive saves that do not carry them: the studio's autosave writes the whole
- * record without them, so they are copied over from the stored meta.
- */
+// Gallery/workflow metadata is edited outside the studio document. Autosave must not erase it.
+const PRESERVED_META_FIELDS = ['tags', 'order', 'collection', 'material', 'review'];
+export function preserveDesignMeta(meta = {}, previous = {}) {
+  const next = { ...meta };
+  for (const key of PRESERVED_META_FIELDS) {
+    if (next[key] === undefined && previous?.[key] !== undefined) next[key] = previous[key];
+  }
+  return next;
+}
 async function withKeptMeta(rec, m, db) {
   const meta = { ...rec.meta };
-  if (meta.tags !== undefined && meta.order !== undefined) return meta;
+  if (PRESERVED_META_FIELDS.every(key => meta[key] !== undefined)) return meta;
   let prev = null;
   try {
     if (m === 'indexeddb') prev = await reqP(db.transaction(STORE_META).objectStore(STORE_META).get(rec.id));
     else if (m === 'localstorage') prev = lsIndex().find(x => x.id === rec.id);
     else prev = memory.get(rec.id)?.meta;
   } catch { prev = null; }
-  if (meta.tags === undefined && prev?.tags) meta.tags = prev.tags;
-  if (meta.order === undefined && prev?.order !== undefined) meta.order = prev.order;
-  return meta;
+  return preserveDesignMeta(meta, prev);
 }
 
 /** Creates or replaces a record. Throws StorageError (quota: true when the browser is full). */
@@ -234,9 +237,7 @@ async function uploadMissing(id, blobs, keep) {
 async function remotePut(rec, { createOnly = false } = {}) {
   const { doc, blobs, keep } = await prepare(rec);
   const prev = metaSeen.get(rec.id) || {};
-  const meta = { ...rec.meta };
-  if (meta.tags === undefined && prev.tags) meta.tags = prev.tags;
-  if (meta.order === undefined && prev.order !== undefined) meta.order = prev.order;
+  const meta = preserveDesignMeta(rec.meta, prev);
   const name = String(meta.name || doc.name || 'Untitled design').slice(0, 120);
   const body = { name, meta: wireMeta(meta), doc };
   let base = revs.get(rec.id), row = null;
