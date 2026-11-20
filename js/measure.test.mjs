@@ -33,9 +33,9 @@ test('size calibration anchors chest, body length and sleeves to the selected ch
   const seg = mockGarment();
   const cal = makeCalibration(seg, { kind: 'longSleeve', size: 'M' });
   const m = measureGarment(seg, cal);
-  assert.equal(m.chest, chartValue('longSleeve', 'M', 'chest'));
-  assert.equal(m.length, chartValue('longSleeve', 'M', 'length'));
-  assert.equal(m.sleeve, chartValue('longSleeve', 'M', 'sleeve'));
+  for (const key of ['chest', 'length', 'shoulder', 'sleeve', 'sleeveOpening', 'hem', 'neck', 'neckDrop']) {
+    assert.equal(m[key], chartValue('longSleeve', 'M', key), `${key} should calibrate to the selected garment size`);
+  }
 });
 
 test('size grading recalibrates dimensions for each selected size', () => {
@@ -57,6 +57,7 @@ test('manual body-length calibration does not change chest or sleeve calibration
   assert.equal(b.length, 74);
   assert.equal(b.chest, a.chest);
   assert.equal(b.sleeve, a.sleeve);
+  assert.equal(b.sleeveOpening, a.sleeveOpening);
 });
 
 test('manual chest calibration does not change body length or sleeve calibration', () => {
@@ -67,6 +68,7 @@ test('manual chest calibration does not change body length or sleeve calibration
   assert.equal(b.chest, 58);
   assert.equal(b.length, a.length);
   assert.equal(b.sleeve, a.sleeve);
+  assert.equal(b.sleeveOpening, a.sleeveOpening);
 });
 
 test('measurement settings always use centimetres, including older saved inch settings', () => {
@@ -109,7 +111,7 @@ test('front and back calibrate independently to the same shared size chart', () 
   assert.equal(bm.length, chartValue('tee', 'M', 'length'));
   assert.equal(fm.sleeve, chartValue('tee', 'M', 'sleeve'));
   assert.equal(bm.sleeve, chartValue('tee', 'M', 'sleeve'));
-  for (const key of ['shoulder', 'hem', 'neck']) {
+  for (const key of ['shoulder', 'sleeveOpening', 'hem', 'neck']) {
     const target = chartValue('tee', 'M', key);
     assert.ok(Math.abs(fm[key] - target) < 1e-8, `front ${key} should match the shared size chart`);
     assert.ok(Math.abs(bm[key] - target) < 1e-8, `back ${key} should match the shared size chart`);
