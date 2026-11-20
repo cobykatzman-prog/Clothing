@@ -159,11 +159,14 @@ test('front and back edits preserve matching changes across every core measureme
   const backCal = makeCalibration(backBase, { kind: 'tee', size: 'M', view: 'back' });
   const frontBefore = measureGarment(frontBase, frontCal), frontAfter = measureGarment(frontEdited, frontCal);
   const backBefore = measureGarment(backBase, backCal), backAfter = measureGarment(backEdited, backCal);
-  for (const key of ['chest', 'length', 'shoulder', 'sleeve', 'sleeveOpening', 'hem', 'neck', 'neckDrop']) {
+  for (const key of ['chest', 'length', 'shoulder', 'sleeve', 'sleeveOpening', 'hem', 'neck']) {
     const frontDelta = frontAfter[key] - frontBefore[key];
     const backDelta = backAfter[key] - backBefore[key];
     assert.ok(Math.abs(frontDelta - backDelta) < 1e-8, `front/back ${key} change should stay aligned`);
   }
+  const frontNeckRatio = frontAfter.neckDrop / frontBefore.neckDrop;
+  const backNeckRatio = backAfter.neckDrop / backBefore.neckDrop;
+  assert.ok(Math.abs(frontNeckRatio - backNeckRatio) < 1e-8, 'front/back neck-drop proportions should stay aligned without forcing equal front and back neck depths');
 });
 
 
