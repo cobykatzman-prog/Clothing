@@ -3,7 +3,7 @@
 // Tags and order are stored on the design record (meta.tags, meta.order, and doc.tags for the document).
 import { h, icon, toast, friendly, userError, logoutForm } from './util.js';
 import { normalizeMaterials } from './materials.js';
-import { normalizeBrandKit } from './brand-kit.js';
+import { normalizeBrandKit, sanitizeBrandKitImport, BRAND_FONT_OPTIONS } from './brand-kit.js';
 import { REVIEW_STATES, normalizeReview, filterDesigns, canReorderDesigns } from './gallery.js';
 import * as store from './storage.js';
 import * as R from './remote.js';
@@ -541,7 +541,6 @@ function assignCollection(m) {
 }
 
 const BRAND_KEY = 'threadform.brand-kit.v1';
-const BRAND_FONTS = ['Arial', 'Helvetica', 'Georgia', 'Times New Roman', 'Verdana', 'Trebuchet MS', 'Courier New'];
 function readBrandKit() {
   try { return normalizeBrandKit(JSON.parse(localStorage.getItem(BRAND_KEY) || '{}')); }
   catch { return normalizeBrandKit({ palette: [] }); }
@@ -559,10 +558,10 @@ function editBrandKit() {
   const brandName = h('input', { type: 'text', maxlength: 60, value: saved.name || '', placeholder: 'Your clothing label' });
   const logoList = h('div', { class: 'brand-logo-list' });
   const paletteList = h('div', { class: 'brand-palette-list' });
-  const headingFont = h('select', {}, ...BRAND_FONTS.map(font => h('option', { value: font }, font)));
+  const headingFont = h('select', {}, ...BRAND_FONT_OPTIONS.map(font => h('option', { value: font }, font)));
   const bodyFont = h('select', {}, ...BRAND_FONTS.map(font => h('option', { value: font }, font)));
-  headingFont.value = BRAND_FONTS.includes(typography.heading) ? typography.heading : 'Georgia';
-  bodyFont.value = BRAND_FONTS.includes(typography.body) ? typography.body : 'Arial';
+  headingFont.value = BRAND_FONT_OPTIONS.includes(typography.heading) ? typography.heading : 'Georgia';
+  bodyFont.value = BRAND_FONT_OPTIONS.includes(typography.body) ? typography.body : 'Arial';
 
   const drawLogos = () => {
     const labels = { primary: 'Primary logo', alternate: 'Alternate logo', mark: 'Icon / brand mark' };
@@ -602,6 +601,45 @@ function editBrandKit() {
     palette.push({ name: 'New colour', color: '#a18a68' }); drawPalette();
   } }, 'Add colour');
 
+  const importIn = h('input', { type: 'file', accept: '.json,application/json', hidden: true, 'aria-label': 'Import brand kit JSON' });
+  importIn.addEventListener('change', async () => {
+    const file = importIn.files?.[0]; importIn.value = '';
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { toast('Brand Kit JSON files must be under 5 MB.', 'error'); return; }
+    try {
+      const imported = sanitizeBrandKitImport(JSON.parse(await file.text()));
+      brandName.value = imported.name || '';
+      for (const key of ['primary', 'alternate', 'mark']) logos[key] = imported.logos[key] || '';
+      palette.splice(0, palette.length, ...imported.palette);
+      headingFont.value = imported.typography.heading;
+      bodyFont.value = imported.typography.body;
+      drawLogos(); drawPalette();
+      toast('Brand kit imported. Press Save brand kit to keep it on this browser.', 'ok', 4500);
+    } catch (err) {
+      toast(err instanceof SyntaxError ? 'That file is not valid Brand Kit JSON.' : (err.message || 'Could not import that Brand Kit file.'), 'error', 5000);
+    }
+  });
+  const exportBtn = h('button', { type: 'button', class: 'btn ghost sm', onclick: () => {
+    const cleanPalette = palette.map((item, i) => ({
+      name: String(item.name || ('Colour ' + (i + 1))).trim().slice(0, 24) || ('Colour ' + (i + 1)),
+      color: /^#[0-9a-f]{6}$/i.test(item.color) ? item.color : '#292820',
+    }));
+    const data = {
+      ...saved, name: brandName.value.trim(), logos, logo: logos.primary || '',
+      palette: cleanPalette, primary: cleanPalette[0]?.color || '#292820',
+      secondary: cleanPalette[1]?.color || '#e9e5dc', accent: cleanPalette[2]?.color || '#a18a68',
+      typography: { heading: headingFont.value, body: bodyFont.value },
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const filename = (brandName.value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'brand-kit') + '-brand-kit.json';
+    a.href = url; a.download = filename; document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('Brand kit exported as JSON.', 'ok');
+  } }, 'Export JSON');
+  const importBtn = h('button', { type: 'button', class: 'btn ghost sm', onclick: () => importIn.click() }, 'Import JSON');
+
   const form = h('form', { class: 'brand-kit-form', onsubmit: e => {
     e.preventDefault();
     const cleanPalette = palette.map((item, i) => ({
@@ -635,8 +673,8 @@ function editBrandKit() {
       h('div', { class: 'brand-kit-type-grid' },
         h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Headings'), headingFont),
         h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Body text'), bodyFont))),
-    h('p', { class: 'muted small' }, 'This brand kit is saved in this browser only. It is not yet synced to the shared library or automatically applied to garment designs.'),
-    h('div', { class: 'dlg-actions' }, h('button', { type: 'button', class: 'btn ghost', onclick: () => dlg.close() }, 'Cancel'), h('button', { type: 'submit', class: 'btn primary' }, 'Save brand kit')));
+    h('p', { class: 'muted small' }, 'This brand kit is saved in this browser. Export a JSON copy to transfer it to another browser, or import a copy here. It is not automatically synced between devices.'),
+    h('div', { class: 'dlg-actions' }, importIn, importBtn, exportBtn, h('button', { type: 'button', class: 'btn ghost', onclick: () => dlg.close() }, 'Cancel'), h('button', { type: 'submit', class: 'btn primary' }, 'Save brand kit')));
   dlg.append(h('div', { class: 'dlg-head' }, h('h2', {}, 'Brand kit'), h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => dlg.close() }, icon('x', 18))), form);
   drawLogos(); drawPalette(); brandName.focus();
 }
