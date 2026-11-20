@@ -176,7 +176,7 @@ function bulkMoveToCollection() {
     if (name === null) return;
     const collection = name.trim().slice(0, 40);
     for (const m of metas.filter(x => selectedIds.has(x.id))) await store.patchDesign(m.id, { meta: { collection } });
-    selectedIds.clear(); selectMode = false; activeCollection = collection;
+    activeCollection = collection; toggleSelectMode(false);
     toast(collection ? 'Moved designs to ' + collection + '.' : 'Removed designs from their collections.', 'ok');
   });
 }
@@ -190,7 +190,7 @@ function bulkAddTag() {
       const tags = parseTags([...tagsOf(m), ...additions].join(', '));
       await store.patchDesign(m.id, { meta: { tags }, doc: { tags } });
     }
-    selectedIds.clear(); selectMode = false;
+    toggleSelectMode(false);
     toast('Tag added to selected designs.', 'ok');
   });
 }
@@ -209,7 +209,7 @@ function bulkDelete() {
       await store.deleteDesign(m.id);
       if (rec) records.push(rec);
     }
-    selectedIds.clear(); selectMode = false;
+    toggleSelectMode(false);
     toast(`Deleted ${records.length} design${records.length === 1 ? '' : 's'}.`, 'ok', 5000, records.length ? {
       label: 'Undo', fn: () => guarded(async () => {
         for (const rec of records) await store.putDesign(rec);
