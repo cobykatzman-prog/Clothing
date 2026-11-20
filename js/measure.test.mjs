@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chartValue, makeCalibration, measureGarment, normalizeMeasureState, manufacturerSpecCSV, designCalibration, designMeasure, dimensionLayout } from './measure.js';
+import { chartValue, makeCalibration, measureGarment, normalizeMeasureState, manufacturerSpecCSV, designCalibration, designMeasure, dimensionLayout, measurementRows } from './measure.js';
 
 function mockGarment({ chest = 100, length = 150, sleeve = 90, shoulder = 80, hem = 100, neck = 18, neckDrop = 8 } = {}) {
   return {
@@ -109,11 +109,14 @@ test('front and back calibrate independently to the same shared size chart', () 
   assert.equal(bm.length, chartValue('tee', 'M', 'length'));
   assert.equal(fm.sleeve, chartValue('tee', 'M', 'sleeve'));
   assert.equal(bm.sleeve, chartValue('tee', 'M', 'sleeve'));
-  for (const key of ['shoulder', 'hem', 'neck', 'neckDrop']) {
+  for (const key of ['shoulder', 'hem', 'neck']) {
     const target = chartValue('tee', 'M', key);
     assert.ok(Math.abs(fm[key] - target) < 1e-8, `front ${key} should match the shared size chart`);
     assert.ok(Math.abs(bm[key] - target) < 1e-8, `back ${key} should match the shared size chart`);
   }
+  assert.equal(fm.neckDrop, chartValue('tee', 'M', 'neckDrop', 'front'));
+  assert.equal(bm.neckDrop, chartValue('tee', 'M', 'neckDrop', 'back'));
+  assert.ok(bm.neckDrop < fm.neckDrop, 'back neck drop must be shallower than front neck drop');
 });
 
 
@@ -142,6 +145,23 @@ test('front and back edits produce matching centimetre changes from one shared b
   }
 });
 
+
+
+test('front and back use distinct neck-drop grading and accurate view labels', () => {
+  const front = mockGarment({ neckDrop: 9 });
+  const back = mockGarment({ neckDrop: 3 });
+  const frontCal = makeCalibration(front, { kind: 'tee', size: 'M', view: 'front' });
+  const backCal = makeCalibration(back, { kind: 'tee', size: 'M', view: 'back' });
+  const frontRows = measurementRows(front, front, frontCal, { view: 'front' });
+  const backRows = measurementRows(back, back, backCal, { view: 'back' });
+  const frontNeck = frontRows.find(r => r.key === 'neckDrop');
+  const backNeck = backRows.find(r => r.key === 'neckDrop');
+  assert.equal(frontNeck.cm, chartValue('tee', 'M', 'neckDrop', 'front'));
+  assert.equal(backNeck.cm, chartValue('tee', 'M', 'neckDrop', 'back'));
+  assert.match(frontNeck.label, /Front|Neck drop/i);
+  assert.match(backNeck.label, /Back neck drop/i);
+  assert.notEqual(frontNeck.cm, backNeck.cm);
+});
 
 test('side and detail crops do not masquerade as flat garment measurements', () => {
   const front = mockGarment();
