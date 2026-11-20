@@ -209,12 +209,22 @@ test('dimension callouts use the same HPS and shoulder-to-cuff points as the tab
   const layout = dimensionLayout(seg, [
     { key: 'length', cm: 70 },
     { key: 'sleeve', cm: 20 },
+    { key: 'sleeveOpening', short: 'Sleeve opening', cm: 18 },
+    { key: 'neckDrop', short: 'Back neck drop', cm: 3 },
   ], { fontPx: 12 });
   const length = layout.dims.find(d => d.key === 'length');
   const sleeve = layout.dims.find(d => d.key === 'sleeve');
+  const opening = layout.dims.find(d => d.key === 'sleeveOpening');
+  const neckDrop = layout.dims.find(d => d.key === 'neckDrop');
   assert.ok(length);
   assert.equal(length.a.y, 40);
   assert.equal(length.b.y, 190);
   assert.ok(sleeve);
   assert.ok(Math.abs(Math.hypot(sleeve.b.x - sleeve.a.x, sleeve.b.y - sleeve.a.y) - 90) < 1e-8);
+  assert.ok(opening);
+  assert.ok(Math.abs(Math.hypot(opening.b.x - opening.a.x, opening.b.y - opening.a.y) - 17) < 1e-8);
+  assert.ok(neckDrop);
+  assert.equal(neckDrop.name, 'Back neck drop');
+  assert.equal(neckDrop.a.y, 40);
+  assert.equal(neckDrop.b.y, 48);
 });
