@@ -268,3 +268,19 @@ body.view-home{background:#f2f0eb;color:var(--home-ink)}.home{background:#f2f0eb
 .dcard.selectable .dcard-open{cursor:pointer}
 .dcard .dactions .mv{min-width:30px}
 @media(max-width:720px){.bulk-toolbar{align-items:stretch}.bulk-toolbar>b{width:100%}.bulk-toolbar .btn{flex:1}}
+
+/* Stage 7 — shared design review and approval tracking */
+.review-filters{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 12px}
+.review-filter{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--home-line,#e5e1d8);border-radius:999px;padding:6px 11px;background:#fffefa;color:var(--home-ink,#25241f);font:inherit;font-size:11px;cursor:pointer}
+.review-filter.active{background:#292820;border-color:#292820;color:#fff}
+.review-filter-count{font-size:10px;opacity:.72;font-variant-numeric:tabular-nums}
+.dreview{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:5px}
+.review-pill{display:inline-flex;align-items:center;border-radius:999px;padding:3px 7px;font-size:10px;font-weight:700;letter-spacing:.02em}
+.review-draft{background:#efeee9;color:#625f56}
+.review-review{background:#fff1d8;color:#80520d}
+.review-approved{background:#e5efe5;color:#365d3c}
+.review-by{font-size:10px;color:var(--home-muted,#77746c)}
+.review-dialog{width:min(520px,calc(100vw - 24px))}
+.review-form{padding:18px 20px 20px;display:flex;flex-direction:column;gap:12px}
+.review-form textarea{width:100%;min-height:76px;resize:vertical}
+@media(max-width:520px){.review-filters{gap:5px}.review-filter{padding:6px 9px}.review-form{padding:14px}}
