@@ -264,7 +264,7 @@ body.view-home{background:#f2f0eb;color:var(--home-ink)}.home{background:#f2f0eb
 .dcard{position:relative}
 .dcard-select{position:absolute;z-index:3;top:10px;left:10px;display:flex;align-items:center;gap:6px;padding:6px 9px;border:1px solid rgba(0,0,0,.12);border-radius:999px;background:rgba(255,254,250,.96);box-shadow:0 2px 8px rgba(0,0,0,.08);font-size:11px;font-weight:650;cursor:pointer}
 .dcard-select input{width:15px;height:15px;margin:0;accent-color:#292820}
-.dcard:has(.dcard-select input:checked){outline:2px solid #292820;outline-offset:1px}
-.dcard:has(.dcard-select) .dcard-open{cursor:default}
+.dcard.selected{outline:2px solid #292820;outline-offset:1px}
+.dcard.selectable .dcard-open{cursor:pointer}
 .dcard .dactions .mv{min-width:30px}
 @media(max-width:720px){.bulk-toolbar{align-items:stretch}.bulk-toolbar>b{width:100%}.bulk-toolbar .btn{flex:1}}
