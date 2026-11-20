@@ -25,7 +25,18 @@ function cropWithAlpha(source, alpha, bounds) {
 }
 
 /** Turn the active pixel selection into a movable logo, and cover its old position. */
-export async function extractExistingLogo() {
+function sampledInkColour(canvas, alpha) {
+  const data = canvas.getContext('2d').getImageData(0, 0, SIZE, SIZE).data;
+  let rr = 0, gg = 0, bb = 0, total = 0;
+  for (let i = 0, p = 0; i < alpha.length; i++, p += 4) {
+    const a = alpha[i]; if (a < 96 || data[p + 3] < 32) continue;
+    rr += data[p] * a; gg += data[p + 1] * a; bb += data[p + 2] * a; total += a;
+  }
+  if (!total) return '#202020';
+  return '#' + [rr, gg, bb].map(v => Math.round(v / total).toString(16).padStart(2, '0')).join('');
+}
+
+async function separateExistingArtwork(replacementText = null) {
   const V = activeView();
   if (!V.current || !V.mask) { toast('Load a garment and select its logo first.', 'info'); return; }
   if (!useAi()) { toast('Switch on AI in the AI settings first. AI is needed to clean the fabric behind the logo.', 'info', 5000); return; }
@@ -58,22 +69,37 @@ export async function extractExistingLogo() {
     patchEl.name = 'Original logo cleanup';
     patchEl.locked = true;
 
-    const logoEl = createElement('logo', {
-      image: logo.canvas.toDataURL('image/png'), view: state.activeView,
-      x: logo.x + logo.w / 2, y: logo.y + logo.h / 2, w: logo.w, h: logo.h,
-    });
-    logoEl.name = 'Extracted logo';
+    const artworkEl = replacementText
+      ? createElement('print', {
+          text: replacementText, color: sampledInkColour(V.current, alpha),
+          size: Math.max(16, Math.min(120, bounds.h * 0.72)),
+          view: state.activeView, x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2,
+          w: bounds.w, h: bounds.h,
+        })
+      : createElement('logo', {
+          image: logo.canvas.toDataURL('image/png'), view: state.activeView,
+          x: logo.x + logo.w / 2, y: logo.y + logo.h / 2, w: logo.w, h: logo.h,
+        });
+    artworkEl.name = replacementText ? 'Editable replacement text' : 'Extracted logo';
     snapshot();
-    state.elements.push(patchEl, logoEl);
-    state.selectedId = logoEl.id;
+    state.elements.push(patchEl, artworkEl);
+    state.selectedId = artworkEl.id;
     state.ui.tool = 'move';
     markFlow('refined');
     notify('elements');
-    toast('Logo separated. Drag, resize or rotate it; the original spot has been patched.', 'ok', 6000);
+    toast(replacementText ? 'Text replaced with an editable text layer. Select it to change wording, font, size and colour.' : 'Logo separated. Drag, resize or rotate it; the original spot has been patched.', 'ok', 6500);
   } catch (e) {
     toast(friendly(e, 'Could not separate that logo. Try a tighter selection and try again.'), 'error', 6000);
   } finally {
     state.ui.busy = Math.max(0, state.ui.busy - 1);
     notify('busy');
   }
+}
+
+
+export async function extractExistingLogo() { return separateExistingArtwork(null); }
+export async function replaceExistingText(text) {
+  const value = String(text || '').trim();
+  if (!value) { toast('Enter the replacement wording first.', 'info'); return; }
+  return separateExistingArtwork(value);
 }
