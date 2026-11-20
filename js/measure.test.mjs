@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chartValue, makeCalibration, measureGarment, normalizeMeasureState, manufacturerSpecCSV, designCalibration, designMeasure, dimensionLayout, measurementRows } from './measure.js';
 
-function mockGarment({ chest = 100, length = 150, sleeve = 90, shoulder = 80, hem = 100, neck = 18, neckDrop = 8 } = {}) {
+function mockGarment({ chest = 100, length = 150, sleeve = 90, shoulder = 80, hem = 100, neck = 18, neckDrop = 8, sleeveOpening = 17 } = {}) {
   return {
     landmarks: {
       armpitL: { x: 100 + chest / 2, y: 80 },
@@ -22,8 +22,8 @@ function mockGarment({ chest = 100, length = 150, sleeve = 90, shoulder = 80, he
       neckRx: neck / (2 * 0.937),
       neckRy: neckDrop,
       sleeves: {
-        L: { has: true, L: sleeve, hw: 10, shoulder: { x: 110, y: 40 }, cuff: { x: 110 - sleeve, y: 40 }, a: { x: -1, y: 0 }, n: { x: 0, y: 1 } },
-        R: { has: true, L: sleeve, hw: 10, shoulder: { x: 90, y: 40 }, cuff: { x: 90 + sleeve, y: 40 }, a: { x: 1, y: 0 }, n: { x: 0, y: 1 } },
+        L: { has: true, L: sleeve, hw: sleeveOpening / 1.7, shoulder: { x: 110, y: 40 }, cuff: { x: 110 - sleeve, y: 40 }, a: { x: -1, y: 0 }, n: { x: 0, y: 1 } },
+        R: { has: true, L: sleeve, hw: sleeveOpening / 1.7, shoulder: { x: 90, y: 40 }, cuff: { x: 90 + sleeve, y: 40 }, a: { x: 1, y: 0 }, n: { x: 0, y: 1 } },
       },
     },
   };
@@ -122,6 +122,25 @@ test('front and back calibrate independently to the same shared size chart', () 
 });
 
 
+test('front and back calibration caches stay separate even if they share a segmentation object', () => {
+  const base = mockGarment({ neckDrop: 8 });
+  const state = {
+    activeView: 'front',
+    measure: { size: 'M', kind: 'tee', manual: null },
+    views: {
+      front: { baseSeg: base, sample: null },
+      back: { baseSeg: base, sample: null },
+      side: { baseSeg: null, sample: null },
+      detail: { baseSeg: null, sample: null },
+    },
+  };
+  const front = designCalibration(state, 'front');
+  const back = designCalibration(state, 'back');
+  assert.notEqual(front, back);
+  assert.equal(measureGarment(base, front).neckDrop, chartValue('tee', 'M', 'neckDrop', 'front'));
+  assert.equal(measureGarment(base, back).neckDrop, chartValue('tee', 'M', 'neckDrop', 'back'));
+});
+
 test('standard POM geometry uses HPS, neck seam and shoulder-to-cuff landmarks', () => {
   const seg = mockGarment({ length: 150, sleeve: 90, neckDrop: 8 });
   const cal = makeCalibration(seg, { kind: 'tee', size: 'M' });
@@ -131,16 +150,16 @@ test('standard POM geometry uses HPS, neck seam and shoulder-to-cuff landmarks',
   assert.equal(m.neckDrop, chartValue('tee', 'M', 'neckDrop'));
 });
 
-test('front and back edits produce matching centimetre changes from one shared base size', () => {
-  const frontBase = mockGarment({ chest: 100, length: 150, sleeve: 90 });
-  const backBase = mockGarment({ chest: 180, length: 210, sleeve: 130 });
-  const frontEdited = mockGarment({ chest: 110, length: 165, sleeve: 99 });
-  const backEdited = mockGarment({ chest: 198, length: 231, sleeve: 143 });
-  const frontCal = makeCalibration(frontBase, { kind: 'tee', size: 'M' });
-  const backCal = makeCalibration(backBase, { kind: 'tee', size: 'M' });
+test('front and back edits preserve matching changes across every core measurement', () => {
+  const frontBase = mockGarment({ chest: 100, length: 150, sleeve: 90, shoulder: 72, hem: 96, neck: 16, neckDrop: 7, sleeveOpening: 16 });
+  const backBase = mockGarment({ chest: 180, length: 210, sleeve: 130, shoulder: 129.6, hem: 172.8, neck: 28.8, neckDrop: 12.6, sleeveOpening: 28.8 });
+  const frontEdited = mockGarment({ chest: 110, length: 165, sleeve: 99, shoulder: 79.2, hem: 105.6, neck: 17.6, neckDrop: 7.7, sleeveOpening: 17.6 });
+  const backEdited = mockGarment({ chest: 198, length: 231, sleeve: 143, shoulder: 142.56, hem: 190.08, neck: 31.68, neckDrop: 13.86, sleeveOpening: 31.68 });
+  const frontCal = makeCalibration(frontBase, { kind: 'tee', size: 'M', view: 'front' });
+  const backCal = makeCalibration(backBase, { kind: 'tee', size: 'M', view: 'back' });
   const frontBefore = measureGarment(frontBase, frontCal), frontAfter = measureGarment(frontEdited, frontCal);
   const backBefore = measureGarment(backBase, backCal), backAfter = measureGarment(backEdited, backCal);
-  for (const key of ['chest', 'length', 'sleeve']) {
+  for (const key of ['chest', 'length', 'shoulder', 'sleeve', 'sleeveOpening', 'hem', 'neck', 'neckDrop']) {
     const frontDelta = frontAfter[key] - frontBefore[key];
     const backDelta = backAfter[key] - backBefore[key];
     assert.ok(Math.abs(frontDelta - backDelta) < 1e-8, `front/back ${key} change should stay aligned`);
