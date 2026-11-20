@@ -559,7 +559,7 @@ function editBrandKit() {
   const logoList = h('div', { class: 'brand-logo-list' });
   const paletteList = h('div', { class: 'brand-palette-list' });
   const headingFont = h('select', {}, ...BRAND_FONT_OPTIONS.map(font => h('option', { value: font }, font)));
-  const bodyFont = h('select', {}, ...BRAND_FONTS.map(font => h('option', { value: font }, font)));
+  const bodyFont = h('select', {}, ...BRAND_FONT_OPTIONS.map(font => h('option', { value: font }, font)));
   headingFont.value = BRAND_FONT_OPTIONS.includes(typography.heading) ? typography.heading : 'Georgia';
   bodyFont.value = BRAND_FONT_OPTIONS.includes(typography.body) ? typography.body : 'Arial';
 
