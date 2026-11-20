@@ -145,7 +145,7 @@ export function selectionSection({ section }) {
   const modes = modeGroup('');
   const toolGrid = h('div', { class: 'tool-grid', role: 'group', 'aria-label': 'Selection tools' }, toolButtons('ptool', 'data-ptool'));
   const readout = h('div', { class: 'readout', id: 'sel-readout', role: 'status', 'aria-live': 'polite' });
-  const extractLogoBtn = h('button', { type: 'button', class: 'btn primary sm', 'data-act': 'extract-existing-logo', tip: 'Use AI to remove the selected logo from the fabric and turn it into its own movable layer', onclick: () => extractExistingLogo() }, 'Separate existing logo');
+  const extractLogoBtn = h('button', { type: 'button', class: 'btn primary sm', 'data-act': 'extract-existing-logo', tip: 'Use AI to remove the selected logo from the fabric and turn it into its own movable layer', onclick: () => extractExistingLogo() }, 'Separate existing logo / graphic');
   const replaceTextBtn = h('button', { type: 'button', class: 'btn ghost sm', 'data-act': 'replace-existing-text', tip: 'Remove selected printed lettering with AI and replace it with editable text', onclick: () => {
     const wording = window.prompt('What should the selected lettering say?');
     if (wording && wording.trim()) replaceExistingText(wording.trim());
