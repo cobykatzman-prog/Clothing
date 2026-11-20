@@ -169,14 +169,19 @@ export function rawPixels(seg) {
   const run = bodyRun(seg, cy, L.centerX);
   const lmChest = hyp(L.armpitL, L.armpitR);
   const useRun = run && run.x1 - run.x0 > 0.6 * lmChest && run.x1 - run.x0 < 1.5 * lmChest;
+  // HPS-to-hem is the standard body-length POM. The topmost neck pixel is not HPS:
+  // using it overstates body length by the neck rise and makes front/back photos disagree.
+  const hpsY = (L.shoulderL.y + L.shoulderR.y) / 2;
+  const neckBottomY = L.neckBottom && Number.isFinite(L.neckBottom.y)
+    ? L.neckBottom.y : L.neckTop.y + (M.neckRy || 0);
   const raw = {
     chestLine: useRun ? { y: cy, x0: run.x0, x1: run.x1 } : { y: ay, x0: L.armpitR.x, x1: L.armpitL.x },
     chest: (useRun ? run.x1 - run.x0 : lmChest) / fs,
     hem: hyp(L.hemL, L.hemR) / fs,
     shoulder: hyp(L.shoulderL, L.shoulderR) / fs,
-    length: (hemY - L.neckTop.y) / fs,
+    length: Math.max(0, hemY - hpsY) / fs,
     neck: 2 * (M.neckRx || 0) * NECK_K / fs,
-    neckDrop: (M.neckRy || 0) / fs,
+    neckDrop: Math.max(0, neckBottomY - hpsY) / fs,
     sleeves: {},
   };
   for (const k of ['L', 'R']) {
@@ -184,7 +189,12 @@ export function rawPixels(seg) {
     if (!s || !s.has || !(s.L > 0)) continue;
     const n = s.n || { x: -s.a.y, y: s.a.x };
     const wpx = crossWidth(seg, cuff, n, 2 * (s.hw || 0) * 0.85);
-    raw.sleeves[k] = { len: s.L / fs, open: wpx / fs, n, a: s.a };
+    // Sleeve length is measured from the shoulder seam to the cuff, not from the
+    // sleeve's internal warp root (which sits part-way down the armhole).
+    const shoulderPoint = s.shoulder || s.root;
+    const cuffPoint = s.cuff || cuff;
+    const sleeveLen = shoulderPoint && cuffPoint ? hyp(shoulderPoint, cuffPoint) : s.L;
+    raw.sleeves[k] = { len: sleeveLen / fs, open: wpx / fs, n, a: s.a };
   }
   rawCache.set(seg, raw);
   return raw;
