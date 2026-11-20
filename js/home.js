@@ -42,7 +42,7 @@ export function initHome(el, actions) {
   root.replaceChildren(
     h('div', { class: 'home-top' },
       h('div', { class: 'brand' }, h('span', { class: 'logo' }, icon('layers', 18)), h('b', {}, 'Threadform')),
-      h('div', { class: 'home-actions' }, h('button', { class: 'btn ghost sm', onclick: () => editBrandKit() }, 'Brand kit'), h('button', { class: 'btn ghost sm', onclick: () => editMaterialsLibrary() }, 'Materials'), h('button', { class: 'btn ghost sm', onclick: () => createCollection() }, 'New collection'), h('button', { class: 'btn primary', id: 'home-new', onclick: () => chooser() }, icon('plus', 16), 'New design'), logoutForm())),
+      h('div', { class: 'home-actions' }, h('button', { class: 'btn ghost sm', onclick: () => editBrandKit() }, 'Brand kit'), h('button', { class: 'btn ghost sm', onclick: () => editMaterialsLibrary() }, 'Materials'), h('button', { class: 'btn ghost sm', onclick: () => manageCollections() }, 'Manage collections'), h('button', { class: 'btn ghost sm', onclick: () => createCollection() }, 'New collection'), h('button', { class: 'btn primary', id: 'home-new', onclick: () => chooser() }, icon('plus', 16), 'New design'), logoutForm())),
     h('div', { class: 'home-body' },
       h('div', { class: 'home-tools' },
         h('div', {}, h('h1', {}, SHARED() ? 'Shared designs' : 'Your designs'), countEl),
@@ -310,6 +310,57 @@ async function createCollection() {
   activeCollection = clean;
   toast('Collection created. Add designs using “Add to collection”.', 'ok');
   render();
+}
+async function manageCollections() {
+  const readNames = () => {
+    let saved = [];
+    try { const parsed = JSON.parse(localStorage.getItem('threadform.collections.v1') || '[]'); saved = Array.isArray(parsed) ? parsed : []; } catch { }
+    return [...new Set([...saved, ...metas.map(collectionOf).filter(Boolean)])].sort((a, b) => a.localeCompare(b));
+  };
+  const dlg = makeDialog('collections-dialog');
+  const list = h('div', { class: 'materials-list' });
+  const draw = () => {
+    const names = readNames();
+    list.replaceChildren(...(names.length ? names.map(name => h('div', { class: 'material-row' },
+      h('div', { class: 'material-row-copy' },
+        h('b', {}, name),
+        h('span', {}, `${metas.filter(m => collectionOf(m) === name).length} designs`)),
+      h('button', { type: 'button', class: 'btn ghost sm', onclick: async () => {
+        const next = await ask({ title: 'Rename collection', label: 'New collection name', value: name, ok: 'Rename' });
+        if (next === null) return;
+        const clean = next.trim().slice(0, 40);
+        if (!clean) { toast('Collection name cannot be empty.', 'error'); return; }
+        const collision = readNames().some(n => n.toLowerCase() === clean.toLowerCase() && n !== name);
+        if (collision) { toast('A collection with that name already exists.', 'error'); return; }
+        try {
+          for (const m of metas.filter(x => collectionOf(x) === name)) await store.patchDesign(m.id, { meta: { collection: clean } });
+          const updated = readNames().filter(n => n !== name);
+          if (!updated.some(n => n.toLowerCase() === clean.toLowerCase())) updated.push(clean);
+          localStorage.setItem('threadform.collections.v1', JSON.stringify(updated));
+          if (activeCollection === name) activeCollection = clean;
+          toast('Collection renamed.', 'ok');
+          await refreshHome(); draw();
+        } catch (e) { toast(friendly(e, 'Could not rename the collection. Some designs may need checking.'), 'error', 5000); await refreshHome(); draw(); }
+      } }, 'Rename'),
+      h('button', { type: 'button', class: 'btn ghost sm danger-txt', onclick: async () => {
+        const yes = await ask({ title: `Delete collection “${name}”?`, text: 'Designs in this collection will be kept, but removed from the collection.', ok: 'Delete collection', danger: true });
+        if (!yes) return;
+        try {
+          for (const m of metas.filter(x => collectionOf(x) === name)) await store.patchDesign(m.id, { meta: { collection: '' } });
+          const updated = readNames().filter(n => n !== name);
+          localStorage.setItem('threadform.collections.v1', JSON.stringify(updated));
+          if (activeCollection === name) activeCollection = '';
+          toast('Collection deleted. Designs were kept.', 'ok');
+          await refreshHome(); draw();
+        } catch (e) { toast(friendly(e, 'Could not delete the collection. Some designs may need checking.'), 'error', 5000); await refreshHome(); draw(); }
+      } }, 'Delete')
+    )), [h('p', { class: 'muted small' }, 'No collections yet. Create one to organise your designs.')]));
+  };
+  dlg.append(
+    h('div', { class: 'dlg-head' }, h('h2', {}, 'Manage collections'), h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => dlg.close() }, icon('x', 18))),
+    h('p', { class: 'muted small' }, 'Rename or delete a collection. Deleting a collection keeps its designs.'),
+    list);
+  draw();
 }
 function assignCollection(m) {
   return guarded(async () => {
