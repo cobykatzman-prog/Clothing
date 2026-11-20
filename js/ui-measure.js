@@ -74,8 +74,12 @@ export function measureBlock() {
     if (m.manual && calKey.value !== m.manual.key && document.activeElement !== calKey) calKey.value = m.manual.key;
     paintCal();
     if (!d) {
-      table.replaceChildren(h('div', { class: 'muted small' }, 'Load a garment to see its measurements.'));
-      basis.textContent = ''; return;
+      const flatView = ['front', 'back'].includes(S.activeView);
+      table.replaceChildren(h('div', { class: 'muted small' }, flatView
+        ? 'Load or generate a garment on this view to see its measurements.'
+        : 'Standard flat-garment measurements are shown on Front and Back. Side and Detail views are not reliable flat measurement references.'));
+      basis.textContent = flatView ? '' : 'Switch to Front or Back for the manufacturer measurement table and dimension callouts.';
+      return;
     }
     const u = 'cm';
     const rows = [h('div', { class: 'mrow mhead', role: 'row' }, h('span', { role: 'columnheader' }, 'Measurement'), h('span', { role: 'columnheader' }, 'Now'), h('span', { role: 'columnheader' }, 'Original'), h('span', { role: 'columnheader' }, 'Change'))];
