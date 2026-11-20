@@ -271,17 +271,20 @@ export function measureGarment(seg, cal) {
   if (!raw || !cal || !(cal.s > 0)) return { ...empty, sleeveLeft: null, sleeveRight: null };
   const sl = Object.entries(raw.sleeves);
   const avg = f => (sl.length ? sl.reduce((a, [, q]) => a + f(q), 0) / sl.length : null);
+  // Remove floating-point representation noise (e.g. 56.00000000000001) while
+  // retaining substantially more precision than the UI or garment spec requires.
+  const clean = n => n == null || !Number.isFinite(n) ? n : Number(n.toPrecision(12));
   return {
-    chest: raw.chest * cal.s,
-    length: raw.length * cal.sy,
-    shoulder: raw.shoulder * SHOULDER_SEAM * (cal.shoulderScale || cal.s),
-    sleeve: avg(q => q.len * cal.ss),
-    sleeveOpening: avg(q => Math.hypot(q.n.x * q.open * cal.s, q.n.y * q.open * cal.sy)),
-    hem: raw.hem * (cal.hemScale || cal.s),
-    neck: raw.neck * (cal.neckScale || cal.s),
-    neckDrop: raw.neckDrop * (cal.neckDropScale || cal.sy),
-    sleeveLeft: raw.sleeves.L ? raw.sleeves.L.len * cal.ss : null,
-    sleeveRight: raw.sleeves.R ? raw.sleeves.R.len * cal.ss : null,
+    chest: clean(raw.chest * cal.s),
+    length: clean(raw.length * cal.sy),
+    shoulder: clean(raw.shoulder * SHOULDER_SEAM * (cal.shoulderScale || cal.s)),
+    sleeve: clean(avg(q => q.len * cal.ss)),
+    sleeveOpening: clean(avg(q => Math.hypot(q.n.x * q.open * cal.s, q.n.y * q.open * cal.sy))),
+    hem: clean(raw.hem * (cal.hemScale || cal.s)),
+    neck: clean(raw.neck * (cal.neckScale || cal.s)),
+    neckDrop: clean(raw.neckDrop * (cal.neckDropScale || cal.sy)),
+    sleeveLeft: raw.sleeves.L ? clean(raw.sleeves.L.len * cal.ss) : null,
+    sleeveRight: raw.sleeves.R ? clean(raw.sleeves.R.len * cal.ss) : null,
   };
 }
 
