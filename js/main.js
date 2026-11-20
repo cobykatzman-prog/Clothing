@@ -26,17 +26,53 @@ initStage($('centre'));
 initRight($('right'));
 initBottom($('bottom'));
 initGuide($('header'));   // Basic / Advanced toggle, "?" help, tour, keyboard shortcuts
+/** Shows a section wherever it lives, reopening its panel when the user navigates to it. */
+const panelButtons = {};
+function setPanelOpen(side, open) {
+  const panel = $(side), appRoot = document.querySelector('.app');
+  if (!panel || !appRoot) return;
+  panel.hidden = !open;
+  appRoot.classList.toggle(side + '-collapsed', !open);
+  const button = panelButtons[side];
+  if (button) {
+    button.setAttribute('aria-expanded', String(open));
+    button.classList.toggle('on', open);
+    button.querySelector('.panel-toggle-label').textContent = open ? (side === 'left' ? 'Tools' : 'Edit') : (side === 'left' ? 'Show tools' : 'Show edit');
+    button.title = open ? 'Collapse ' + (side === 'left' ? 'tools' : 'edit panel') : 'Show ' + (side === 'left' ? 'tools' : 'edit panel');
+  }
+  try {
+    const prefs = JSON.parse(localStorage.getItem('threadform.editor-panels.v1') || '{}');
+    prefs[side] = !!open;
+    localStorage.setItem('threadform.editor-panels.v1', JSON.stringify(prefs));
+  } catch { /* panel visibility is still usable if browser storage is unavailable */ }
+}
 /** Shows a section wherever it lives (right-panel tab or left panel). False when hidden by Basic mode. */
 function reveal(id) {
-  if (revealSection(id)) return true;
   const sec = document.getElementById(id);
   if (!sec || (sec.dataset.level === 'advanced' && getMode() !== 'advanced')) return false;
+  if (sec.closest('#left')) setPanelOpen('left', true);
+  if (sec.closest('#right')) setPanelOpen('right', true);
+  if (revealSection(id)) return true;
   if (sec.tagName === 'DETAILS') sec.open = true;
   return true;
 }
 window.__threadform = { state, reveal, sel };   // handy for debugging / tests
 
 const app = document.querySelector('.app'), home = $('home'), header = $('header');
+
+// ---- editor workspace panels: independently collapse either side to give the canvas room ----
+let panelPrefs = {};
+try { panelPrefs = JSON.parse(localStorage.getItem('threadform.editor-panels.v1') || '{}') || {}; } catch { panelPrefs = {}; }
+const panelControls = h('div', { class: 'panel-toggles', 'aria-label': 'Workspace panels' });
+[['left', 'Tools'], ['right', 'Edit']].forEach(([side, label]) => {
+  const button = h('button', { type: 'button', class: 'btn ghost sm panel-toggle', 'aria-controls': side, 'aria-expanded': 'true', onclick: () => setPanelOpen(side, $(side).hidden) },
+    icon(side === 'left' ? 'panel-left' : 'panel-right', 15), h('span', { class: 'panel-toggle-label' }, label));
+  panelButtons[side] = button;
+  panelControls.append(button);
+});
+header.querySelector('.head-right')?.prepend(panelControls);
+setPanelOpen('left', panelPrefs.left !== false);
+setPanelOpen('right', panelPrefs.right !== false);
 
 // ---- header additions: Home link and save indicator ----
 const brand = header.querySelector('.brand');
