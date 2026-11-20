@@ -305,8 +305,9 @@ export function duplicateElement(el) {
 }
 /** Copies an element onto other views (appended on top there). One undo step. Returns how many copies were made. */
 export function duplicateToViews(el, views) {
+  if (!el) return 0;
   const targets = (views || []).filter(v => v !== el.view && VIEWS.includes(v));
-  if (!el || !targets.length) return 0;
+  if (!targets.length) return 0;
   change(() => { for (const v of targets) state.elements.push(copyToView(el, v)); });
   toast(`Copied to ${targets.map(v => VIEW_LABELS[v]).join(', ')}.`, 'ok');
   return targets.length;
