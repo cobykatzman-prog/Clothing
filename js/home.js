@@ -117,7 +117,9 @@ function renderChips() {
     onclick: () => { activeTags.has(key) ? activeTags.delete(key) : activeTags.add(key); render(); },
   }, name, h('span', { class: 'tcount' }, String(n)))));
   if (activeTags.size) chipsEl.append(h('button', { class: 'tchip clear', onclick: () => { activeTags.clear(); render(); } }, 'Clear tags'));
-  const collections = [...new Set(metas.map(collectionOf).filter(Boolean))].sort((a,b) => a.localeCompare(b));
+  let savedCollections = [];
+  try { savedCollections = JSON.parse(localStorage.getItem('threadform.collections.v1') || '[]'); } catch { savedCollections = []; }
+  const collections = [...new Set([...savedCollections, ...metas.map(collectionOf).filter(Boolean)])].sort((a,b) => a.localeCompare(b));
   collectionEl.hidden = !collections.length;
   collectionEl.replaceChildren(h('button', { class: 'collection-chip' + (!activeCollection ? ' active' : ''), 'aria-pressed': String(!activeCollection), onclick: () => { activeCollection = ''; render(); } }, 'All designs'));
   for (const name of collections) collectionEl.append(h('button', { class: 'collection-chip' + (activeCollection === name ? ' active' : ''), 'aria-pressed': String(activeCollection === name), onclick: () => { activeCollection = name; render(); } }, name));
@@ -226,6 +228,12 @@ async function createCollection() {
   if (!name) return;
   const clean = name.trim().slice(0, 40);
   if (!clean) return;
+  try {
+    const existing = JSON.parse(localStorage.getItem('threadform.collections.v1') || '[]');
+    const names = Array.isArray(existing) ? existing : [];
+    if (!names.some(x => String(x).toLowerCase() === clean.toLowerCase())) names.push(clean);
+    localStorage.setItem('threadform.collections.v1', JSON.stringify(names));
+  } catch { toast('Could not save the collection on this device.', 'error'); return; }
   activeCollection = clean;
   toast('Collection created. Add designs using “Add to collection”.', 'ok');
   render();
