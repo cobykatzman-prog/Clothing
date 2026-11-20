@@ -453,7 +453,7 @@ export function gradedMeasurementCSV(data, { design = 'Untitled design', view = 
   }
   lines.push([]);
   lines.push(['IMPORTANT', 'The selected size is anchored to the image-derived measurement. Other sizes apply standard chart grade increments while carrying the same style adjustment. This is a starting point only: verify pattern grading, tolerances, shrinkage and fit on physical samples.'].map(cell).join(','));
-  return lines.join('\\r\\n') + '\\r\\n';
+  return lines.join('\r\n') + '\r\n';
 }
 
 /* ------------------------------------------------------------------ dimension lines: layout */
