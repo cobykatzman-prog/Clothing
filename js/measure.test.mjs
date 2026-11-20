@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chartValue, makeCalibration, measureGarment, normalizeMeasureState, manufacturerSpecCSV, designCalibration } from './measure.js';
+import { chartValue, makeCalibration, measureGarment, normalizeMeasureState, manufacturerSpecCSV, designCalibration, designMeasure } from './measure.js';
 
 function mockGarment({ chest = 100, length = 150, sleeve = 90, shoulder = 80, hem = 100, neck = 18, neckDrop = 8 } = {}) {
   return {
@@ -140,4 +140,21 @@ test('front and back edits produce matching centimetre changes from one shared b
     const backDelta = backAfter[key] - backBefore[key];
     assert.ok(Math.abs(frontDelta - backDelta) < 1e-8, `front/back ${key} change should stay aligned`);
   }
+});
+
+
+test('side and detail crops do not masquerade as flat garment measurements', () => {
+  const front = mockGarment();
+  const state = {
+    activeView: 'side',
+    measure: { size: 'M', kind: 'tee', manual: null },
+    views: {
+      front: { baseSeg: front, seg: front, sample: null },
+      back: { baseSeg: null, seg: null, sample: null },
+      side: { baseSeg: front, seg: front, sample: null },
+      detail: { baseSeg: front, seg: front, sample: null },
+    },
+  };
+  assert.equal(designMeasure(state, 'side'), null);
+  assert.equal(designMeasure(state, 'detail'), null);
 });
