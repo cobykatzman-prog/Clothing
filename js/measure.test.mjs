@@ -263,7 +263,7 @@ test('graded size chart carries the selected-size style adjustment across chart 
   const csv = gradedMeasurementCSV(data, { design: 'Test Tee', view: 'back' });
   assert.match(csv, /XS \(cm\),S \(cm\),M \(cm\),L \(cm\),XL \(cm\),XXL \(cm\)/);
   assert.match(csv, /Chest width,55,2,49,52,55,58,61,64/);
-  assert.match(csv, /Back neck drop,4,1\.5,4,4\.5,5,5\.5,6,6\.5/);
+  assert.match(csv, /POM-08,Back neck drop,4,1,3\.5,3\.5,4,4,4\.5,4\.5/);
   assert.match(csv, /verify every size against physical samples/);
 });
 
