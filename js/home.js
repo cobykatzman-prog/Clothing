@@ -11,6 +11,7 @@ let root, api, qEl, sortEl, countEl, listEl, emptyEl, noteEl, chipsEl, collectio
 let metas = [];
 let activeTags = new Set();   // tag filter, lower-case keys (a design must have every selected tag)
 let activeCollection = '';
+let selectMode = false, selectedIds = new Set(), visibleIds = [], selectBtn, bulkEl;
 const SORT_KEY = 'threadform.home.sort';   // remembered in this browser only (a convenience, not design data)
 let dragId = null;
 let sharedEl, badgeEl, badgeTxt, moveEl, movable = [], refreshing = false, tick = 0;   // shared-library mode only
@@ -31,6 +32,8 @@ export function initHome(el, actions) {
   collectionEl = h('div', { class: 'collection-strip', role: 'group', 'aria-label': 'Design collections' });
   listEl = h('div', { class: 'home-grid', role: 'list' });
   noteEl = h('p', { class: 'home-note small muted' });
+  selectBtn = h('button', { type: 'button', class: 'btn ghost sm', 'aria-pressed': 'false', onclick: () => toggleSelectMode() }, 'Select designs');
+  bulkEl = h('div', { class: 'bulk-toolbar', hidden: true });
   emptyEl = h('div', { class: 'home-empty', hidden: true },
     h('div', { class: 'empty-ico' }, icon('layers', 34)),
     h('h2', {}, 'Design your first garment'),
@@ -46,8 +49,8 @@ export function initHome(el, actions) {
     h('div', { class: 'home-body' },
       h('div', { class: 'home-tools' },
         h('div', {}, h('h1', {}, SHARED() ? 'Shared designs' : 'Your designs'), countEl),
-        h('div', { class: 'home-filters' }, qEl, sortEl)),
-      sharedEl || null, collectionEl, chipsEl, listEl, emptyEl, noteEl));
+        h('div', { class: 'home-filters' }, qEl, sortEl, selectBtn)),
+      sharedEl || null, collectionEl, chipsEl, bulkEl, listEl, emptyEl, noteEl));
   if (SHARED()) startSharedRefresh();
 }
 
@@ -131,14 +134,89 @@ function render() {
   const sortKey = sortEl.value;
   try { localStorage.setItem(SORT_KEY, sortKey); } catch { }
   const base = sortKey === 'custom' ? customSorted(metas) : metas.slice().sort(sorters[sortKey] || sorters.edited);
-  const list = base.filter(m => (!q || (m.name || '').toLowerCase().includes(q) || tagsOf(m).some(t => t.toLowerCase().includes(q)))
+  const list = base.filter(m => (!q || [m.name, collectionOf(m), m.material?.name, ...tagsOf(m)].join(' ').toLowerCase().includes(q))
     && [...activeTags].every(k => hasTag(m, k)) && (!activeCollection || collectionOf(m) === activeCollection));
-  countEl.textContent = metas.length ? `${metas.length} design${metas.length === 1 ? '' : 's'}` : '';
+  visibleIds = list.map(m => m.id);
+  for (const id of [...selectedIds]) if (!metas.some(m => m.id === id)) selectedIds.delete(id);
+  const filtered = q || activeTags.size || activeCollection;
+  countEl.textContent = metas.length ? (filtered ? `${list.length} of ${metas.length} designs` : `${metas.length} design${metas.length === 1 ? '' : 's'}`) : '';
   emptyEl.hidden = metas.length > 0;
   listEl.hidden = metas.length === 0;
-  if (!metas.length) { listEl.replaceChildren(); return; }
-  const canDrag = !q && activeTags.size === 0;
-  listEl.replaceChildren(...(list.length ? list.map(m => card(m, base, canDrag)) : [h('p', { class: 'home-nomatch' }, 'No designs match' + (q ? ' “' + qEl.value.trim() + '”' : '') + (activeTags.size ? ' with those tags' : '') + '.')]));
+  const canDrag = sortKey === 'custom' && !q && activeTags.size === 0 && !activeCollection && !selectMode;
+  listEl.replaceChildren(...(list.length ? list.map(m => card(m, base, canDrag)) : metas.length ? [h('p', { class: 'home-nomatch' }, 'No designs match' + (q ? ' “' + qEl.value.trim() + '”' : '') + (activeTags.size ? ' with those tags' : activeCollection ? ' in this collection' : '.') + '.')] : []));
+  renderBulkToolbar(list);
+}
+
+function toggleSelectMode(on = !selectMode) {
+  selectMode = !!on;
+  if (!selectMode) selectedIds.clear();
+  selectBtn.textContent = selectMode ? 'Done selecting' : 'Select designs';
+  selectBtn.setAttribute('aria-pressed', String(selectMode));
+  selectBtn.classList.toggle('on', selectMode);
+  render();
+}
+function renderBulkToolbar(visible) {
+  const count = selectedIds.size;
+  bulkEl.hidden = !selectMode && !count;
+  if (bulkEl.hidden) { bulkEl.replaceChildren(); return; }
+  const actions = count ? [
+    h('button', { type: 'button', class: 'btn ghost sm', onclick: bulkMoveToCollection }, 'Move to collection'),
+    h('button', { type: 'button', class: 'btn ghost sm', onclick: bulkAddTag }, 'Add tag'),
+    h('button', { type: 'button', class: 'btn ghost sm danger-txt', onclick: bulkDelete }, 'Delete selected'),
+  ] : [];
+  bulkEl.replaceChildren(
+    h('b', {}, count + (count === 1 ? ' selected' : ' selected')),
+    h('button', { type: 'button', class: 'btn ghost sm', onclick: () => { visible.forEach(m => selectedIds.add(m.id)); render(); }, disabled: !visible.length }, 'Select visible'),
+    ...actions,
+    h('button', { type: 'button', class: 'btn ghost sm', onclick: () => toggleSelectMode(false) }, 'Clear selection'));
+}
+function bulkMoveToCollection() {
+  return guarded(async () => {
+    const name = await ask({ title: 'Move selected designs', text: 'Enter a collection name, or leave it empty to remove the selected designs from their current collections.', label: 'Collection', value: activeCollection, ok: 'Move', allowEmpty: true });
+    if (name === null) return;
+    const collection = name.trim().slice(0, 40);
+    for (const m of metas.filter(x => selectedIds.has(x.id))) await store.patchDesign(m.id, { meta: { collection } });
+    selectedIds.clear(); selectMode = false; activeCollection = collection;
+    toast(collection ? 'Moved designs to ' + collection + '.' : 'Removed designs from their collections.', 'ok');
+  });
+}
+function bulkAddTag() {
+  return guarded(async () => {
+    const value = await ask({ title: 'Add a tag to selected designs', label: 'Tag', value: '', ok: 'Add tag', hint: 'A tag is added without removing existing tags.' });
+    if (value === null) return;
+    const additions = parseTags(value);
+    if (!additions.length) return;
+    for (const m of metas.filter(x => selectedIds.has(x.id))) {
+      const tags = parseTags([...tagsOf(m), ...additions].join(', '));
+      await store.patchDesign(m.id, { meta: { tags }, doc: { tags } });
+    }
+    selectedIds.clear(); selectMode = false;
+    toast('Tag added to selected designs.', 'ok');
+  });
+}
+function bulkDelete() {
+  return guarded(async () => {
+    const chosen = metas.filter(m => selectedIds.has(m.id));
+    if (!chosen.length) return;
+    const yes = await ask({ title: `Delete ${chosen.length} designs?`, text: SHARED()
+      ? 'This removes the selected designs and their saved versions for everyone with access to the shared library.'
+      : 'This removes the selected designs and their saved versions from this browser.',
+      ok: 'Delete designs', danger: true });
+    if (!yes) return;
+    const records = [];
+    for (const m of chosen) {
+      const rec = await store.getDesign(m.id);
+      await store.deleteDesign(m.id);
+      if (rec) records.push(rec);
+    }
+    selectedIds.clear(); selectMode = false;
+    toast(`Deleted ${records.length} design${records.length === 1 ? '' : 's'}.`, 'ok', 5000, records.length ? {
+      label: 'Undo', fn: () => guarded(async () => {
+        for (const rec of records) await store.putDesign(rec);
+        toast('Deleted designs restored.', 'ok');
+      })
+    } : null);
+  });
 }
 
 function card(m, orderList, canDrag) {
@@ -166,7 +244,12 @@ function card(m, orderList, canDrag) {
       if (from && from !== m.id) moveTo(from, m.id, after);
     },
   },
-    h('button', { class: 'dcard-open', onclick: () => api.open(m.id), 'aria-label': `Open ${m.name}` },
+    selectMode ? h('label', { class: 'dcard-select', 'aria-label': 'Select ' + (m.name || 'design') },
+      h('input', { type: 'checkbox', checked: selectedIds.has(m.id), onchange: e => {
+        if (e.target.checked) selectedIds.add(m.id); else selectedIds.delete(m.id);
+        renderBulkToolbar(metas.filter(x => visibleIds.includes(x.id)));
+      } }), h('span', {}, 'Select')) : null,
+    h('button', { class: 'dcard-open', onclick: () => { if (selectMode) { selectedIds.has(m.id) ? selectedIds.delete(m.id) : selectedIds.add(m.id); render(); } else api.open(m.id); }, 'aria-label': `Open ${m.name}` },
       h('div', { class: 'dthumb' }, thumb),
       h('div', { class: 'dinfo' },
         h('div', { class: 'dname' }, m.name || 'Untitled design'),
@@ -174,8 +257,8 @@ function card(m, orderList, canDrag) {
         m.material?.name ? h('div', { class: 'design-material' }, h('i', { style: `background:${m.material.color || '#d6d3d1'}` }), m.material.name) : null,
         tags.length ? h('div', { class: 'dtags' }, tags.map(t => h('span', { class: 'dtag' }, t))) : null)),
     h('div', { class: 'dactions' },
-      h('button', { class: 'btn ghost sm mv', 'aria-label': `Move ${m.name} up`, tip: 'Move up', disabled: pos <= 0, onclick: () => move(m, -1) }, '▲'),
-      h('button', { class: 'btn ghost sm mv', 'aria-label': `Move ${m.name} down`, tip: 'Move down', disabled: pos < 0 || pos >= orderList.length - 1, onclick: () => move(m, 1) }, '▼'),
+      canDrag ? h('button', { class: 'btn ghost sm mv', 'aria-label': `Move ${m.name} up`, tip: 'Move up', disabled: pos <= 0, onclick: () => move(m, -1) }, '▲') : null,
+      canDrag ? h('button', { class: 'btn ghost sm mv', 'aria-label': `Move ${m.name} down`, tip: 'Move down', disabled: pos < 0 || pos >= orderList.length - 1, onclick: () => move(m, 1) }, '▼') : null,
       h('button', { class: 'btn ghost sm', onclick: () => rename(m) }, 'Rename'),
       h('button', { class: 'btn ghost sm', onclick: () => editTags(m) }, 'Tags'),
       h('button', { class: 'btn ghost sm', onclick: () => assignCollection(m) }, collectionOf(m) ? 'Collection' : 'Add to collection'),
