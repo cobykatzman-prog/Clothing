@@ -372,47 +372,116 @@ function assignCollection(m) {
     toast(collection ? 'Added to ' + collection + '.' : 'Removed from its collection.', 'ok');
   });
 }
+
 const BRAND_KEY = 'threadform.brand-kit.v1';
+const BRAND_FONTS = ['Arial', 'Helvetica', 'Georgia', 'Times New Roman', 'Verdana', 'Trebuchet MS', 'Courier New'];
 function readBrandKit() {
-  try { return JSON.parse(localStorage.getItem(BRAND_KEY) || '{}') || {}; } catch { return {}; }
+  try {
+    const value = JSON.parse(localStorage.getItem(BRAND_KEY) || '{}') || {};
+    if (!value.logos) value.logos = { primary: value.logo || '', alternate: '', mark: '' };
+    if (!Array.isArray(value.palette)) value.palette = [
+      { name: 'Primary', color: value.primary || '#292820' },
+      { name: 'Secondary', color: value.secondary || '#e9e5dc' },
+      { name: 'Accent', color: value.accent || '#a18a68' },
+    ];
+    if (!value.typography) value.typography = { heading: 'Georgia', body: 'Arial' };
+    return value;
+  } catch { return { logos: { primary: '', alternate: '', mark: '' }, palette: [], typography: { heading: 'Georgia', body: 'Arial' } }; }
 }
 function editBrandKit() {
   const saved = readBrandKit();
+  const logos = { primary: '', alternate: '', mark: '', ...(saved.logos || {}) };
+  if (!logos.primary && saved.logo) logos.primary = saved.logo;
+  const palette = (saved.palette || []).slice(0, 12).map((item, i) => ({
+    name: String(item.name || ('Colour ' + (i + 1))).slice(0, 24),
+    color: /^#[0-9a-f]{6}$/i.test(item.color || '') ? item.color : '#292820',
+  }));
+  const typography = { heading: 'Georgia', body: 'Arial', ...(saved.typography || {}) };
   const dlg = makeDialog('brand-kit-dialog');
   const brandName = h('input', { type: 'text', maxlength: 60, value: saved.name || '', placeholder: 'Your clothing label' });
-  const primary = h('input', { type: 'color', value: saved.primary || '#292820', 'aria-label': 'Primary brand colour' });
-  const secondary = h('input', { type: 'color', value: saved.secondary || '#e9e5dc', 'aria-label': 'Secondary brand colour' });
-  const accent = h('input', { type: 'color', value: saved.accent || '#a18a68', 'aria-label': 'Accent brand colour' });
-  const logoInput = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/svg+xml' });
-  const preview = h('div', { class: 'brand-kit-preview' }, saved.logo ? h('img', { src: saved.logo, alt: 'Saved brand logo' }) : h('span', {}, 'No logo added'));
-  logoInput.addEventListener('change', () => {
-    const file = logoInput.files?.[0];
-    if (!file) return;
-    if (file.size > 2 * 1024 * 1024) { toast('Please choose a logo under 2 MB.', 'error'); logoInput.value = ''; return; }
-    const reader = new FileReader();
-    reader.onload = () => { saved.logo = String(reader.result || ''); preview.replaceChildren(h('img', { src: saved.logo, alt: 'Brand logo preview' })); };
-    reader.readAsDataURL(file);
-  });
+  const logoList = h('div', { class: 'brand-logo-list' });
+  const paletteList = h('div', { class: 'brand-palette-list' });
+  const headingFont = h('select', {}, ...BRAND_FONTS.map(font => h('option', { value: font }, font)));
+  const bodyFont = h('select', {}, ...BRAND_FONTS.map(font => h('option', { value: font }, font)));
+  headingFont.value = BRAND_FONTS.includes(typography.heading) ? typography.heading : 'Georgia';
+  bodyFont.value = BRAND_FONTS.includes(typography.body) ? typography.body : 'Arial';
+
+  const drawLogos = () => {
+    const labels = { primary: 'Primary logo', alternate: 'Alternate logo', mark: 'Icon / brand mark' };
+    logoList.replaceChildren(...Object.keys(labels).map(key => {
+      const preview = logos[key]
+        ? h('img', { src: logos[key], alt: labels[key] + ' preview' })
+        : h('span', { class: 'brand-logo-empty' }, 'No file selected');
+      const input = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/svg+xml', 'aria-label': 'Upload ' + labels[key] });
+      input.addEventListener('change', () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        if (file.size > 1024 * 1024) { toast('Each logo must be under 1 MB.', 'error'); input.value = ''; return; }
+        if (!/^image\/(png|jpeg|webp|svg\+xml)$/.test(file.type)) { toast('Choose a PNG, JPG, WebP or SVG logo.', 'error'); input.value = ''; return; }
+        const reader = new FileReader();
+        reader.onload = () => { logos[key] = String(reader.result || ''); drawLogos(); };
+        reader.onerror = () => toast('Could not read that logo file.', 'error');
+        reader.readAsDataURL(file);
+      });
+      return h('div', { class: 'brand-logo-row' },
+        h('div', { class: 'brand-logo-copy' }, h('b', {}, labels[key]), h('div', { class: 'brand-logo-preview' }, preview)),
+        h('div', { class: 'brand-logo-actions' }, input,
+          logos[key] ? h('button', { type: 'button', class: 'btn ghost sm danger-txt', onclick: () => { logos[key] = ''; drawLogos(); } }, 'Remove') : null));
+    }));
+  };
+  const drawPalette = () => {
+    paletteList.replaceChildren(...palette.map((item, index) => {
+      const name = h('input', { type: 'text', maxlength: 24, value: item.name, 'aria-label': 'Colour name' });
+      const color = h('input', { type: 'color', value: item.color, 'aria-label': item.name + ' swatch' });
+      name.addEventListener('input', () => { item.name = name.value; });
+      color.addEventListener('input', () => { item.color = color.value; });
+      return h('div', { class: 'brand-palette-row' }, color, name,
+        h('button', { type: 'button', class: 'btn ghost sm danger-txt', 'aria-label': 'Remove ' + item.name, onclick: () => { palette.splice(index, 1); drawPalette(); } }, 'Remove'));
+    }));
+  };
+  const addColour = h('button', { type: 'button', class: 'btn ghost sm', onclick: () => {
+    if (palette.length >= 12) { toast('The palette can contain up to 12 colours.', 'error'); return; }
+    palette.push({ name: 'New colour', color: '#a18a68' }); drawPalette();
+  } }, 'Add colour');
+
   const form = h('form', { class: 'brand-kit-form', onsubmit: e => {
     e.preventDefault();
+    const cleanPalette = palette.map((item, i) => ({
+      name: String(item.name || ('Colour ' + (i + 1))).trim().slice(0, 24) || ('Colour ' + (i + 1)),
+      color: /^#[0-9a-f]{6}$/i.test(item.color) ? item.color : '#292820',
+    }));
+    const data = {
+      ...saved, name: brandName.value.trim(), logos, logo: logos.primary || '',
+      palette: cleanPalette,
+      primary: cleanPalette[0]?.color || '#292820',
+      secondary: cleanPalette[1]?.color || '#e9e5dc',
+      accent: cleanPalette[2]?.color || '#a18a68',
+      typography: { heading: headingFont.value, body: bodyFont.value },
+    };
     try {
-      localStorage.setItem(BRAND_KEY, JSON.stringify({ name: brandName.value.trim(), primary: primary.value, secondary: secondary.value, accent: accent.value, logo: saved.logo || '' }));
+      localStorage.setItem(BRAND_KEY, JSON.stringify(data));
       dlg.close(); toast('Brand kit saved on this device.', 'ok');
-    } catch { toast('Could not save the brand kit. The logo may be too large.', 'error', 5000); }
+    } catch { toast('Could not save the brand kit. Try smaller logo files or remove a logo.', 'error', 5000); }
   } },
-    h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Brand name'), brandName),
-    h('div', { class: 'brand-kit-colours' },
-      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Primary'), primary),
-      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Secondary'), secondary),
-      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Accent'), accent)),
-    h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Logo'), logoInput),
-    preview,
-    h('p', { class: 'muted small' }, 'Your brand kit is currently saved in this browser only. Shared team brand kits will come in a later stage.'),
+    h('section', { class: 'brand-kit-section' },
+      h('h3', {}, 'Brand identity'),
+      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Brand name'), brandName)),
+    h('section', { class: 'brand-kit-section' },
+      h('div', { class: 'brand-kit-section-head' }, h('h3', {}, 'Logo library'), h('span', { class: 'muted small' }, 'Up to 3 variations')),
+      logoList),
+    h('section', { class: 'brand-kit-section' },
+      h('div', { class: 'brand-kit-section-head' }, h('h3', {}, 'Colour palette'), addColour),
+      paletteList),
+    h('section', { class: 'brand-kit-section' },
+      h('h3', {}, 'Typography'),
+      h('div', { class: 'brand-kit-type-grid' },
+        h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Headings'), headingFont),
+        h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Body text'), bodyFont))),
+    h('p', { class: 'muted small' }, 'This brand kit is saved in this browser only. It is not yet synced to the shared library or automatically applied to garment designs.'),
     h('div', { class: 'dlg-actions' }, h('button', { type: 'button', class: 'btn ghost', onclick: () => dlg.close() }, 'Cancel'), h('button', { type: 'submit', class: 'btn primary' }, 'Save brand kit')));
   dlg.append(h('div', { class: 'dlg-head' }, h('h2', {}, 'Brand kit'), h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => dlg.close() }, icon('x', 18))), form);
-  dlg.querySelector('input').focus();
+  drawLogos(); drawPalette(); brandName.focus();
 }
-
 /* ------------------------------------------------------------------ actions */
 function rename(m) {
   return guarded(async () => {
