@@ -7,6 +7,7 @@ import { REGION_NAMES } from './segment.js';
 import * as S from './selection.js';
 import { retunePick } from './sel-tools.js';
 import { recompute } from './ui-actions.js';
+import { extractExistingLogo, replaceExistingText } from './existing-logo.js';
 
 const pretty = s => s.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
 const REGION_TIPS = {
@@ -94,16 +95,16 @@ export function selectionBar() {
   const act = (ic, label, tip, fn, extra = {}) => h('button', { type: 'button', class: 'sb-act', 'aria-label': label, tip, onclick: fn, ...extra }, icon(ic, 16), h('span', { class: 'tl' }, label));
   const undoB = act('undo', 'Undo selection', 'Undo the last selection step (Ctrl+Z while a selection tool is active)', () => S.selUndo(), { 'data-act': 'sel-undo', 'data-level': 'advanced' });
   const redoB = act('redo', 'Redo selection', 'Redo the selection step you undid', () => S.selRedo(), { 'data-act': 'sel-redo', 'data-level': 'advanced' });
-  const unhighlightB = act('x', 'Unhighlight', 'Remove every highlighted area from this garment view', () => S.clearSelection(), { 'data-act': 'unhighlight-all' });
+  const clearB = act('x', 'Unhighlight', 'Remove every highlighted area from this garment view', () => S.clearSelection(), { 'data-act': 'clear' });
   const allB = act('selall', 'Select garment', 'Select the entire garment (Ctrl+A)', () => S.selectEntireGarment(), { 'data-act': 'select-all', 'data-level': 'advanced' });
   const invB = act('invert', 'Invert', 'Swap the selected and the unselected parts of the garment (Ctrl+I)', () => S.invertSelection(), { 'data-act': 'invert', 'data-level': 'advanced' });
   const zoomB = act('zoomSel', 'Zoom to it', 'Zoom the canvas to the selection (Z)', () => stageApi()?.zoomToSelection(), { 'data-act': 'zoom-sel', 'data-level': 'advanced' });
   const eyeB = act('eye', 'Outline', 'Show or hide the selection outline', () => { state.ui.ovl.show = !state.ui.ovl.show; notify('tool'); }, { 'data-act': 'toggle-overlay' });
   const bothB = h('button', { type: 'button', class: 'sb-act accent', 'data-act': 'both-sleeves-bar', tip: 'Select both sleeves at once, then describe the change in the Look tab', onclick: () => S.selectBothSleeves() }, icon('both', 16), h('span', { class: 'tl' }, 'Both sleeves'));
   const modes = modeGroup('sb-modes'); modes.dataset.level = 'advanced';
-  for (const b of [bothB, unhighlightB]) b.classList.add('keep');
+  for (const b of [bothB, clearB]) b.classList.add('keep');
   const row1 = h('div', { class: 'sb-row' }, tools, h('span', { class: 'sep', 'data-level': 'advanced' }), modes);
-  const actions = h('div', { class: 'sb-actions' }, bothB, allB, invB, unhighlightB, h('span', { class: 'sep' }), undoB, redoB, h('span', { class: 'sep', 'data-level': 'advanced' }), zoomB, eyeB);
+  const actions = h('div', { class: 'sb-actions' }, bothB, allB, invB, clearB, h('span', { class: 'sep' }), undoB, redoB, h('span', { class: 'sep', 'data-level': 'advanced' }), zoomB, eyeB);
   // options for the active tool
   const opt = (tools_, ...kids) => h('div', { class: 'sb-opt', 'data-for': tools_.join(' ') }, ...kids);
   const opts = h('div', { class: 'sb-row sb-opts' },
@@ -125,7 +126,7 @@ export function selectionBar() {
     setDisabled(undoB, !info.canUndo, 'Nothing to undo in the selection yet');
     setDisabled(redoB, !info.canRedo, 'Nothing to redo in the selection');
     const has = hasMask(V);
-    setDisabled(unhighlightB, !has && !V.regionSel.length, 'Nothing is selected');
+    setDisabled(clearB, !has && !V.regionSel.length, 'Nothing is selected');
     setDisabled(zoomB, !has, 'Select an area first');
     setDisabled(invB, !V.seg, 'Needs the garment outline');
     setDisabled(allB, !V.seg, 'Needs the garment outline');
@@ -144,6 +145,12 @@ export function selectionSection({ section }) {
   const modes = modeGroup('');
   const toolGrid = h('div', { class: 'tool-grid', role: 'group', 'aria-label': 'Selection tools' }, toolButtons('ptool', 'data-ptool'));
   const readout = h('div', { class: 'readout', id: 'sel-readout', role: 'status', 'aria-live': 'polite' });
+  const extractLogoBtn = h('button', { type: 'button', class: 'btn primary sm', 'data-act': 'extract-existing-logo', tip: 'Use AI to remove the selected logo from the fabric and turn it into its own movable layer', onclick: () => extractExistingLogo() }, 'Separate existing logo / graphic');
+  const replaceTextBtn = h('button', { type: 'button', class: 'btn ghost sm', 'data-act': 'replace-existing-text', tip: 'Remove selected printed lettering with AI and replace it with editable text', onclick: () => {
+    const wording = window.prompt('What should the selected lettering say?');
+    if (wording && wording.trim()) replaceExistingText(wording.trim());
+  } }, 'Replace selected text');
+  const extractLogoHelp = h('div', { class: 'muted small' }, 'Select existing lettering, a logo or graphic with Smart select, Lasso or Brush. Separate logos to move, resize or rotate them; replace lettering to make it editable. AI repairs the fabric underneath. Works on the current view of each design.');
   const selInfo = h('div', { class: 'muted small', id: 'sel-info' });
 
   // modify
@@ -230,8 +237,9 @@ export function selectionSection({ section }) {
     h('div', { class: 'row gap wrap' },
       btn('Select garment', 'select-all', 'Select the entire garment (Ctrl+A)', () => S.selectEntireGarment()),
       btn('Invert', 'invert', 'Swap selected and unselected (Ctrl+I)', () => S.invertSelection()),
-      btn('Unhighlight', 'unhighlight-all', 'Remove every highlighted garment area', () => S.clearSelection()),
+      btn('Unhighlight', 'unhighlight-all', 'Remove every highlighted area from this garment view', () => S.clearSelection()),
       btn('Zoom to selection', 'zoom-sel', 'Zoom the canvas to the selection (Z)', () => stageApi()?.zoomToSelection())),
+    extractLogoBtn, replaceTextBtn, extractLogoHelp,
     readout,
     h('div', { class: 'lbl' }, 'Modify the selection'), modify,
     h('details', { class: 'sub', id: 'sel-refine' }, h('summary', {}, 'Refine edges'), refineBox),
@@ -252,6 +260,8 @@ export function selectionSection({ section }) {
     setDisabled(undoB, !info.canUndo, 'Nothing to undo in the selection yet'); setDisabled(redoB, !info.canRedo, 'Nothing to redo in the selection');
     histInfo.textContent = info.count > 1 ? `Step ${info.index} of ${info.count - 1}` : '';
     const has = hasMask(V), st = S.selectionStats(V);
+    setDisabled(extractLogoBtn, !has || state.ui.busy > 0, !has ? 'Select the logo or graphic first' : 'Wait for the current task to finish');
+    setDisabled(replaceTextBtn, !has || state.ui.busy > 0, !has ? 'Select the printed lettering first' : 'Wait for the current task to finish');
     readout.textContent = !has ? 'Nothing selected.' : `Selected ${st.pct != null ? st.pct.toFixed(1) + '% of the garment' : st.area + ' px'} · ${st.bounds ? `${st.bounds.w} × ${st.bounds.h} px at (${st.bounds.x}, ${st.bounds.y})` : ''}`;
     readout.dataset.pct = st.pct != null ? st.pct.toFixed(2) : ''; readout.dataset.w = st.bounds?.w ?? 0; readout.dataset.h = st.bounds?.h ?? 0; readout.dataset.x = st.bounds?.x ?? 0; readout.dataset.y = st.bounds?.y ?? 0;
     selInfo.textContent = has ? 'Selection active. Only highlighted pixels will change.' : 'Nothing selected yet: the whole garment may change.';

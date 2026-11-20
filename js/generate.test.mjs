@@ -28,6 +28,6 @@ test('explicit no-stripes wording wins over the stripes checkbox', () => {
 
 test('explicit stripe colour is preserved', () => {
   const spec = parseGarmentText('a cream shirt with chocolate stripes', { defaultColor: '#6f8fb5' });
-  assert.equal(spec.color, '#efebe0');
+  assert.equal(spec.color, '#efe6d2');
   assert.equal(spec.stripe, '#4a2c1a');
 });

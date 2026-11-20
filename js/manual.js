@@ -273,12 +273,6 @@ export function colorSlots(el) {
     return s;
   }
   if (p.graphicId) return graphicSlots(p);
-  if (p.svg) return [
-    ['color', 'Main colour', 'c1'], ['color2', 'Accent colour', 'c2'],
-    ['color3', 'Detail colour', 'c3'], ['color4', 'Additional colour 1', 'c4'],
-    ['color5', 'Additional colour 2', 'c5'], ['color6', 'Additional colour 3', 'c6']
-  ].map(([key, label, slot]) => ({ key, label: 'SVG ' + label.toLowerCase(), fallback: p.colors?.[slot] }))
-    .filter(slot => !!slot.fallback);
   if (TEXTY(el)) return [{ key: 'color', label: 'Colour' }];
   return [];
 }
@@ -326,25 +320,6 @@ export function toggleLock(el) { if (el) change(() => { el.locked = !el.locked; 
 export function toggleVisible(el) { if (el) change(() => { el.visible = el.visible === false; }); }
 /** Reset one element to the look a new one of its type gets (keeps its text, graphic and logo). One undo step. */
 export function resetItem(el) { if (el) change(() => { resetElement(el); }); toast('Reset to the default look.', 'ok'); }
-/** Align by the rotated item's visible bounds, not its unrotated width/height. */
-export function alignElement(el, mode) {
-  if (!el || el.locked) return false;
-  const b = state.views[el.view]?.seg?.bbox || { x: 0, y: 0, w: SIZE, h: SIZE };
-  const a = (Number(el.rotation) || 0) * Math.PI / 180;
-  const hw = Math.abs(Math.cos(a)) * el.w / 2 + Math.abs(Math.sin(a)) * el.h / 2;
-  const hh = Math.abs(Math.sin(a)) * el.w / 2 + Math.abs(Math.cos(a)) * el.h / 2;
-  const next = { x: el.x, y: el.y };
-  if (mode === 'left') next.x = b.x + hw;
-  else if (mode === 'hcenter') next.x = b.x + b.w / 2;
-  else if (mode === 'right') next.x = b.x + b.w - hw;
-  else if (mode === 'top') next.y = b.y + hh;
-  else if (mode === 'vcenter') next.y = b.y + b.h / 2;
-  else if (mode === 'bottom') next.y = b.y + b.h - hh;
-  else return false;
-  if (Math.abs(next.x - el.x) < 0.001 && Math.abs(next.y - el.y) < 0.001) return false;
-  change(() => { el.x = next.x; el.y = next.y; });
-  return true;
-}
 /** Layer order within this view. mode: 'up' (forward one), 'down' (back one), 'front', 'back'. */
 export function reorder(el, mode) {
   const arr = state.elements, i = arr.indexOf(el); if (!el || i < 0) return;
@@ -418,7 +393,7 @@ export function createLayers() {
     list.replaceChildren(...(top.length ? top.map(e => row(e, top)) : [h('div', { class: 'muted small' }, 'Nothing added yet. Use sections 4 and 5 to add text, crests or stripes.')]));
   }
   // upload a picture as a new logo on this view
-  const logoIn = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/svg+xml', hidden: true, 'aria-label': 'Logo file', onchange: e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) addLogo(f); } });
+  const logoIn = h('input', { type: 'file', accept: 'image/*', hidden: true, 'aria-label': 'Logo file', onchange: e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) addLogo(f); } });
   const addBtn = h('button', { class: 'btn ghost sm', tip: 'Upload a logo or picture to place on the garment (then recolour it in the Selected item section)', onclick: () => logoIn.click() }, icon('plus', 15), 'Add logo…');
   const wrap = h('div', { class: 'lwrap' }, h('div', { class: 'row gap center' }, addBtn, logoIn), list);
   subscribe(sync); sync();
@@ -428,12 +403,6 @@ export function createLayers() {
 /* ------------------------------------------------------------------ element inspector (right panel) */
 /** Reads a picture file into a PNG data URL, shrunk to 1024 px so the saved design stays small. */
 function readLogo(file) {
-  const allowed = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml']);
-  const ext = String(file?.name || '').split('.').pop().toLowerCase();
-  const extensionTypes = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', svg: 'image/svg+xml' };
-  const type = file?.type || extensionTypes[ext];
-  if (!file || !allowed.has(type)) return Promise.reject(userError('Use a PNG, JPG, WebP or SVG logo.'));
-  if (file.size > 20 * 1024 * 1024) return Promise.reject(userError('That logo is larger than 20 MB. Resize it and try again.'));
   return new Promise((res, rej) => {
     const fr = new FileReader();
     fr.onerror = () => rej(userError('That file could not be read. Try another image.'));
@@ -451,160 +420,24 @@ function readLogo(file) {
     fr.readAsDataURL(file);
   });
 }
-/** Read and sanitise an SVG as vector artwork. It stays an SVG layer instead of being flattened to pixels. */
-async function readVector(file) {
-  if (!file || file.size > 20 * 1024 * 1024) throw userError('That SVG is larger than 20 MB.');
-  const source = await file.text();
-  if (source.length > 20 * 1024 * 1024) throw userError('That SVG is larger than 20 MB.');
-  const doc = new DOMParser().parseFromString(source, 'image/svg+xml');
-  const root = doc.documentElement;
-  if (root?.localName !== 'svg' || doc.querySelector('parsererror')) throw userError('That file is not a valid SVG.');
-  // Preserve safe presentation rules from common SVG exports (including Illustrator),
-  // but inline them before removing stylesheet nodes. External resources and active CSS are never kept.
-  const styleNodes = [...root.querySelectorAll('style')];
-  const cssRules = [];
-  const safeCss = new Set(['fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'fill-rule', 'clip-rule', 'fill-opacity', 'stroke-opacity', 'opacity']);
-  for (const styleNode of styleNodes) {
-    const css = styleNode.textContent || '';
-    for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-      const selectors = match[1].trim().split(',');
-      const declarations = [];
-      for (const declaration of match[2].split(';')) {
-        const at = declaration.indexOf(':');
-        if (at < 1) continue;
-        const property = declaration.slice(0, at).trim().toLowerCase();
-        const value = declaration.slice(at + 1).trim();
-        if (safeCss.has(property) && value && !/url\s*\(|javascript:|expression\s*\(/i.test(value)) declarations.push([property, value]);
-      }
-      if (declarations.length) for (const selector of selectors) {
-        const clean = selector.trim();
-        // Restrict selectors to simple tag/class/id combinations; ignore complex or active selectors.
-        if (/^(?:[a-z][\w-]*)?(?:[.#][\w-]+)*$/i.test(clean) && clean) cssRules.push({ selector: clean, declarations });
-      }
-    }
-  }
-  if (cssRules.length) {
-    const nodes = [root, ...root.querySelectorAll('*')];
-    for (const node of nodes) {
-      const applied = new Map();
-      for (const rule of cssRules) {
-        try { if (node.matches(rule.selector)) for (const [property, value] of rule.declarations) applied.set(property, value); } catch {}
-      }
-      const inline = new Set((node.getAttribute('style') || '').split(';').map(part => part.split(':', 1)[0].trim().toLowerCase()));
-      for (const [property, value] of applied) {
-        if (!inline.has(property) && !node.hasAttribute(property)) {
-          const current = node.getAttribute('style') || '';
-          node.setAttribute('style', current + (current.trim() && !current.trim().endsWith(';') ? ';' : '') + property + ':' + value);
-        }
-      }
-    }
-  }
-  root.querySelectorAll('script,foreignObject,iframe,object,embed,style,link,animate,animateTransform,animateMotion,set').forEach(n => n.remove());
-  for (const node of root.querySelectorAll('*')) {
-    for (const attr of [...node.attributes]) {
-      const name = attr.name.toLowerCase(), value = attr.value.trim();
-      if (name.startsWith('on')) node.removeAttribute(attr.name);
-      else if ((name === 'href' || name === 'xlink:href') && !value.startsWith('#')) node.removeAttribute(attr.name);
-      else if (/javascript:|expression\(|url\(\s*['"]?(?!#)/i.test(value)) node.removeAttribute(attr.name);
-    }
-  }
-  for (const attr of [...root.attributes]) {
-    const name = attr.name.toLowerCase(), value = attr.value.trim();
-    if (name.startsWith('on') || ((name === 'href' || name === 'xlink:href') && !value.startsWith('#')) || /javascript:|expression\(|url\(\s*['"]?(?!#)/i.test(value)) root.removeAttribute(attr.name);
-  }
-  let vb = (root.getAttribute('viewBox') || '').trim().split(/[ ,]+/).map(Number);
-  if (vb.length !== 4 || !vb.every(Number.isFinite) || vb[2] <= 0 || vb[3] <= 0) {
-    const w = parseFloat(root.getAttribute('width')) || 100, h = parseFloat(root.getAttribute('height')) || 100;
-    vb = [0, 0, w, h];
-  }
-  // Turn up to three distinct solid fill/stroke colours into editor colour slots.
-  // Keep gradients, patterns, "none", currentColor and other paint servers untouched.
-  const palette = {};
-  const colourCanvas = document.createElement('canvas');
-  const colourContext = colourCanvas.getContext('2d');
-  const pickerHex = value => {
-    const colour = (value || '').trim();
-    if (!colour || /^(none|currentcolor|inherit|initial|unset|transparent)$/i.test(colour) || /^url\(/i.test(colour)) return null;
-    // Native colour inputs accept opaque six-digit hex. Normalize named/rgb/hsl colours
-    // through the browser; leave alpha colours and paint servers unchanged.
-    if (/^(rgba|hsla)\(/i.test(colour)) return null;
-    if (!colourContext) return /^#[0-9a-f]{6}$/i.test(colour) ? colour.toLowerCase() : null;
-    colourContext.fillStyle = '#010203';
-    colourContext.fillStyle = colour;
-    const normalized = String(colourContext.fillStyle).toLowerCase();
-    return /^#[0-9a-f]{6}$/.test(normalized) && normalized !== '#010203' ? normalized : null;
-  };
-  const paintToken = value => {
-    const colour = pickerHex(value);
-    if (!colour) return null;
-    let index = Object.keys(palette).find(key => palette[key].toLowerCase() === colour);
-    if (!index) {
-      const used = Object.keys(palette).length;
-      if (used >= 6) return null;
-      index = 'c' + (used + 1);
-      palette[index] = colour;
-    }
-    return '{{' + index + '}}';
-  };
-  const paintNodes = [root, ...root.querySelectorAll('*')];
-  for (const node of paintNodes) {
-    for (const attrName of ['fill', 'stroke']) {
-      if (!node.hasAttribute(attrName)) continue;
-      const token = paintToken(node.getAttribute(attrName));
-      if (token) node.setAttribute(attrName, token);
-    }
-    if (node.hasAttribute('style')) {
-      const style = node.getAttribute('style').replace(/(^|;)\s*(fill|stroke)\s*:\s*([^;]+)/gi, (whole, prefix, property, value) => {
-        const token = paintToken(value);
-        return token ? prefix + property + ':' + token : whole;
-      });
-      node.setAttribute('style', style);
-    }
-  }
-  const inner = [...root.childNodes].map(n => new XMLSerializer().serializeToString(n)).join('');
-  // A fixed outer viewBox lets the existing editor scale the artwork consistently; the nested SVG
-  // preserves the source's original coordinate system and aspect ratio.
-  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><svg x="0" y="0" width="100" height="100" viewBox="' + vb.join(' ') + '" preserveAspectRatio="xMidYMid meet">' + inner + '</svg></svg>';
-  return { svg, ratio: vb[3] / vb[2], colors: palette };
-}
-function isSVGFile(file) {
-  return file?.type === 'image/svg+xml' || /\.svg$/i.test(file?.name || '');
-}
 /** Replace a logo's picture (keeps its width and position). */
 async function replaceLogo(el, file) {
   if (!el || !file) return;
   try {
-    const vector = isSVGFile(file) ? await readVector(file) : null;
-    const raster = vector ? null : await readLogo(file);
-    // The user may delete the layer while the file is decoding; never resurrect or mutate a stale object.
-    if (!state.elements.includes(el) || el.type !== 'logo') return;
-    change(() => {
-      if (vector) { el.type = 'graphic'; el.props = { svg: vector.svg, ...(Object.keys(vector.colors).length ? { colors: vector.colors } : {}) }; el.h = el.w * vector.ratio; }
-      else { el.props.image = raster.url; el._tint = null; el.h = el.w * raster.ih / raster.iw; }
-      el._cache = null; el.base = { w: el.w, h: el.h, size: el.props.size };
-    });
+    const { url, ih, iw } = await readLogo(file);
+    change(() => { el.props.image = url; el._tint = null; el._cache = null; el.h = el.w * ih / iw; el.base = { w: el.w, h: el.h, size: el.props.size }; });
     toast('Logo replaced.', 'ok');
   } catch (e) { toast(friendly(e, 'That logo could not be used. Try a PNG or JPG.'), 'error', 5000); }
 }
 /** Adds an uploaded picture as a logo on the active view, centred on the garment's body. */
 export async function addLogo(file) {
-  const viewName = state.activeView;
   const V = activeView();
   if (!V.current) { toast('Load a garment first.', 'info'); return; }
   try {
-    const vector = isSVGFile(file) ? await readVector(file) : null;
-    const raster = vector ? null : await readLogo(file);
-    // Keep the upload attached to the view where it was started; don't silently place it on a newly selected view.
-    if (state.activeView !== viewName || activeView() !== V) {
-      toast('The view changed while the logo was loading. Select the original view and upload it again.', 'info', 5000);
-      return;
-    }
+    const { url, ih, iw } = await readLogo(file);
     const b = V.seg?.bbox, pos = b ? { x: b.x + b.w / 2, y: b.y + b.h * 0.4 } : { x: SIZE / 2, y: SIZE / 2 };
-    const el = vector
-      ? createElement('graphic', { svg: vector.svg, ...(Object.keys(vector.colors).length ? { colors: vector.colors } : {}), view: viewName, ...pos })
-      : createElement('logo', { image: raster.url, view: viewName, ...pos });
-    el.w = 200; el.h = vector ? 200 * vector.ratio : 200 * raster.ih / raster.iw;
-    el.base = { w: el.w, h: el.h, size: undefined };
+    const el = createElement('logo', { image: url, view: state.activeView, ...pos });
+    el.w = 200; el.h = 200 * ih / iw; el.base = { w: el.w, h: el.h, size: undefined };
     change(() => { state.elements.push(el); state.selectedId = el.id; state.ui.tool = 'move'; });
     markFlow('refined');
   } catch (e) { toast(friendly(e, 'That logo could not be added. Try a PNG or JPG.'), 'error', 5000); }
@@ -648,7 +481,7 @@ export function createInspector() {
   const select = (label, options, get, set, tip) => row(label, bind(h('select', { 'aria-label': label }, options), get, set), tip);
   const btn = (txt, tip, fn, cls = 'btn ghost sm') => h('button', { class: cls, tip, onclick: () => { const c = cur(); if (c) fn(c); } }, txt);
   const group = (title, kids, open = true) => h('details', { class: 'igrp', open: open || null }, h('summary', {}, title), h('div', { class: 'igrp-body' }, kids));
-  const fileIn = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/svg+xml', hidden: true, 'aria-label': 'Replace logo image', onchange: e => { const f = e.target.files?.[0]; e.target.value = ''; const c = cur(); if (c && f) replaceLogo(c, f); } });
+  const fileIn = h('input', { type: 'file', accept: 'image/*', hidden: true, 'aria-label': 'Replace logo image', onchange: e => { const f = e.target.files?.[0]; e.target.value = ''; const c = cur(); if (c && f) replaceLogo(c, f); } });
 
   function build(c) {
     binders = []; inputs = [];
@@ -668,19 +501,7 @@ export function createInspector() {
         }),
         btn('Duplicate', 'Make another copy of this item', x => duplicateElement(x)),
         btn('Delete', 'Remove this item', x => deleteElement(x), 'btn ghost sm danger')),
-      h('details', { class: 'igrp' },
-        h('summary', {}, 'Align to garment'),
-        h('div', { class: 'igrp-body' },
-          h('div', { class: 'btns' },
-            btn('Centre horizontally', 'Align the item to the garment centre from left to right', x => alignElement(x, 'hcenter')),
-            btn('Centre vertically', 'Align the item to the garment centre from top to bottom', x => alignElement(x, 'vcenter'))),
-          h('div', { class: 'btns' },
-            btn('Align left', 'Align the visible left edge of the item with the garment left edge', x => alignElement(x, 'left')),
-            btn('Align right', 'Align the visible right edge of the item with the garment right edge', x => alignElement(x, 'right'))),
-          h('div', { class: 'btns' },
-            btn('Align top', 'Align the visible top edge of the item with the garment top edge', x => alignElement(x, 'top')),
-            btn('Align bottom', 'Align the visible bottom edge of the item with the garment bottom edge', x => alignElement(x, 'bottom')))),
-      h('div', { class: 'muted small' }, 'Drag the item on the shirt to move it. Pull a corner to resize, or use the round handle to rotate it. Arrow keys nudge it; Shift + arrow moves 10 px.')
+      h('div', { class: 'muted small' }, 'You can also drag the item on the shirt, pull a corner to resize, or use the round handle to rotate it.')
     ]));
 
     // ---- content: what the item says or shows

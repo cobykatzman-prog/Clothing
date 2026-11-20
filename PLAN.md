@@ -26,6 +26,7 @@ Read README.md, CONTRACT.md and SHARED-API.md for how things work today. Keep ev
 - "Do not create buttons that only look functional": every control must work and be covered by a test.
 
 ## Phases (the lead starts the next phase automatically when the previous one passes)
+**Run order chosen by the owner: 1, 2, 3, then 5 (linked geometry), then back to 4 (extraction + layers), then 6, 7.** Phase 4's layers panel must therefore respect the linked-geometry state added in Phase 5 (front and back views share shape params when LINK is on).
 1. **Secure AI backend + client plumbing + the Club Élite test garment** (workers: server, client, fixture)
 2. **Professional selection system** (workers: mask engine, tools/overlay/UI) incl. flexible/any-area selection, zoom precision, saved selections
 3. **Localised AI editing that preserves everything outside the selection** + instruction understanding (worker: edit pipeline) and

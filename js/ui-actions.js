@@ -10,7 +10,7 @@ import { parsePrompt } from './prompt.js';
 import { sampleGarment } from './samples.js';
 import { clubEliteViews } from './samples-club.js';
 import { parseGarmentText, makeGarmentViews, GEN_VIEWS } from './generate.js';
-import { aiGenerate, AiError, useAi } from './ai.js';
+import { aiGenerate, aiEdit, AiError, useAi } from './ai.js';
 import { startTask } from './ai-ui.js';
 import * as SEL from './selection.js';
 
@@ -67,26 +67,67 @@ export async function recompute(name = state.activeView) {
 }
 export const scheduleRecompute = debounce(() => recompute(), 90);
 
+// Shape is a property of the garment, not of a camera view. Keep the front, back and
+// side on the same shape settings, while leaving each view's artwork, colour and fabric alone.
+const linkedShapeViews = () => ['front', 'back', 'side'].filter(name => state.views[name] && state.views[name].base);
+async function recomputeLinkedViews() {
+  for (const name of linkedShapeViews()) await recompute(name);
+}
+const scheduleShapeRecompute = debounce(() => recomputeLinkedViews(), 90);
+
 let sliderSnapped = false;
 export function beginEdit() { if (!sliderSnapped) { snapshot(); sliderSnapped = true; } }
 export function endEdit() { sliderSnapped = false; }
 
 export function setParam(key, val) {
   beginEdit();
-  activeView().params[key] = val; markFlow('refined'); notify('params'); scheduleRecompute();
+  // Use the active view as the source of truth for the COMPLETE shape, not just
+  // the slider being moved. This also reconciles any older view-specific differences.
+  const params = { ...activeView().params, [key]: val };
+  for (const name of linkedShapeViews()) state.views[name].params = { ...params };
+  markFlow('refined'); notify('params'); scheduleShapeRecompute();
 }
 export function resetParams() {
-  snapshot(); const V = activeView(); V.params = { ...DEFAULT_PARAMS }; V.presets = { fit: null, sleeve: null }; notify('params'); recompute();
+  snapshot();
+  for (const name of linkedShapeViews()) {
+    const V = state.views[name]; V.params = { ...DEFAULT_PARAMS }; V.presets = { fit: null, sleeve: null };
+  }
+  markFlow('refined'); notify('params'); recomputeLinkedViews();
 }
 export function applyFit(name) {
-  snapshot(); const V = activeView();
-  V.params = { ...DEFAULT_PARAMS, ...FIT_PRESETS[name] }; V.presets = { fit: name, sleeve: null }; markFlow('refined'); notify('params'); recompute();
+  snapshot();
+  for (const view of linkedShapeViews()) {
+    const V = state.views[view];
+    V.params = { ...DEFAULT_PARAMS, ...FIT_PRESETS[name] };
+    V.presets = { fit: name, sleeve: null };
+  }
+  markFlow('refined'); notify('params'); recomputeLinkedViews();
 }
 export function applySleeve(name) {
-  snapshot(); const V = activeView();
+  snapshot();
   const keys = ['sleeveLength', 'sleeveWidth', 'sleeveFlare', 'sleeveShape'];
-  for (const k of keys) V.params[k] = 0;
-  Object.assign(V.params, SLEEVE_PRESETS[name]); V.presets = { ...(V.presets || {}), sleeve: name }; markFlow('refined'); notify('params'); recompute();
+  const params = { ...activeView().params };
+  for (const k of keys) params[k] = 0;
+  Object.assign(params, SLEEVE_PRESETS[name]);
+  for (const view of linkedShapeViews()) {
+    const V = state.views[view];
+    V.params = { ...params };
+    V.presets = { ...(V.presets || {}), sleeve: name };
+  }
+  markFlow('refined'); notify('params'); recomputeLinkedViews();
+}
+export function clearPreset(kind) {
+  snapshot();
+  const table = kind === 'fit' ? FIT_PRESETS : SLEEVE_PRESETS;
+  const source = activeView(), preset = table[source.presets?.[kind]] || {};
+  const params = { ...source.params };
+  for (const key of Object.keys(preset)) params[key] = 0;
+  for (const name of linkedShapeViews()) {
+    const V = state.views[name];
+    V.params = { ...params };
+    V.presets = { ...(V.presets || {}), [kind]: null };
+  }
+  markFlow('refined'); notify('params'); recomputeLinkedViews();
 }
 export function setColor(patch) { beginEdit(); Object.assign(activeView().color, patch); markFlow('refined'); notify('color'); scheduleRecompute(); }
 export function setFabric(name, amount) {
@@ -310,23 +351,61 @@ function enforceMask(original, result, mask) {
   return out;
 }
 export async function generateVariations(promptText) {
-  const V = activeView(); if (!V.current) { toast('Load or generate a garment first.', 'info'); return; }
-  if (!promptText.trim()) { toast('Describe what you would like to change, e.g. "make the sleeves flared".', 'info'); return; }
-  const done = busy('Creating three options…');
+  const V = activeView();
+  const instruction = String(promptText || '').trim();
+  if (!V.current) { toast('Load or generate a garment first.', 'info'); return; }
+  if (!instruction) { toast('Describe what you would like to change, e.g. "make the sleeves flared".', 'info'); return; }
+  const ops = parsePrompt(instruction);
+  state.lastOps = ops;
+  markFlow('described');
+
+  // Artwork placement (logos, text and graphics) is not a shape-slider operation.
+  // Use the image model for these requests; never return three unchanged local options.
+  const artworkMove = /\b(move|put|place|position|centre|center|middle|relocat|shift|align)\b/i.test(instruction)
+    && /\b(logo|logos|crest|badge|emblem|text|lettering|graphic|artwork|print)\b/i.test(instruction);
+  if (artworkMove && !useAi()) {
+    toast('Moving logos and artwork needs AI editing. Turn on AI editing in the Describe panel and make sure the site has its AI key configured. No unchanged options were created.', 'error', 7000);
+    return;
+  }
+
+  const done = busy(artworkMove && useAi() ? 'Generating AI design suggestions…' : 'Creating three options…');
+  let task = null;
   try {
     await tick();
-    markFlow('described');
-    const ops = parsePrompt(promptText);
-    state.lastOps = ops;
     const mask = effectiveMask(V);
     const src = V.current, seg = V.seg;
-    const local = await localVariations(src, seg, mask, ops);
-    const out = local.slice(0, 3).map(l => ({ label: l.label, canvas: mask ? enforceMask(src, l.canvas, mask) : l.canvas, seg: mask ? null : (l.seg || null) }));
+    let out;
+    if (artworkMove && useAi()) {
+      task = startTask({ title: 'Generating design suggestions', hint: 'AI is interpreting the placement instruction and creating three alternatives.' });
+      const levels = [['Subtle', 'subtle'], ['Medium', 'medium'], ['Bold', 'bold']];
+      // Run image edits one at a time: parallel image-generation calls can trigger
+      // OpenAI account rate limits even when Threadform's own request limit is not hit.
+      const results = [];
+      for (const [label, level] of levels) {
+        if (task.signal.aborted || task.closed) return;
+        const r = await aiEdit({
+          image: src, mask, prompt: instruction,
+          constraints: { keep: ops.keep || [], avoid: ops.avoid || [] },
+          refs: state.references, view: state.activeView, level, signal: task.signal
+        });
+        results.push({ label, canvas: r.canvas, seg: null });
+      }
+      if (task.closed) return;
+      out = results;
+      task.succeed('Three AI suggestions are ready. Review them and choose the one you want.');
+    } else {
+      const local = await localVariations(src, seg, mask, ops);
+      out = local.slice(0, 3).map(l => ({ label: l.label, canvas: mask ? enforceMask(src, l.canvas, mask) : l.canvas, seg: mask ? null : (l.seg || null) }));
+    }
     state.variations = out.map(o => ({ ...o, ops }));
     state.applied = null;
     markFlow('generated'); notify('variations');
     if (!mask) toast('No area selected: changes may touch any matching part of the garment.', 'info', 3800);
-  } catch (e) { console.error(e); toast('The options could not be created. Try different words, for example "make the sleeves longer".', 'error', 5000); } finally { done(); }
+  } catch (e) {
+    console.error('Variation generation failed:', e);
+    if (task && e instanceof AiError) task.fail(e, { note: 'Your original design has not been changed.' });
+    else toast(e instanceof AiError ? e.message : 'Threadform hit an internal problem while building the options. Your original design is unchanged. Try again.', 'error', 6500);
+  } finally { done(); }
 }
 async function bake(canvas, seg, label) {
   const V = activeView();
