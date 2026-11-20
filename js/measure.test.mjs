@@ -40,12 +40,23 @@ test('size calibration anchors chest, body length and sleeves to the selected ch
 
 test('size grading recalibrates dimensions for each selected size', () => {
   const seg = mockGarment();
-  for (const size of ['S', 'M', 'L', 'XL']) {
+  for (const size of ['XS', 'S', 'M', 'L', 'XL', 'XXL']) {
     const cal = makeCalibration(seg, { kind: 'tee', size });
     const m = measureGarment(seg, cal);
-    assert.equal(m.chest, chartValue('tee', size, 'chest'));
-    assert.equal(m.length, chartValue('tee', size, 'length'));
-    assert.equal(m.sleeve, chartValue('tee', size, 'sleeve'));
+    for (const key of ['chest', 'length', 'shoulder', 'sleeve', 'sleeveOpening', 'hem', 'neck', 'neckDrop']) {
+      assert.equal(m[key], chartValue('tee', size, key), size + ' ' + key + ' should grade from the selected chart');
+    }
+  }
+});
+
+test('back neck-drop charts exist for every garment type and graded size', () => {
+  for (const kind of ['tee', 'longSleeve', 'polo', 'hoodie']) {
+    for (const size of ['XS', 'S', 'M', 'L', 'XL', 'XXL']) {
+      const front = chartValue(kind, size, 'neckDrop', 'front');
+      const back = chartValue(kind, size, 'neckDrop', 'back');
+      assert.ok(front > 0 && back > 0, kind + ' ' + size + ' neck drops must be defined');
+      assert.ok(back < front, kind + ' ' + size + ' back neck drop must be shallower than the front');
+    }
   }
 });
 
@@ -203,6 +214,17 @@ test('side and detail crops do not masquerade as flat garment measurements', () 
   assert.equal(designMeasure(state, 'detail'), null);
 });
 
+
+test('all eight core measurements have matching dimension callouts', () => {
+  const seg = mockGarment();
+  const cal = makeCalibration(seg, { kind: 'tee', size: 'M' });
+  const rows = measurementRows(seg, seg, cal);
+  const layout = dimensionLayout(seg, rows, { fontPx: 12 });
+  const keys = new Set(layout.dims.map(d => d.key));
+  for (const key of ['chest', 'length', 'shoulder', 'sleeve', 'sleeveOpening', 'hem', 'neck', 'neckDrop']) {
+    assert.ok(keys.has(key), key + ' should have a visible dimension callout');
+  }
+});
 
 test('dimension callouts use the same HPS and shoulder-to-cuff points as the table', () => {
   const seg = mockGarment({ length: 150, sleeve: 90 });
