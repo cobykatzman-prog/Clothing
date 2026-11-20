@@ -308,9 +308,9 @@ export function visibleDelta(deltaCm, unit) { return deltaCm != null && roundVal
 /* ------------------------------------------------------------------ whole-design glue (state is passed in) */
 const calCache = new WeakMap();
 const VIEW_ORDER = ['front', 'back', 'side', 'detail'];
-/** The view whose ORIGINAL segmentation defines the scale: front first (all views of a design share it). */
+/** Only flat front/back views are valid POM references; side/detail photos are not comparable flat specs. */
 export function referenceSeg(state) {
-  for (const n of VIEW_ORDER) { const s = state.views[n] && state.views[n].baseSeg; if (s && rawPixels(s)) return s; }
+  for (const n of ['front', 'back']) { const s = state.views[n] && state.views[n].baseSeg; if (s && rawPixels(s)) return s; }
   return null;
 }
 export function designKind(state, ref) {
@@ -320,9 +320,10 @@ export function designKind(state, ref) {
   return guessKind(ref, sample && sample.kind);
 }
 export function designCalibration(state, viewName = state.activeView) {
-  // Each view is calibrated from its own untouched base image against the SAME selected
-  // size chart. This removes differences caused by photo scale, crop and camera distance,
-  // while keeping all views on one shared garment specification.
+  // Side/detail photos are close-ups or oblique views, not reliable flat POM references.
+  if (!['front', 'back'].includes(viewName)) return null;
+  // Each front/back view is calibrated from its own untouched base image against the SAME
+  // selected size chart. This normalises photo scale/crop while keeping one shared spec.
   const fallback = referenceSeg(state);
   const viewBase = ['front', 'back'].includes(viewName) && state.views[viewName] && state.views[viewName].baseSeg;
   const ref = viewBase && rawPixels(viewBase) ? viewBase : fallback;
@@ -335,6 +336,8 @@ export function designCalibration(state, viewName = state.activeView) {
 }
 /** Live measurements of one view: {rows, cal, kind, size, unit, seg} or null while there is nothing to measure. */
 export function designMeasure(state, viewName = state.activeView) {
+  // A side profile or detail crop cannot produce standard flat-garment measurements.
+  if (!['front', 'back'].includes(viewName)) return null;
   const V = state.views[viewName]; if (!V || !V.seg || !rawPixels(V.seg)) return null;
   const cal = designCalibration(state, viewName); if (!cal) return null;
   const m = state.measure || defaultMeasureState();
