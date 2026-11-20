@@ -179,3 +179,20 @@ body.view-home{background:#f2f0eb;color:var(--home-ink)}.home{background:#f2f0eb
 .tchip{background:#fffefa;border-color:#e5e1d8;color:#4d4a42}.tchip[aria-pressed=true]{background:#292820;border-color:#292820;color:#fff}.tchip[aria-pressed=true] .tcount{color:#ddd9cf}
 .home-note{color:#89857b}
 @media(max-width:720px){.home-body{padding-top:25px}.home-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}.dactions{gap:5px}.home-tools h1{font-size:29px}}
+
+
+/* Commercial organisation: collections and brand identity */
+.collection-strip{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 12px}
+.collection-strip[hidden]{display:none}
+.collection-chip{border:1px solid var(--home-line,#e5e1d8);background:#fffefa;color:var(--home-ink,#25241f);border-radius:999px;padding:7px 13px;font:inherit;font-size:12px;cursor:pointer;transition:background .15s,border-color .15s}
+.collection-chip:hover,.collection-chip.active{background:#292820;color:#fff;border-color:#292820}
+.collection-chip:focus-visible{outline:2px solid #a18a68;outline-offset:2px}
+.brand-kit-dialog{width:min(560px,calc(100vw - 24px))}
+.brand-kit-form{padding:20px;display:flex;flex-direction:column;gap:14px}
+.brand-kit-form input[type=text]{width:100%;box-sizing:border-box}
+.brand-kit-colours{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.brand-kit-colours input[type=color]{width:100%;height:42px;padding:3px;border:1px solid var(--home-line,#e5e1d8);border-radius:8px;background:#fff}
+.brand-kit-preview{min-height:72px;display:flex;align-items:center;justify-content:center;border:1px dashed var(--home-line,#e5e1d8);border-radius:10px;background:#fffefa;padding:10px}
+.brand-kit-preview img{max-width:180px;max-height:64px;object-fit:contain}
+.brand-kit-preview span{font-size:12px;color:var(--home-muted,#77746c)}
+@media(max-width:520px){.brand-kit-colours{grid-template-columns:1fr 1fr}.home-actions{gap:5px}.home-actions .btn{padding-inline:9px}}
