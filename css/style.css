@@ -254,3 +254,10 @@ body[data-mode=advanced] [data-level=basic-only]{display:none!important}
 body[data-mode=advanced] .sb-tool .tl,body[data-mode=advanced] .sb-act:not(.keep) .tl{display:none}
 body[data-mode=advanced] .sb-tool,body[data-mode=advanced] .sb-act:not(.keep){padding:5px 8px}
 .optbox .sl-row,.refine .sl-row,.ovl .sl-row{flex:none;max-width:none}
+
+/* Threadform commercial refresh — premium studio direction */
+:root{--bg:#f2f0eb;--panel:#fffefa;--ink:#25241f;--muted:#77746c;--line:#e5e1d8;--soft:#f7f5f0;--accent:#292820;--accent-ink:#fff;--accent-soft:#eeece4;--ok:#55735b;--r:12px;--shadow:0 2px 8px rgba(38,34,25,.045),0 12px 30px rgba(38,34,25,.035)}
+.brand .logo{background:#292820;border-radius:8px}.btn.primary{background:#292820;border-color:#292820}.btn.primary:hover:not(:disabled){background:#454337;border-color:#454337}
+.btn.on,.tool.on,.mode-btn.on,.rtab.on{color:#292820}.btn.on,.tool.on{background:#eeece4;border-color:#d9d5c9}.chip.on{background:#292820;border-color:#292820}
+.stepper .cur .sn{background:#292820;border-color:#292820;box-shadow:0 0 0 4px #eeece4}.stepper .cur .step{color:#292820}
+.card .num{background:#eeece4;color:#292820}.empty-ico{background:#eeece4;color:#292820}.stage-wrap{background:radial-gradient(circle at 50% 40%,#fffefa,#eae7df)}
