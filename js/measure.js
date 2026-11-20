@@ -454,10 +454,11 @@ export function dimensionLayout(seg, rows, opts = {}) {
     add('neck', { x: cx - e, y }, { x: cx + e, y }, { side: -1 });
     exts.push({ a: { x: cx - e, y: y + 4 }, b: { x: cx - e, y: top + 2 } }, { a: { x: cx + e, y: y + 4 }, b: { x: cx + e, y: top + 2 } });
   }
-  if (want('length')) {     // left of the garment
+  if (want('length')) {     // left of the garment: standard HPS-to-hem body length
+    const hpsY = (L.shoulderL.y + L.shoulderR.y) / 2;
     const x = lim(bb.x - fp * 2.2, fp * 1.5, 1e9);
-    add('length', { x, y: L.neckTop.y }, { x, y: hemY });
-    exts.push({ a: { x: x + 6, y: L.neckTop.y }, b: { x: cx - (M.neckRx || 40), y: L.neckTop.y } }, { a: { x: x + 6, y: hemY }, b: { x: L.hemR.x - 3, y: hemY } });
+    add('length', { x, y: hpsY }, { x, y: hemY });
+    exts.push({ a: { x: x + 6, y: hpsY }, b: { x: cx - (M.neckRx || 40), y: hpsY } }, { a: { x: x + 6, y: hemY }, b: { x: L.hemR.x - 3, y: hemY } });
   }
   if (want('hem')) {        // below the garment
     const y = lim(hemY + fp * 2.0, 0, (cs || 1e9) - fp * 1.3);
@@ -468,17 +469,25 @@ export function dimensionLayout(seg, rows, opts = {}) {
     const cl = raw.chestLine;
     add('chest', { x: cl.x0, y: cl.y }, { x: cl.x1, y: cl.y });
   }
-  if (want('sleeve')) {     // along the outside of one sleeve
+  if (want('sleeve')) {     // shoulder seam to cuff, matching the value shown in the measurement table
     const key = M.sleeves && M.sleeves.L && M.sleeves.L.has ? 'L' : (M.sleeves && M.sleeves.R && M.sleeves.R.has ? 'R' : null);
     if (key) {
-      const s = M.sleeves[key], a = s.a;
-      let n = { x: -a.y, y: a.x }; if (n.y > 0) n = { x: -n.x, y: -n.y };   // the side facing up
-      const d = (s.hw || 30) + fp * 1.7;
-      const A = { x: s.root.x + n.x * d, y: s.root.y + n.y * d }, B = { x: s.root.x + a.x * s.L + n.x * d, y: s.root.y + a.y * s.L + n.y * d };
-      add('sleeve', A, B, { side: -1 });
-      const e = (s.hw || 30) * 0.9;
-      exts.push({ a: { x: A.x - n.x * 6, y: A.y - n.y * 6 }, b: { x: s.root.x + n.x * e, y: s.root.y + n.y * e } },
-        { a: { x: B.x - n.x * 6, y: B.y - n.y * 6 }, b: { x: s.root.x + a.x * s.L + n.x * e, y: s.root.y + a.y * s.L + n.y * e } });
+      const s = M.sleeves[key], start = s.shoulder || s.root;
+      const end = s.cuff || (s.root && s.a ? { x: s.root.x + s.a.x * s.L, y: s.root.y + s.a.y * s.L } : null);
+      if (start && end) {
+        const dx = end.x - start.x, dy = end.y - start.y, len = Math.hypot(dx, dy);
+        if (len > 1) {
+          const a = { x: dx / len, y: dy / len };
+          let n = { x: -a.y, y: a.x }; if (n.y > 0) n = { x: -n.x, y: -n.y };
+          const d = (s.hw || 30) + fp * 1.7;
+          const A = { x: start.x + n.x * d, y: start.y + n.y * d };
+          const B = { x: end.x + n.x * d, y: end.y + n.y * d };
+          add('sleeve', A, B, { side: -1 });
+          const e = (s.hw || 30) * 0.9;
+          exts.push({ a: { x: A.x - n.x * 6, y: A.y - n.y * 6 }, b: { x: start.x + n.x * e, y: start.y + n.y * e } },
+            { a: { x: B.x - n.x * 6, y: B.y - n.y * 6 }, b: { x: end.x + n.x * e, y: end.y + n.y * e } });
+        }
+      }
     }
   }
   return { dims, exts, fp };
