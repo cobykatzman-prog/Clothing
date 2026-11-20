@@ -7,7 +7,7 @@ import { REGION_NAMES } from './segment.js';
 import * as S from './selection.js';
 import { retunePick } from './sel-tools.js';
 import { recompute } from './ui-actions.js';
-import { extractExistingLogo } from './existing-logo.js';
+import { extractExistingLogo, replaceExistingText } from './existing-logo.js';
 
 const pretty = s => s.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
 const REGION_TIPS = {
@@ -146,7 +146,11 @@ export function selectionSection({ section }) {
   const toolGrid = h('div', { class: 'tool-grid', role: 'group', 'aria-label': 'Selection tools' }, toolButtons('ptool', 'data-ptool'));
   const readout = h('div', { class: 'readout', id: 'sel-readout', role: 'status', 'aria-live': 'polite' });
   const extractLogoBtn = h('button', { type: 'button', class: 'btn primary sm', 'data-act': 'extract-existing-logo', tip: 'Use AI to remove the selected logo from the fabric and turn it into its own movable layer', onclick: () => extractExistingLogo() }, 'Separate existing logo');
-  const extractLogoHelp = h('div', { class: 'muted small' }, 'Select an existing logo with Smart select, Lasso or Brush, then separate it to move, resize, rotate or replace it. AI restores the fabric underneath.');
+  const replaceTextBtn = h('button', { type: 'button', class: 'btn ghost sm', 'data-act': 'replace-existing-text', tip: 'Remove selected printed lettering with AI and replace it with editable text', onclick: () => {
+    const wording = window.prompt('What should the selected lettering say?');
+    if (wording && wording.trim()) replaceExistingText(wording.trim());
+  } }, 'Replace selected text');
+  const extractLogoHelp = h('div', { class: 'muted small' }, 'Select existing lettering, a logo or graphic with Smart select, Lasso or Brush. Separate logos to move, resize or rotate them; replace lettering to make it editable. AI repairs the fabric underneath. Works on the current view of each design.');
   const selInfo = h('div', { class: 'muted small', id: 'sel-info' });
 
   // modify
@@ -235,7 +239,7 @@ export function selectionSection({ section }) {
       btn('Invert', 'invert', 'Swap selected and unselected (Ctrl+I)', () => S.invertSelection()),
       btn('Clear', 'clear', 'Clear the selection', () => S.clearSelection()),
       btn('Zoom to selection', 'zoom-sel', 'Zoom the canvas to the selection (Z)', () => stageApi()?.zoomToSelection())),
-    extractLogoBtn, extractLogoHelp,
+    extractLogoBtn, replaceTextBtn, extractLogoHelp,
     readout,
     h('div', { class: 'lbl' }, 'Modify the selection'), modify,
     h('details', { class: 'sub', id: 'sel-refine' }, h('summary', {}, 'Refine edges'), refineBox),
@@ -256,7 +260,8 @@ export function selectionSection({ section }) {
     setDisabled(undoB, !info.canUndo, 'Nothing to undo in the selection yet'); setDisabled(redoB, !info.canRedo, 'Nothing to redo in the selection');
     histInfo.textContent = info.count > 1 ? `Step ${info.index} of ${info.count - 1}` : '';
     const has = hasMask(V), st = S.selectionStats(V);
-    setDisabled(extractLogoBtn, !has || state.ui.busy > 0, !has ? 'Select the logo first' : 'Wait for the current task to finish');
+    setDisabled(extractLogoBtn, !has || state.ui.busy > 0, !has ? 'Select the logo or graphic first' : 'Wait for the current task to finish');
+    setDisabled(replaceTextBtn, !has || state.ui.busy > 0, !has ? 'Select the printed lettering first' : 'Wait for the current task to finish');
     readout.textContent = !has ? 'Nothing selected.' : `Selected ${st.pct != null ? st.pct.toFixed(1) + '% of the garment' : st.area + ' px'} · ${st.bounds ? `${st.bounds.w} × ${st.bounds.h} px at (${st.bounds.x}, ${st.bounds.y})` : ''}`;
     readout.dataset.pct = st.pct != null ? st.pct.toFixed(2) : ''; readout.dataset.w = st.bounds?.w ?? 0; readout.dataset.h = st.bounds?.h ?? 0; readout.dataset.x = st.bounds?.x ?? 0; readout.dataset.y = st.bounds?.y ?? 0;
     selInfo.textContent = has ? 'Selection active. Only highlighted pixels will change.' : 'Nothing selected yet: the whole garment may change.';
