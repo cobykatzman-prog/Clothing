@@ -42,3 +42,31 @@ test('brand typography applies to text-like layers but not logos or graphics', a
   assert.equal(brandStylePatch({ type: 'logo' }, { color: '#123456', font: 'Georgia' }), null);
   assert.equal(brandStylePatch({ type: 'graphic' }, { font: 'Georgia' }), null);
 });
+
+
+test('portable brand kit import validates logos and limits palette size', async () => {
+  const { sanitizeBrandKitImport } = await import('./brand-kit.js');
+  const input = {
+    name: 'Club identity',
+    logos: { primary: 'data:image/png;base64,aGVsbG8=', alternate: '', mark: '' },
+    palette: Array.from({ length: 14 }, (_, i) => ({ name: 'Colour ' + i, color: '#123456' })),
+    typography: { heading: 'Verdana', body: 'Arial' },
+  };
+  const kit = sanitizeBrandKitImport(input);
+  assert.equal(kit.name, 'Club identity');
+  assert.equal(kit.logos.primary, input.logos.primary);
+  assert.equal(kit.palette.length, 12);
+  assert.deepEqual(kit.typography, input.typography);
+});
+
+test('portable brand kit import rejects unsafe or unsupported logo data', async () => {
+  const { sanitizeBrandKitImport } = await import('./brand-kit.js');
+  assert.throws(() => sanitizeBrandKitImport({ logos: { primary: 'https://example.com/logo.png' } }), /valid PNG, JPG, WebP or SVG/);
+  assert.throws(() => sanitizeBrandKitImport({ logos: { mark: 'data:image/gif;base64,R0lGODlh' } }), /valid PNG, JPG, WebP or SVG/);
+});
+
+test('portable brand kit import defaults unsupported fonts safely', async () => {
+  const { sanitizeBrandKitImport } = await import('./brand-kit.js');
+  const kit = sanitizeBrandKitImport({ typography: { heading: 'url(javascript:alert(1))', body: 'Arial' } });
+  assert.deepEqual(kit.typography, { heading: 'Georgia', body: 'Arial' });
+});
