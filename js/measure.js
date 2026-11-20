@@ -24,7 +24,7 @@ export const KIND_LABELS = { tee: 'T-shirt', longSleeve: 'Long-sleeve tee', polo
  *  sleeveOpening flat width of the sleeve opening / cuff
  *  hem           flat width of the bottom hem
  *  neck          neck opening width, seam to seam
- *  neckDrop      HPS to the front neck seam
+ *  neckDrop      HPS to the front or back neck seam (view-specific target)
  */
 export const SIZE_CHARTS = {
   tee: {
@@ -222,7 +222,7 @@ export function guessKind(seg, sampleKind) {
 export function makeCalibration(refSeg, { kind = 'tee', size = 'M', manual = null, view = 'front' } = {}) {
   const raw = rawPixels(refSeg);
   const chart = Object.fromEntries(MEASURES.map(m => [m.key, chartValue(kind, size, m.key, view)]));
-  const cal = { s: 0, sy: 0, ss: 0, shoulderScale: 0, hemScale: 0, neckScale: 0, neckDropScale: 0, kind, size, manual: null, adjusted: [], chart, mode: 'chart' };
+  const cal = { s: 0, sy: 0, ss: 0, shoulderScale: 0, sleeveOpeningScale: 0, hemScale: 0, neckScale: 0, neckDropScale: 0, kind, size, manual: null, adjusted: [], chart, mode: 'chart' };
   if (!raw || !(raw.chest > 1)) return cal;
   const s = chart.chest / raw.chest;
   cal.s = s; cal.sy = s; cal.ss = s;
@@ -230,6 +230,8 @@ export function makeCalibration(refSeg, { kind = 'tee', size = 'M', manual = nul
   // small differences in camera scale, cropping and segmentation between the two photos.
   const widthScale = (rawValue, target) => rawValue > 1 && target > 0 ? target / rawValue : s;
   cal.shoulderScale = widthScale(raw.shoulder * SHOULDER_SEAM, chart.shoulder);
+  const rawSleeveOpening = sl.length ? sl.reduce((a, q) => a + q.open, 0) / sl.length : 0;
+  cal.sleeveOpeningScale = widthScale(rawSleeveOpening, chart.sleeveOpening);
   cal.hemScale = widthScale(raw.hem, chart.hem);
   cal.neckScale = widthScale(raw.neck, chart.neck);
   cal.neckDropScale = widthScale(raw.neckDrop, chart.neckDrop);
@@ -280,7 +282,7 @@ export function measureGarment(seg, cal) {
     length: clean(raw.length * cal.sy),
     shoulder: clean(raw.shoulder * SHOULDER_SEAM * (cal.shoulderScale || cal.s)),
     sleeve: clean(avg(q => q.len * cal.ss)),
-    sleeveOpening: clean(avg(q => Math.hypot(q.n.x * q.open * cal.s, q.n.y * q.open * cal.sy))),
+    sleeveOpening: clean(avg(q => q.open * (cal.sleeveOpeningScale || cal.s))),
     hem: clean(raw.hem * (cal.hemScale || cal.s)),
     neck: clean(raw.neck * (cal.neckScale || cal.s)),
     neckDrop: clean(raw.neckDrop * (cal.neckDropScale || cal.sy)),
