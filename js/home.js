@@ -155,7 +155,7 @@ function render() {
   const sortKey = sortEl.value;
   try { localStorage.setItem(SORT_KEY, sortKey); } catch { }
   const base = sortKey === 'custom' ? customSorted(metas) : metas.slice().sort(sorters[sortKey] || sorters.edited);
-  const list = base.filter(m => (!q || [m.name, collectionOf(m), m.material?.name, ...tagsOf(m)].join(' ').toLowerCase().includes(q))
+  const list = base.filter(m => (!q || [m.name, collectionOf(m), m.material?.name, reviewOf(m).reviewer, reviewOf(m).note, REVIEW_STATES[reviewOf(m).status], ...tagsOf(m)].join(' ').toLowerCase().includes(q))
     && [...activeTags].every(k => hasTag(m, k)) && (!activeCollection || collectionOf(m) === activeCollection)
     && (!activeReview || reviewOf(m).status === activeReview));
   visibleIds = list.map(m => m.id);
@@ -165,7 +165,7 @@ function render() {
   emptyEl.hidden = metas.length > 0;
   listEl.hidden = metas.length === 0;
   const canDrag = sortKey === 'custom' && !q && activeTags.size === 0 && !activeCollection && !activeReview && !selectMode;
-  listEl.replaceChildren(...(list.length ? list.map(m => card(m, base, canDrag)) : metas.length ? [h('p', { class: 'home-nomatch' }, 'No designs match' + (q ? ' “' + qEl.value.trim() + '”' : '') + (activeTags.size ? ' with those tags' : activeCollection ? ' in this collection' : '.') + '.')] : []));
+  listEl.replaceChildren(...(list.length ? list.map(m => card(m, base, canDrag)) : metas.length ? [h('p', { class: 'home-nomatch' }, 'No designs match' + (q ? ' “' + qEl.value.trim() + '”' : '') + (activeTags.size ? ' with those tags' : '') + (activeCollection ? ' in this collection' : '') + (activeReview ? ' with status ' + REVIEW_STATES[activeReview].toLowerCase() : '') + '.')] : []));
   renderBulkToolbar(list);
 }
 
