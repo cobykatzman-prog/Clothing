@@ -229,6 +229,7 @@ export function makeCalibration(refSeg, { kind = 'tee', size = 'M', manual = nul
   // Front and back are calibrated point-by-point to the same base spec. This corrects
   // small differences in camera scale, cropping and segmentation between the two photos.
   const widthScale = (rawValue, target) => rawValue > 1 && target > 0 ? target / rawValue : s;
+  const sl = Object.values(raw.sleeves);
   cal.shoulderScale = widthScale(raw.shoulder * SHOULDER_SEAM, chart.shoulder);
   const rawSleeveOpening = sl.length ? sl.reduce((a, q) => a + q.open, 0) / sl.length : 0;
   cal.sleeveOpeningScale = widthScale(rawSleeveOpening, chart.sleeveOpening);
@@ -242,7 +243,6 @@ export function makeCalibration(refSeg, { kind = 'tee', size = 'M', manual = nul
     cal.sy = chart.length / raw.length;
     if (Math.abs(raw.length * s / chart.length - 1) > 0.05) cal.adjusted.push('length');
   }
-  const sl = Object.values(raw.sleeves);
   if (sl.length && chart.sleeve) {
     const len = sl.reduce((a, q) => a + q.len, 0) / sl.length;
     if (len > 1) {
