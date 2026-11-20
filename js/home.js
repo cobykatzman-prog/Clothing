@@ -2,6 +2,9 @@
 // new-design chooser, open / rename / tags / duplicate / delete. Storage lives in storage.js; the studio is driven by main.js.
 // Tags and order are stored on the design record (meta.tags, meta.order, and doc.tags for the document).
 import { h, icon, toast, friendly, userError, logoutForm } from './util.js';
+import { normalizeMaterials } from './materials.js';
+import { normalizeBrandKit } from './brand-kit.js';
+import { REVIEW_STATES, normalizeReview, filterDesigns, canReorderDesigns } from './gallery.js';
 import * as store from './storage.js';
 import * as R from './remote.js';
 import * as A from './ui-actions.js';
@@ -84,11 +87,7 @@ const ago = t => {
 };
 
 const tagsOf = m => (Array.isArray(m.tags) ? m.tags : []);
-const REVIEW_STATES = { draft: 'Draft', review: 'In review', approved: 'Approved' };
-const reviewOf = m => {
-  const r = m.review && typeof m.review === 'object' ? m.review : {};
-  return { status: REVIEW_STATES[r.status] ? r.status : 'draft', reviewer: String(r.reviewer || ''), note: String(r.note || ''), updatedAt: Number(r.updatedAt) || 0 };
-};
+const reviewOf = m => normalizeReview(m.review);
 const collectionOf = m => String(m.collection || '').trim();
 const byName = (a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
 /** Custom order: designs with an order first (lowest first), then the rest, newest first. */
@@ -155,16 +154,14 @@ function render() {
   const sortKey = sortEl.value;
   try { localStorage.setItem(SORT_KEY, sortKey); } catch { }
   const base = sortKey === 'custom' ? customSorted(metas) : metas.slice().sort(sorters[sortKey] || sorters.edited);
-  const list = base.filter(m => (!q || [m.name, collectionOf(m), m.material?.name, reviewOf(m).reviewer, reviewOf(m).note, REVIEW_STATES[reviewOf(m).status], ...tagsOf(m)].join(' ').toLowerCase().includes(q))
-    && [...activeTags].every(k => hasTag(m, k)) && (!activeCollection || collectionOf(m) === activeCollection)
-    && (!activeReview || reviewOf(m).status === activeReview));
+  const list = filterDesigns(base, { query: q, tags: activeTags, collection: activeCollection, review: activeReview });
   visibleIds = list.map(m => m.id);
   for (const id of [...selectedIds]) if (!metas.some(m => m.id === id)) selectedIds.delete(id);
   const filtered = q || activeTags.size || activeCollection || activeReview;
   countEl.textContent = metas.length ? (filtered ? `${list.length} of ${metas.length} designs` : `${metas.length} design${metas.length === 1 ? '' : 's'}`) : '';
   emptyEl.hidden = metas.length > 0;
   listEl.hidden = metas.length === 0;
-  const canDrag = sortKey === 'custom' && !q && activeTags.size === 0 && !activeCollection && !activeReview && !selectMode;
+  const canDrag = canReorderDesigns({ sortKey, query: q, tags: activeTags, collection: activeCollection, review: activeReview, selectMode });
   listEl.replaceChildren(...(list.length ? list.map(m => card(m, base, canDrag)) : metas.length ? [h('p', { class: 'home-nomatch' }, 'No designs match' + (q ? ' “' + qEl.value.trim() + '”' : '') + (activeTags.size ? ' with those tags' : '') + (activeCollection ? ' in this collection' : '') + (activeReview ? ' with status ' + REVIEW_STATES[activeReview].toLowerCase() : '') + '.')] : []));
   renderBulkToolbar(list);
 }
@@ -340,24 +337,8 @@ function moveTo(fromId, toId, after) {
 const MATERIALS_KEY = 'threadform.materials.v1';
 const MATERIAL_TYPES = ['Cotton','Polyester','Fleece','Nylon','Wool','Linen','Mesh','Rib knit','Jersey','French terry','Denim','Other'];
 function readMaterials() {
-  try {
-    const v = JSON.parse(localStorage.getItem(MATERIALS_KEY) || '[]');
-    return Array.isArray(v) ? v.map((item, i) => ({
-      ...item,
-      id: item.id || ('mat-legacy-' + i),
-      name: String(item.name || 'Untitled material'),
-      type: item.type || 'Other',
-      color: /^#[0-9a-f]{6}$/i.test(item.color || '') ? item.color : '#d6d3d1',
-      notes: item.notes || '',
-      composition: item.composition || '',
-      weightGsm: item.weightGsm ?? '',
-      widthCm: item.widthCm ?? '',
-      supplier: item.supplier || '',
-      sku: item.sku || '',
-      pricePerMetre: item.pricePerMetre ?? '',
-      care: item.care || '',
-    })) : [];
-  } catch { return []; }
+  try { return normalizeMaterials(JSON.parse(localStorage.getItem(MATERIALS_KEY) || '[]')); }
+  catch { return []; }
 }
 function writeMaterials(items) {
   try { localStorage.setItem(MATERIALS_KEY, JSON.stringify(items)); return true; }
@@ -562,17 +543,8 @@ function assignCollection(m) {
 const BRAND_KEY = 'threadform.brand-kit.v1';
 const BRAND_FONTS = ['Arial', 'Helvetica', 'Georgia', 'Times New Roman', 'Verdana', 'Trebuchet MS', 'Courier New'];
 function readBrandKit() {
-  try {
-    const value = JSON.parse(localStorage.getItem(BRAND_KEY) || '{}') || {};
-    if (!value.logos) value.logos = { primary: value.logo || '', alternate: '', mark: '' };
-    if (!Array.isArray(value.palette)) value.palette = [
-      { name: 'Primary', color: value.primary || '#292820' },
-      { name: 'Secondary', color: value.secondary || '#e9e5dc' },
-      { name: 'Accent', color: value.accent || '#a18a68' },
-    ];
-    if (!value.typography) value.typography = { heading: 'Georgia', body: 'Arial' };
-    return value;
-  } catch { return { logos: { primary: '', alternate: '', mark: '' }, palette: [], typography: { heading: 'Georgia', body: 'Arial' } }; }
+  try { return normalizeBrandKit(JSON.parse(localStorage.getItem(BRAND_KEY) || '{}')); }
+  catch { return normalizeBrandKit({ palette: [] }); }
 }
 function editBrandKit() {
   const saved = readBrandKit();

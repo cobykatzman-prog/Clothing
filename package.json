@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node server.test.mjs && node server.shared.test.mjs && node --test js/storage.test.mjs && node server.ai.test.mjs && node js/prompt.test.mjs && node js/mask.test.mjs && node js/measure.test.mjs && node js/generate.test.mjs && node js/aiedit.test.mjs && node --test js/elements.test.mjs"
+    "test": "node server.test.mjs && node server.shared.test.mjs && node --test js/storage.test.mjs js/brand-kit.test.mjs js/materials.test.mjs js/gallery.test.mjs && node server.ai.test.mjs && node js/prompt.test.mjs && node js/mask.test.mjs && node js/measure.test.mjs && node js/generate.test.mjs && node js/aiedit.test.mjs && node --test js/elements.test.mjs"
   },
   "engines": {
     "node": ">=18"
