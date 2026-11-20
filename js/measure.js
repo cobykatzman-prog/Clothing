@@ -30,7 +30,7 @@ export const SIZE_CHARTS = {
   tee: {
     chest: [47, 50, 53, 56, 59, 62], length: [66, 68, 70, 72, 74, 76], shoulder: [41, 43, 45, 47, 49, 51],
     sleeve: [18, 19, 20, 21, 22, 23], sleeveOpening: [16, 17, 18, 19, 20, 21], hem: [47, 50, 53, 56, 59, 62],
-    neck: [17, 17.5, 18, 18.5, 19, 19.5], neckDrop: [7, 7.5, 8, 8.5, 9, 9.5],
+    neck: [17, 17.5, 18, 18.5, 19, 19.5], neckDrop: [7, 7.5, 8, 8.5, 9, 9.5], backNeckDrop: [2.5, 2.5, 3, 3, 3.5, 3.5],
   },
   longSleeve: {
     chest: [47, 50, 53, 56, 59, 62], length: [67, 69, 71, 73, 75, 77], shoulder: [42, 44, 46, 48, 50, 52],
@@ -40,12 +40,12 @@ export const SIZE_CHARTS = {
   polo: {
     chest: [49, 52, 55, 58, 61, 64], length: [68, 70, 72, 74, 76, 78], shoulder: [42, 44, 46, 48, 50, 52],
     sleeve: [20, 21, 22, 23, 24, 25], sleeveOpening: [17.5, 18.5, 19.5, 20.5, 21.5, 22.5], hem: [49, 52, 55, 58, 61, 64],
-    neck: [17.5, 18, 18.5, 19, 19.5, 20], neckDrop: [9, 9.5, 10, 10.5, 11, 11.5],
+    neck: [17.5, 18, 18.5, 19, 19.5, 20], neckDrop: [9, 9.5, 10, 10.5, 11, 11.5], backNeckDrop: [2.5, 2.5, 3, 3, 3.5, 3.5],
   },
   hoodie: {
     chest: [54, 56, 59, 62, 64, 66], length: [64, 66, 68, 70, 72, 74], shoulder: [47, 49, 51, 53, 55, 57],
     sleeve: [59, 60, 61, 62, 63, 64], sleeveOpening: [8, 8.5, 9, 9.5, 10, 10.5], hem: [48, 50, 53, 56, 58, 60],
-    neck: [20, 21, 22, 23, 24, 25], neckDrop: [9, 9.5, 10, 10.5, 11, 11.5],
+    neck: [20, 21, 22, 23, 24, 25], neckDrop: [9, 9.5, 10, 10.5, 11, 11.5], backNeckDrop: [3, 3, 3.5, 3.5, 4, 4],
   },
 };
 
@@ -64,9 +64,10 @@ const SHORT = Object.fromEntries(MEASURES.map(m => [m.key, m.short]));
 /** Which measurements can be used to calibrate by typing a real value. */
 export const CALIBRATE_KEYS = ['chest', 'length', 'shoulder', 'hem'];
 
-export function chartValue(kind, size, key) {
+export function chartValue(kind, size, key, view = 'front') {
   const c = SIZE_CHARTS[kind] || SIZE_CHARTS.tee, i = Math.max(0, SIZES.indexOf(size));
-  return c[key] ? c[key][i] : null;
+  const values = key === 'neckDrop' && view === 'back' ? c.backNeckDrop : c[key];
+  return values ? values[i] : null;
 }
 
 // Seam-to-seam shoulder width is narrower than the pit-to-pit width on a set-in sleeve (45 vs 53 cm at M).
@@ -218,9 +219,9 @@ export function guessKind(seg, sampleKind) {
  *   ss cm per pixel along the sleeve    = same rule for the sleeve length
  * manual {key, cm}: the user typed a real measurement; every scale is multiplied so that measurement reads exactly that.
  */
-export function makeCalibration(refSeg, { kind = 'tee', size = 'M', manual = null } = {}) {
+export function makeCalibration(refSeg, { kind = 'tee', size = 'M', manual = null, view = 'front' } = {}) {
   const raw = rawPixels(refSeg);
-  const chart = Object.fromEntries(MEASURES.map(m => [m.key, chartValue(kind, size, m.key)]));
+  const chart = Object.fromEntries(MEASURES.map(m => [m.key, chartValue(kind, size, m.key, view)]));
   const cal = { s: 0, sy: 0, ss: 0, shoulderScale: 0, hemScale: 0, neckScale: 0, neckDropScale: 0, kind, size, manual: null, adjusted: [], chart, mode: 'chart' };
   if (!raw || !(raw.chest > 1)) return cal;
   const s = chart.chest / raw.chest;
@@ -299,10 +300,13 @@ export function compareMeasurements(original, edited) {
 }
 
 /** Rows for the UI and exports: [{key,label,short,cm,origCm,deltaCm}] (only measurements the garment has). */
-export function measurementRows(seg, origSeg, cal) {
+export function measurementRows(seg, origSeg, cal, { view = 'front' } = {}) {
   const cur = measureGarment(seg, cal), org = measureGarment(origSeg || seg, cal), d = compareMeasurements(org, cur);
   return MEASURES.filter(m => cur[m.key] != null).map(m => ({
-    key: m.key, label: m.label, short: m.short, cm: cur[m.key], origCm: org[m.key], deltaCm: d[m.key],
+    key: m.key,
+    label: m.key === 'neckDrop' && view === 'back' ? 'Back neck drop (HPS to seam)' : m.label,
+    short: m.key === 'neckDrop' && view === 'back' ? 'Back neck drop' : m.short,
+    cm: cur[m.key], origCm: org[m.key], deltaCm: d[m.key],
   }));
 }
 /** Is the change big enough to show at the display rounding? */
@@ -334,7 +338,7 @@ export function designCalibration(state, viewName = state.activeView) {
   const m = state.measure || defaultMeasureState(), kind = designKind(state, fallback || ref);
   const key = [kind, m.size, m.manual ? m.manual.key + ':' + m.manual.cm : ''].join('|');
   let per = calCache.get(ref); if (!per) { per = new Map(); calCache.set(ref, per); }
-  let cal = per.get(key); if (!cal) { cal = makeCalibration(ref, { kind, size: m.size, manual: m.manual }); per.set(key, cal); }
+  let cal = per.get(key); if (!cal) { cal = makeCalibration(ref, { kind, size: m.size, manual: m.manual, view: viewName }); per.set(key, cal); }
   return cal;
 }
 /** Live measurements of one view: {rows, cal, kind, size, unit, seg} or null while there is nothing to measure. */
@@ -344,7 +348,7 @@ export function designMeasure(state, viewName = state.activeView) {
   const V = state.views[viewName]; if (!V || !V.seg || !rawPixels(V.seg)) return null;
   const cal = designCalibration(state, viewName); if (!cal) return null;
   const m = state.measure || defaultMeasureState();
-  const rows = measurementRows(V.seg, V.baseSeg || V.seg, cal);
+  const rows = measurementRows(V.seg, V.baseSeg || V.seg, cal, { view: viewName });
   return { rows, cal, kind: cal.kind, size: m.size, unit: m.unit, seg: V.seg, view: viewName };
 }
 /** Same, shaped for the exporters: {seg, rows, unit, size, kind, basis, view}. */
@@ -389,7 +393,7 @@ export function manufacturerSpecCSV(data, { design = 'Untitled design', view = '
     sleeveOpening: 'Sleeve opening width, measured flat',
     hem: 'Bottom hem width, measured flat',
     neck: 'Neck opening width, seam to seam',
-    neckDrop: 'Front neck drop from HPS to neck seam',
+    neckDrop: view === 'back' ? 'Back neck drop from HPS to back neck seam' : 'Front neck drop from HPS to front neck seam',
   };
   const cell = csvCell;
   const lines = [
@@ -434,7 +438,7 @@ export function dimensionLayout(seg, rows, opts = {}) {
   const lim = (v, lo, hi) => (cs ? Math.min(hi, Math.max(lo, v)) : v);
   const pad = fp * 0.9;
   const want = k => by[k] && (!opts.only || opts.only.includes(k));
-  const text = k => ({ name: SHORT[k], value: formatMeasure(by[k].cm, unit) });
+  const text = k => ({ name: by[k].short || SHORT[k], value: formatMeasure(by[k].cm, unit) });
   const add = (k, a, b, extra = {}) => {
     const t = text(k), w = estW(t.name + ' ' + t.value, fp), len = Math.hypot(b.x - a.x, b.y - a.y);
     let ang = Math.atan2(b.y - a.y, b.x - a.x); if (Math.cos(ang) < -1e-6 || (Math.abs(Math.cos(ang)) < 1e-6 && Math.sin(ang) > 0)) ang += Math.PI;
