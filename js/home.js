@@ -42,7 +42,7 @@ export function initHome(el, actions) {
   root.replaceChildren(
     h('div', { class: 'home-top' },
       h('div', { class: 'brand' }, h('span', { class: 'logo' }, icon('layers', 18)), h('b', {}, 'Threadform')),
-      h('div', { class: 'home-actions' }, h('button', { class: 'btn ghost sm', onclick: () => editBrandKit() }, 'Brand kit'), h('button', { class: 'btn ghost sm', onclick: () => createCollection() }, 'New collection'), h('button', { class: 'btn primary', id: 'home-new', onclick: () => chooser() }, icon('plus', 16), 'New design'), logoutForm())),
+      h('div', { class: 'home-actions' }, h('button', { class: 'btn ghost sm', onclick: () => editBrandKit() }, 'Brand kit'), h('button', { class: 'btn ghost sm', onclick: () => editMaterialsLibrary() }, 'Materials'), h('button', { class: 'btn ghost sm', onclick: () => createCollection() }, 'New collection'), h('button', { class: 'btn primary', id: 'home-new', onclick: () => chooser() }, icon('plus', 16), 'New design'), logoutForm())),
     h('div', { class: 'home-body' },
       h('div', { class: 'home-tools' },
         h('div', {}, h('h1', {}, SHARED() ? 'Shared designs' : 'Your designs'), countEl),
@@ -171,6 +171,7 @@ function card(m, orderList, canDrag) {
       h('div', { class: 'dinfo' },
         h('div', { class: 'dname' }, m.name || 'Untitled design'),
         h('div', { class: 'dmeta' }, `Edited ${ago(m.updatedAt)} · ${views} ${views === 1 ? 'view' : 'views'}${m.kind ? ' · ' + m.kind : ''}`),
+        m.material?.name ? h('div', { class: 'design-material' }, h('i', { style: `background:${m.material.color || '#d6d3d1'}` }), m.material.name) : null,
         tags.length ? h('div', { class: 'dtags' }, tags.map(t => h('span', { class: 'dtag' }, t))) : null)),
     h('div', { class: 'dactions' },
       h('button', { class: 'btn ghost sm mv', 'aria-label': `Move ${m.name} up`, tip: 'Move up', disabled: pos <= 0, onclick: () => move(m, -1) }, '▲'),
@@ -178,6 +179,7 @@ function card(m, orderList, canDrag) {
       h('button', { class: 'btn ghost sm', onclick: () => rename(m) }, 'Rename'),
       h('button', { class: 'btn ghost sm', onclick: () => editTags(m) }, 'Tags'),
       h('button', { class: 'btn ghost sm', onclick: () => assignCollection(m) }, collectionOf(m) ? 'Collection' : 'Add to collection'),
+      h('button', { class: 'btn ghost sm', onclick: () => assignMaterial(m) }, 'Material'),
       h('button', { class: 'btn ghost sm', onclick: () => duplicate(m) }, 'Duplicate'),
       h('button', { class: 'btn ghost sm danger-txt', onclick: () => remove(m) }, icon('trash', 14), 'Delete')));
   return art;
@@ -221,6 +223,77 @@ function moveTo(fromId, toId, after) {
   });
 }
 
+
+
+/* ---------------------------------------------------------------- materials library */
+const MATERIALS_KEY = 'threadform.materials.v1';
+function readMaterials() {
+  try { const v = JSON.parse(localStorage.getItem(MATERIALS_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+function writeMaterials(items) {
+  try { localStorage.setItem(MATERIALS_KEY, JSON.stringify(items)); return true; } catch { toast('Could not save the materials library on this device.', 'error'); return false; }
+}
+function editMaterialsLibrary() {
+  const dlg = makeDialog('materials-dialog');
+  const name = h('input', { type: 'text', maxlength: 50, placeholder: 'e.g. Heavyweight cotton' });
+  const type = h('select', {}, ...['Cotton','Polyester','Fleece','Nylon','Wool','Linen','Mesh','Rib knit','Other'].map(v => h('option', { value: v }, v)));
+  const colour = h('input', { type: 'color', value: '#d6d3d1', 'aria-label': 'Material colour' });
+  const notes = h('input', { type: 'text', maxlength: 120, placeholder: 'Weight, finish, supplier...' });
+  const list = h('div', { class: 'materials-list' });
+  const draw = () => {
+    const items = readMaterials();
+    list.replaceChildren(...items.map(item => h('div', { class: 'material-row' },
+      h('i', { class: 'material-swatch', style: `background:${item.color}` }),
+      h('div', { class: 'material-row-copy' }, h('b', {}, item.name), h('span', {}, [item.type, item.notes].filter(Boolean).join(' · '))),
+      h('button', { type: 'button', class: 'btn ghost sm danger-txt', onclick: () => {
+        const next = readMaterials().filter(x => x.id !== item.id);
+        if (writeMaterials(next)) draw();
+      } }, 'Remove'))));
+    if (!items.length) list.append(h('p', { class: 'muted small' }, 'No saved materials yet. Add your first fabric below.'));
+  };
+  const form = h('form', { class: 'materials-form', onsubmit: e => {
+    e.preventDefault();
+    const clean = name.value.trim();
+    if (!clean) { name.focus(); return; }
+    const items = readMaterials();
+    items.push({ id: 'mat-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6), name: clean, type: type.value, color: colour.value, notes: notes.value.trim() });
+    if (writeMaterials(items)) { name.value = ''; notes.value = ''; draw(); }
+  } },
+    h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Material name'), name),
+    h('div', { class: 'materials-fields' },
+      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Fabric'), type),
+      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Colour'), colour)),
+    h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Notes'), notes),
+    h('div', { class: 'dlg-actions' }, h('button', { class: 'btn primary', type: 'submit' }, 'Add material')));
+  dlg.append(h('div', { class: 'dlg-head' }, h('h2', {}, 'Materials library'), h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => dlg.close() }, icon('x', 18))),
+    h('p', { class: 'muted small materials-intro' }, 'Save fabric references and attach them to designs. Material definitions are stored in this browser; each design keeps its selected material details.'),
+    list, form);
+  draw(); name.focus();
+}
+function assignMaterial(m) {
+  const items = readMaterials();
+  if (!items.length) { toast('Add a material to your library first.', 'error'); editMaterialsLibrary(); return; }
+  const dlg = makeDialog('assign-material-dialog');
+  const select = h('select', { class: 'material-select' },
+    h('option', { value: '' }, 'No material'),
+    ...items.map(item => h('option', { value: item.id }, item.name + ' · ' + item.type)));
+  if (m.material?.id) select.value = m.material.id;
+  const form = h('form', { class: 'dlg-body', onsubmit: async e => {
+    e.preventDefault();
+    const item = items.find(x => x.id === select.value);
+    const material = item ? { ...item } : null;
+    try {
+      await store.patchDesign(m.id, { meta: { material } });
+      dlg.close(); toast(material ? 'Material attached to design.' : 'Material removed.', 'ok');
+      await refreshHome();
+    } catch (err) { toast(friendly(err, 'Could not update the design material.'), 'error', 5000); }
+  } },
+    h('h2', {}, 'Design material'),
+    h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Choose a saved material'), select),
+    h('div', { class: 'dlg-actions' }, h('button', { type: 'button', class: 'btn ghost', onclick: () => dlg.close() }, 'Cancel'), h('button', { type: 'submit', class: 'btn primary' }, 'Save')));
+  dlg.append(form);
+  select.focus();
+}
 
 /* ---------------------------------------------------------------- collections + brand kit */
 async function createCollection() {
