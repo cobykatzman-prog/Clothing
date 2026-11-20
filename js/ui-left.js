@@ -6,7 +6,7 @@ import { selectionSection } from './ui-select.js';
 import { createElement, GRAPHIC_LIBRARY, FONTS } from './elements.js';
 import { createLayers, addLogo } from './manual.js';
 import { SAMPLE_KINDS } from './samples.js';
-import { normalizeBrandKit } from './brand-kit.js';
+import { normalizeBrandKit, brandStylePatch } from './brand-kit.js';
 
 const pretty = s => s.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
 const KIND_LABEL = { tee: 'T-shirt', longSleeve: 'Long sleeve', polo: 'Polo', hoodie: 'Hoodie' };
@@ -143,7 +143,17 @@ export function initLeft(root) {
       await addLogo(new File([new Blob([bytes], { type: mime })], 'brand-' + slot + '.' + ext, { type: mime }));
     } catch (err) { toast('That saved brand logo could not be added. Try uploading it again in Brand Kit.', 'error', 5000); }
   }
-  function applyBrandFont(family) {
+  function applyBrandStyle(patch) {
+    const selected = S.elements.find(el => el.id === S.selectedId);
+    if (!selected) { toast('Select a text or graphic layer first.', 'info'); return; }
+    const next = brandStylePatch(selected, patch);
+    if (!next) { toast(selected.type === 'logo' ? 'Image logos can be moved and resized, but their pixels cannot be recoloured here.' : 'That style cannot be applied to the selected layer.', 'info'); return; }
+    snapshot();
+    selected.props = { ...selected.props, ...next };
+    notify('elements'); markFlow('refined');
+    toast('Brand style applied to ' + (selected.name || selected.type) + '.', 'ok');
+  }
+  function applyBrandFont(family, toSelected = false) {
     const wanted = String(family || 'Arial').toLowerCase();
     let option = [...font.options].find(o => o.textContent.toLowerCase().includes(wanted) || o.value.toLowerCase().includes(wanted));
     if (!option) {
@@ -151,6 +161,7 @@ export function initLeft(root) {
       font.append(option);
     }
     font.value = option.value;
+    if (toSelected) applyBrandStyle({ font: font.value });
   }
   const logoSlots = [
     ['primary', 'Primary logo'], ['alternate', 'Alternate logo'], ['mark', 'Icon / mark'],
@@ -163,12 +174,14 @@ export function initLeft(root) {
     : h('p', { class: 'muted small' }, 'No logos saved yet. Add them in Brand Kit on the gallery page.');
   const brandColours = (brandKit.palette || []).slice(0, 12);
   const brandPalette = brandColours.length
-    ? h('div', { class: 'brand-editor-palette' }, brandColours.map(item => h('button', {
-        type: 'button', class: 'brand-editor-colour', onclick: () => {
-          tcol.value = item.color; gcol.value = item.color;
-          toast(item.name + ' applied to new text and graphics.', 'ok', 1800);
-        }, tip: 'Use ' + item.name + ' for new text and graphics',
-      }, h('i', { style: 'background:' + item.color }), h('span', {}, item.name))))
+    ? h('div', { class: 'brand-editor-palette' }, brandColours.map(item => h('div', { class: 'brand-editor-colour-row' },
+        h('button', {
+          type: 'button', class: 'brand-editor-colour', onclick: () => {
+            tcol.value = item.color; gcol.value = item.color;
+            toast(item.name + ' set for new text and graphics.', 'ok', 1800);
+          }, tip: 'Use ' + item.name + ' for new text and graphics',
+        }, h('i', { style: 'background:' + item.color }), h('span', {}, item.name)),
+        h('button', { type: 'button', class: 'btn ghost sm brand-editor-apply', onclick: () => applyBrandStyle({ color: item.color }), tip: 'Apply this colour to the selected editable layer' }, 'Apply to selected'))))
     : h('p', { class: 'muted small' }, 'No saved colours yet.');
   const secBrand = section('•', 'Brand kit assets', 'Use your saved brand logos, colour palette and typography without uploading them again.', [
     brandKit.name ? h('div', { class: 'brand-editor-heading' }, h('b', {}, brandKit.name),
@@ -178,8 +191,10 @@ export function initLeft(root) {
     h('div', { class: 'lbl' }, 'Typography'),
     h('div', { class: 'row gap wrap' },
       h('button', { type: 'button', class: 'btn ghost sm', onclick: () => applyBrandFont(brandKit.typography?.heading) }, 'Use heading font'),
-      h('button', { type: 'button', class: 'btn ghost sm', onclick: () => applyBrandFont(brandKit.typography?.body) }, 'Use body font')),
-    h('p', { class: 'muted small' }, 'These assets are stored in this browser. They are not automatically synced to another user or device. Palette and fonts affect new elements; existing elements are unchanged.'),
+      h('button', { type: 'button', class: 'btn ghost sm', onclick: () => applyBrandFont(brandKit.typography?.heading, true) }, 'Apply to selected text'),
+      h('button', { type: 'button', class: 'btn ghost sm', onclick: () => applyBrandFont(brandKit.typography?.body) }, 'Use body font'),
+      h('button', { type: 'button', class: 'btn ghost sm', onclick: () => applyBrandFont(brandKit.typography?.body, true) }, 'Apply to selected text')),
+    h('p', { class: 'muted small' }, 'Use applies to new elements. Apply to selected updates the selected editable text/graphic layer and can be undone. Raster logo images cannot be recoloured. Brand assets remain stored in this browser and are not synced to other devices.'),
   ], false, 'sec-brand-kit');
 
   // layers list (top of the stack first; drag to reorder; the inspector for the selected item is in the right panel)

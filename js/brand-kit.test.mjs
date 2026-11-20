@@ -26,3 +26,19 @@ test('invalid brand kit payloads return safe defaults', () => {
   assert.equal(kit.palette.length, 3);
   assert.deepEqual(kit.typography, { heading: 'Georgia', body: 'Arial' });
 });
+
+
+test('brand palette applies to editable layers using their correct colour property', async () => {
+  const { brandStylePatch } = await import('./brand-kit.js');
+  assert.deepEqual(brandStylePatch({ type: 'text' }, { color: '#123456' }), { color: '#123456' });
+  assert.deepEqual(brandStylePatch({ type: 'patch' }, { color: '#123456' }), { bg: '#123456' });
+  assert.deepEqual(brandStylePatch({ type: 'stripe' }, { color: '#123456' }), { color: '#123456' });
+});
+
+test('brand typography applies to text-like layers but not logos or graphics', async () => {
+  const { brandStylePatch } = await import('./brand-kit.js');
+  assert.deepEqual(brandStylePatch({ type: 'text' }, { font: 'Georgia, serif' }), { font: 'Georgia, serif' });
+  assert.deepEqual(brandStylePatch({ type: 'embroidery' }, { font: 'Arial, sans-serif' }), { font: 'Arial, sans-serif' });
+  assert.equal(brandStylePatch({ type: 'logo' }, { color: '#123456', font: 'Georgia' }), null);
+  assert.equal(brandStylePatch({ type: 'graphic' }, { font: 'Georgia' }), null);
+});
