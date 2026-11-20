@@ -420,6 +420,42 @@ export function manufacturerSpecCSV(data, { design = 'Untitled design', view = '
   return lines.map(line => Array.isArray(line) ? line.join(',') : line).join('\r\n') + '\r\n';
 }
 
+
+/** Graded size chart CSV. The selected-size image measurement is the base; its style adjustment
+ * relative to the standard chart is carried across XS–XXL using the chart's grade increments.
+ * All values are estimates and must be checked against physical samples before production.
+ */
+export function gradedMeasurementCSV(data, { design = 'Untitled design', view = 'front' } = {}) {
+  if (!data || !Array.isArray(data.rows)) throw new TypeError('Measurement data is required');
+  const codes = { chest: 'POM-01', length: 'POM-02', shoulder: 'POM-03', sleeve: 'POM-04',
+    sleeveOpening: 'POM-05', hem: 'POM-06', neck: 'POM-07', neckDrop: 'POM-08' };
+  const cell = csvCell;
+  const lines = [
+    ['THREADFORM GRADED SIZE MEASUREMENT SPEC'].map(cell).join(','),
+    ['Style', design].map(cell).join(','),
+    ['Garment type', KIND_LABELS[data.kind] || data.kind].map(cell).join(','),
+    ['View reference', view].map(cell).join(','),
+    ['Base size', data.size].map(cell).join(','),
+    ['Units', 'cm'].map(cell).join(','),
+    ['Measurement status', 'ESTIMATE - verify every size against physical samples before production'].map(cell).join(','),
+    [],
+    ['POM code', 'Point of measure', 'Base-size image value (cm)', 'Style adjustment vs chart (cm)', ...SIZES.map(size => size + ' (cm)')].map(cell).join(','),
+  ];
+  for (const row of data.rows) {
+    const chartBase = chartValue(data.kind, data.size, row.key, view);
+    const adjustment = chartBase == null ? 0 : Number(row.cm) - chartBase;
+    const graded = SIZES.map(size => {
+      const chart = chartValue(data.kind, size, row.key, view);
+      return chart == null ? '' : formatMeasure(chart + adjustment, 'cm', { unitLabel: false });
+    });
+    lines.push([codes[row.key] || '', row.label, formatMeasure(row.cm, 'cm', { unitLabel: false }),
+      chartBase == null ? '' : formatMeasure(adjustment, 'cm', { unitLabel: false }), ...graded].map(cell).join(','));
+  }
+  lines.push([]);
+  lines.push(['IMPORTANT', 'The selected size is anchored to the image-derived measurement. Other sizes apply standard chart grade increments while carrying the same style adjustment. This is a starting point only: verify pattern grading, tolerances, shrinkage and fit on physical samples.'].map(cell).join(','));
+  return lines.join('\\r\\n') + '\\r\\n';
+}
+
 /* ------------------------------------------------------------------ dimension lines: layout */
 const INK = '#1f2937', MUTE = '#5b6170', EXT = '#8a8f9c';
 const estW = (text, fp) => text.length * fp * 0.58 + fp * 0.9;
