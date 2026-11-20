@@ -129,7 +129,7 @@ test('standard POM geometry uses HPS, neck seam and shoulder-to-cuff landmarks',
 test('front and back edits produce matching centimetre changes from one shared base size', () => {
   const frontBase = mockGarment({ chest: 100, length: 150, sleeve: 90 });
   const backBase = mockGarment({ chest: 180, length: 210, sleeve: 130 });
-  const frontEdited = mockGarment({ chest: 110, length: 160, sleeve: 100 });
+  const frontEdited = mockGarment({ chest: 110, length: 165, sleeve: 99 });
   const backEdited = mockGarment({ chest: 198, length: 231, sleeve: 143 });
   const frontCal = makeCalibration(frontBase, { kind: 'tee', size: 'M' });
   const backCal = makeCalibration(backBase, { kind: 'tee', size: 'M' });
