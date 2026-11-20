@@ -478,6 +478,33 @@ export function dimensionLayout(seg, rows, opts = {}) {
     const cl = raw.chestLine;
     add('chest', { x: cl.x0, y: cl.y }, { x: cl.x1, y: cl.y });
   }
+  if (want('neckDrop') && L.neckBottom) {  // HPS to the front/back neck seam
+    const hpsY = (L.shoulderL.y + L.shoulderR.y) / 2;
+    const neckY = L.neckBottom.y;
+    const x = lim(cx + (M.neckRx || 40) + fp * 1.7, 0, cs ? cs - fp * 1.3 : 1e9);
+    if (neckY > hpsY + 1) {
+      add('neckDrop', { x, y: hpsY }, { x, y: neckY }, { side: 1 });
+      exts.push(
+        { a: { x: cx + (M.neckRx || 40) + 2, y: hpsY }, b: { x: x - 5, y: hpsY } },
+        { a: { x: cx, y: neckY }, b: { x: x - 5, y: neckY } },
+      );
+    }
+  }
+  if (want('sleeveOpening')) {  // flat width across the cuff, perpendicular to the sleeve
+    const key = raw.sleeves.L ? 'L' : (raw.sleeves.R ? 'R' : null);
+    if (key) {
+      const q = raw.sleeves[key], cuff = key === 'L' ? L.cuffL : L.cuffR;
+      const n = q.n || { x: -q.a.y, y: q.a.x }, a = q.a || { x: key === 'L' ? 1 : -1, y: 0 };
+      const off = fp * 1.6, half = q.open / 2;
+      const A = { x: cuff.x - n.x * half + a.x * off, y: cuff.y - n.y * half + a.y * off };
+      const B = { x: cuff.x + n.x * half + a.x * off, y: cuff.y + n.y * half + a.y * off };
+      add('sleeveOpening', A, B, { side: -1 });
+      exts.push(
+        { a: { x: cuff.x - n.x * half, y: cuff.y - n.y * half }, b: { x: A.x - a.x * 4, y: A.y - a.y * 4 } },
+        { a: { x: cuff.x + n.x * half, y: cuff.y + n.y * half }, b: { x: B.x - a.x * 4, y: B.y - a.y * 4 } },
+      );
+    }
+  }
   if (want('sleeve')) {     // shoulder seam to cuff, matching the value shown in the measurement table
     const key = M.sleeves && M.sleeves.L && M.sleeves.L.has ? 'L' : (M.sleeves && M.sleeves.R && M.sleeves.R.has ? 'R' : null);
     if (key) {
