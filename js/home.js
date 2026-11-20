@@ -227,7 +227,7 @@ function card(m, orderList, canDrag) {
   const tags = tagsOf(m);
   const pos = orderList.findIndex(x => x.id === m.id);
   const art = h('article', {
-    class: 'dcard', role: 'listitem', 'data-id': m.id,
+    class: 'dcard' + (selectMode ? ' selectable' : '') + (selectedIds.has(m.id) ? ' selected' : ''), role: 'listitem', 'data-id': m.id,
     draggable: canDrag ? 'true' : null,
     ondragstart: e => { dragId = m.id; e.dataTransfer && (e.dataTransfer.setData('text/plain', m.id), e.dataTransfer.effectAllowed = 'move'); art.classList.add('dragging'); },
     ondragend: () => { dragId = null; document.querySelectorAll('.dcard.dragging,.dcard.drop-before,.dcard.drop-after').forEach(x => x.classList.remove('dragging', 'drop-before', 'drop-after')); },
@@ -247,6 +247,7 @@ function card(m, orderList, canDrag) {
     selectMode ? h('label', { class: 'dcard-select', 'aria-label': 'Select ' + (m.name || 'design') },
       h('input', { type: 'checkbox', checked: selectedIds.has(m.id), onchange: e => {
         if (e.target.checked) selectedIds.add(m.id); else selectedIds.delete(m.id);
+        art.classList.toggle('selected', e.target.checked);
         renderBulkToolbar(metas.filter(x => visibleIds.includes(x.id)));
       } }), h('span', {}, 'Select')) : null,
     h('button', { class: 'dcard-open', onclick: () => { if (selectMode) { selectedIds.has(m.id) ? selectedIds.delete(m.id) : selectedIds.add(m.id); render(); } else api.open(m.id); }, 'aria-label': `Open ${m.name}` },
