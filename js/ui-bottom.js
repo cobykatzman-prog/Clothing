@@ -4,6 +4,7 @@ import { h, icon, toast, makeCanvas, SIZE, canvasToBlob, friendly, userError, se
 import * as A from './ui-actions.js';
 import { exportPNG, exportSVG, exportDesignSheet, download } from './export.js';
 import { exportMeasureData, measurementsCSV, manufacturerSpecCSV, gradedMeasurementCSV } from './measure.js';
+import { exportSpecCSV, printSpec } from './ui-spec.js';
 import { openExportDialog } from './export-dialog.js';
 import { editControls, editHistoryPanel } from './ui-review.js';
 
@@ -59,6 +60,8 @@ export function initBottom(root) {
       const d = exportMeasureData(S, view); if (!d) throw userError('Load a Front or Back garment view before exporting a graded size chart.');
       download(new Blob([gradedMeasurementCSV(d, { design: S.name, view })], { type: 'text/csv;charset=utf-8' }), `${slug()}-graded-size-chart.csv`);
     }),
+    item('Measurement spec (CSV, labelled)', 'All 9 points of measure, sizes XS–XXL, tolerances, calibrated / manual / estimated status', async () => { exportSpecCSV(); }),
+    item('Measurement spec (print)', 'Printable table; use Save as PDF in the print dialog', async () => { printSpec(); }),
     item('Design sheet', 'Specs, swatches, all views', async () => {
       const views = {}; for (const n of VIEWS) if (S.views[n].current) views[n] = S.views[n].current;
       const params = {}; for (const n of VIEWS) params[n] = { ...S.views[n].params };

@@ -2,7 +2,7 @@
 .measure-block{display:flex;flex-direction:column;gap:10px}
 .chips.xs{gap:4px}.chips.xs .chip{padding:4px 9px;font-size:12px}
 .mtable{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff}
-.mrow{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,.8fr) minmax(0,.8fr) minmax(0,.8fr);gap:6px;align-items:baseline;padding:6px 9px;border-top:1px solid #f0eee8;font-size:12.5px;font-variant-numeric:tabular-nums}
+.mrow{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,.9fr) minmax(0,.8fr);gap:6px;align-items:baseline;padding:6px 9px;border-top:1px solid #f0eee8;font-size:12.5px;font-variant-numeric:tabular-nums}
 .mrow:first-child{border-top:0}
 .mrow>span:not(.mlab),.mrow>b{text-align:right}
 .mhead{background:var(--soft);font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}

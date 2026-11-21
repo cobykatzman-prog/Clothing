@@ -3,7 +3,7 @@
 Two layers: fast unit/server tests (`npm test`) and browser journeys (`npm run test:e2e`, Playwright, no extra installs).
 
 ```bash
-npm test            # server 15, shared 18, ai 16, prompt 26, mask 187, aiedit 14, measure, generate (seconds)
+npm test            # (now also spec.test: POM grading/sources/validation/CSV) server 15, shared 18, ai 16, prompt 26, mask 187, aiedit 14, measure, generate (seconds)
 npm run test:e2e    # browser journeys below (about 4 minutes); screenshots go to $OUT (default <tmpdir>/threadform-e2e)
 node test/e2e.browser.test.cjs          # one file at a time
 ```

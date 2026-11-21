@@ -351,6 +351,8 @@ export function designMeasure(state, viewName = state.activeView) {
   const cal = designCalibration(state, viewName); if (!cal) return null;
   const m = state.measure || defaultMeasureState();
   const rows = measurementRows(V.seg, V.baseSeg || V.seg, cal, { view: viewName });
+  // where each number comes from (shown on the dimension lines: ~ = estimated)
+  for (const r of rows) r.src = cal.manual && cal.manual.key === r.key ? 'calibrated' : 'estimated';
   return { rows, cal, kind: cal.kind, size: m.size, unit: m.unit, seg: V.seg, view: viewName };
 }
 /** Same, shaped for the exporters: {seg, rows, unit, size, kind, basis, view}. */
@@ -476,7 +478,7 @@ export function dimensionLayout(seg, rows, opts = {}) {
   const lim = (v, lo, hi) => (cs ? Math.min(hi, Math.max(lo, v)) : v);
   const pad = fp * 0.9;
   const want = k => by[k] && (!opts.only || opts.only.includes(k));
-  const text = k => ({ name: by[k].short || SHORT[k], value: formatMeasure(by[k].cm, unit) });
+  const text = k => ({ name: by[k].short || SHORT[k], value: (by[k].src === 'estimated' ? '~' : '') + formatMeasure(by[k].cm, unit) });
   const add = (k, a, b, extra = {}) => {
     const t = text(k), w = estW(t.name + ' ' + t.value, fp), len = Math.hypot(b.x - a.x, b.y - a.y);
     let ang = Math.atan2(b.y - a.y, b.x - a.x); if (Math.cos(ang) < -1e-6 || (Math.abs(Math.cos(ang)) < 1e-6 && Math.sin(ang) > 0)) ang += Math.PI;

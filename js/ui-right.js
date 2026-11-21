@@ -7,6 +7,7 @@ import { section } from './ui-left.js';
 import { createPartPanel, createInspector } from './manual.js';
 import { presetBlock, shapeBlock, wholeColourBlock, fabricBlock } from './ui-look.js';
 import { measureSection } from './ui-measure.js';
+import { specSection } from './ui-spec.js';
 import { engineRow } from './ai-ui.js';
 import { previewOption, acceptPreview, combine as combineOption } from './ui-review.js';
 
@@ -106,7 +107,8 @@ export function initRight(root) {
   const fab = fabricBlock();
   const secFabric = section(5, 'Fabric', 'Applies a procedural weave and shading while keeping the original folds and shadows.', [fab.el], false, 'sec-fabric');
 
-  const secMeasure = measureSection().sec;   // approximate garment measurements (ui-measure.js)
+  const secMeasure = measureSection().sec;
+  const secSpec = specSection().sec;   // per-size POM spec: manual values, grading, tolerances, exports (ui-spec.js)   // approximate garment measurements (ui-measure.js)
   // ---- tabs: one group of sections at a time instead of one long scroll ----
   secPresets.dataset.level = secShape.dataset.level = secFabric.dataset.level = 'advanced';
   const layersSec = document.getElementById('sec-layers');   // built by the left panel; it belongs with the items
@@ -115,7 +117,7 @@ export function initRight(root) {
     { key: 'look', label: 'Look', tip: 'Describe a change, compare options and colour the garment', secs: [secDescribe, secColor] },
     { key: 'shape', label: 'Shape', tip: 'Fit and sleeve presets, shape sliders and fabric (Advanced)', secs: [secPresets, secShape, secFabric], level: 'advanced' },
     { key: 'items', label: 'Items', tip: 'Edit the text and graphics you added', secs: [secInspector, layersSec].filter(Boolean) },
-    { key: 'measure', label: 'Measure', tip: 'Approximate garment measurements', secs: [secMeasure] },
+    { key: 'measure', label: 'Measure', tip: 'Approximate garment measurements', secs: [secMeasure, secSpec] },
   ]);
   // open the tab that fits what the person is doing
   let lastSel = null;

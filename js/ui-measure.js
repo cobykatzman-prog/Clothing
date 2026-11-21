@@ -52,7 +52,7 @@ export function measureBlock() {
       h('span', { class: 'muted small' }, 'All measurements in centimetres (cm)'),
       h('label', { class: 'row gap center small', 'data-level': 'advanced' }, h('span', { class: 'lbl' }, 'Garment'), kindSel)),
     table, basis,
-    h('div', { class: 'lbl', 'data-level': 'advanced' }, 'Know a real measurement?'), calRow, calMsg,
+    h('div', { class: 'lbl', 'data-level': 'advanced' }, 'Calibrate the scale: type one real measurement from your garment'), calRow, calMsg,
     showRow, note);
 
   function paintCal() {
@@ -87,12 +87,12 @@ export function measureBlock() {
       const vis = visibleDelta(r.deltaCm, u);
       rows.push(h('div', { class: 'mrow', role: 'row', 'data-key': r.key },
         h('span', { class: 'mlab', role: 'cell' }, r.label),
-        h('b', { class: 'mnow', role: 'cell' }, formatMeasure(r.cm, u)),
+        h('b', { class: 'mnow', role: 'cell', 'data-src': r.src }, formatMeasure(r.cm, u), h('span', { class: 'msrc src-' + r.src, tip: r.src === 'calibrated' ? 'Calibrated: the scale was set from this real measurement' : 'Estimated from the picture and the typical size chart. Not production-verified' }, r.src === 'calibrated' ? ' C' : ' E')),
         h('span', { class: 'morig', role: 'cell' }, formatMeasure(r.origCm, u)),
         h('span', { class: 'mchg ' + (!vis ? 'zero' : r.deltaCm > 0 ? 'up' : 'down'), role: 'cell' }, vis ? formatMeasure(r.deltaCm, u, { sign: true }) : '0')));
     }
     table.replaceChildren(...rows);
-    let t = 'Scale from ' + calibrationText(d.cal, u) + '.';
+    let t = (d.cal.manual ? 'Calibrated scale' : 'Estimated scale') + ' from ' + calibrationText(d.cal, u) + '. C = calibrated, E = estimated (not production-verified).';
     if (d.cal.adjusted.length && !d.cal.manual) t += ` The picture is drawn with different proportions than a typical ${(KIND_LABELS[d.kind] || '').toLowerCase()}, so ${d.cal.adjusted.map(a => a === 'length' ? 'body length' : 'sleeve length').join(' and ')} follow the size chart.`;
     basis.textContent = t;
   }

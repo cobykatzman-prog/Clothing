@@ -6,6 +6,7 @@ import { drawElements, hitTest, beginDrag, dragTo, handlesFor } from './elements
 import { selectedSet, toggleInSelection, snapContext, snapBox, unionBounds } from './arrange-ops.js';
 import { closeGate, setActivePart, handleElementKey } from './manual.js';
 import { designMeasure, drawDimensionLines } from './measure.js';
+import { drawScaleBar } from './spec.js';
 import { isSelTool, selectionBounds, hint } from './selection.js';
 import { createOverlay } from './sel-overlay.js';
 import { createSelTools } from './sel-tools.js';
@@ -110,6 +111,7 @@ export function createStage(el, wrap) {
       if (state.measure && state.measure.show) {   // dimension lines: overlay only, never part of the garment bitmap
         const dm = designMeasure(state, state.activeView);
         if (dm) drawDimensionLines(ctx, dm.seg, dm.rows, { unit: dm.unit, fontPx: clamp(13 / T.zoom, 15, 30), lineW: clamp(1.4 / T.zoom, 1.4, 3) });
+        if (dm) drawScaleBar(ctx, dm.cal, { canvasSize: SIZE, fontPx: clamp(13 / T.zoom, 15, 30), lineW: clamp(1.4 / T.zoom, 1.4, 3) });
       }
       overlay.draw(ctx, V, T.zoom, now, tools.dragging);   // selection: marching ants + optional tint, never hides the garment
       tools.drawPreview(ctx, T.zoom, now);
