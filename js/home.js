@@ -521,7 +521,7 @@ async function manageCollections() {
           await refreshHome(); draw();
         } catch (e) { toast(friendly(e, 'Could not delete the collection. Some designs may need checking.'), 'error', 5000); await refreshHome(); draw(); }
       } }, 'Delete')
-    )), [h('p', { class: 'muted small' }, 'No collections yet. Create one to organise your designs.')]));
+    )) : [h('p', { class: 'muted small' }, 'No collections yet. Create one to organise your designs.')]));
   };
   dlg.append(
     h('div', { class: 'dlg-head' }, h('h2', {}, 'Manage collections'), h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => dlg.close() }, icon('x', 18))),
