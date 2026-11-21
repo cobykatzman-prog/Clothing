@@ -10,26 +10,34 @@ const MAX_REFS = 3;
 
 // ---------------------------------------------------------------- errors
 const MESSAGES = {
-  disabled: 'AI editing is not switched on for this site, so the built-in engine is used.',
+  off: 'AI is switched off for you, so nothing was sent.',
+  disabled: 'AI is not configured on this server (no API key is set), so nothing was sent. The built-in engine still works.',
+  config: "The AI provider rejected this server's API key. The site owner needs to check the key; until then use the built-in engine.",
   auth: 'Your login has expired. Reload the page and log in again.',
-  ratelimit: 'The AI service is busy right now. Wait a moment and try again.',
-  localLimit: 'Threadform has reached its AI request limit. Please wait for the cooldown to finish.',
-  providerLimit: 'OpenAI is temporarily limiting requests for this API account. Check its usage and billing if this keeps happening.',
-  queueBusy: 'Several AI jobs are already running. Wait for one to finish, then try again.',
-  toolarge: 'That image is too large to send. Try a smaller image or a simpler selection.',
-  upstream: 'The AI service did not answer properly. Try again in a moment.',
-  offline: 'Could not reach the server. Check your internet connection and try again.',
+  ratelimit: 'AI rate limit: the AI service is busy right now. Wait a moment and retry.',
+  localLimit: 'AI rate limit: Threadform has reached its AI request limit. Wait for the cooldown to finish, then retry.',
+  providerLimit: 'AI rate limit: OpenAI is limiting requests for this API account (or it is out of credit). Check its usage and billing if this keeps happening.',
+  queueBusy: 'AI is busy: several AI jobs are already running. Wait for one to finish, then retry.',
+  toolarge: 'The image is too large to send to the AI. Use a smaller image or a simpler selection.',
+  timeout: 'AI timeout: the AI service took too long to answer. Retry, or use the built-in engine.',
+  upstream: 'AI service error: the AI provider did not answer properly. Retry in a moment, or use the built-in engine.',
+  rejected: 'The AI provider declined this request (for example its content rules or an unsupported image). Reword the instruction or use the built-in engine.',
+  offline: "Could not reach this site's server. Check your internet connection, then retry.",
   aborted: 'Cancelled.',
-  bad: 'The AI service could not use that request. Try different wording or a smaller selection.',
+  bad: 'The request was not valid (for example an empty selection or a missing image), so nothing was sent to the AI.',
 };
+// A short headline for what failed, used by the task card and tests.
+const LABELS = { off: 'Switched off', disabled: 'Not configured', config: 'Not configured', auth: 'Login expired', ratelimit: 'Rate limit', toolarge: 'Image too large', timeout: 'Timeout', upstream: 'Upstream error', rejected: 'Declined', offline: 'Offline', aborted: 'Cancelled', bad: 'Invalid request' };
 export class AiError extends Error {
-  /** kind: disabled | auth | ratelimit | toolarge | upstream | offline | aborted | bad */
+  /** kind: disabled | config | auth | ratelimit | toolarge | timeout | upstream | rejected | offline | aborted | bad */
   constructor(kind, { status = 0, retryAfter = 0, message = null } = {}) {
     super(message || MESSAGES[kind] || MESSAGES.bad);
     this.name = 'AiError'; this.kind = kind; this.status = status; this.retryAfter = retryAfter; this.user = true;
   }
-  /** worth offering "Try again" (the same request may work shortly) */
-  get retryable() { return this.kind === 'ratelimit' || this.kind === 'upstream' || this.kind === 'offline'; }
+  /** what failed, in two words (Rate limit, Timeout, Upstream error, Not configured ...) */
+  get label() { return LABELS[this.kind] || 'AI error'; }
+  /** worth offering "Retry" (the same request may work shortly) */
+  get retryable() { return this.kind === 'ratelimit' || this.kind === 'upstream' || this.kind === 'offline' || this.kind === 'timeout'; }
 }
 export const isAiError = e => e instanceof AiError;
 
@@ -93,7 +101,7 @@ function rawFetch(url, init, timeoutMs, outer) {
   return fetch(url, { ...init, signal: ctl.signal, credentials: 'same-origin', cache: 'no-store', redirect: 'follow' })
     .catch(e => {
       if (outer && outer.aborted) throw new AiError('aborted');
-      if (timedOut) throw new AiError('upstream', { message: 'The AI service took too long to answer. Try again in a moment.' });
+      if (timedOut) throw new AiError('timeout');
       throw new AiError('offline', { message: null, status: 0, cause: e });
     })
     .finally(() => { clearTimeout(timer); if (outer) outer.removeEventListener('abort', onAbort); });
@@ -115,6 +123,10 @@ async function post(path, body, { signal, timeout = TIMEOUT_MS } = {}) {
   try { const j = await res.clone().json(); code = String(j?.error?.code || '').toLowerCase(); } catch (_) { /* body is never shown */ }
   const s = res.status;
   if (code === 'disabled' || code === 'ai_disabled' || code === 'not_configured') throw new AiError('disabled', { status: s });
+  if (code === 'ai_auth') throw new AiError('config', { status: s });
+  if (code === 'ai_timeout') throw new AiError('timeout', { status: s });
+  if (code === 'ai_rejected') throw new AiError('rejected', { status: s });
+  if (code === 'ai_unreachable') throw new AiError('upstream', { status: s, message: 'AI service error: the server could not reach the AI provider. Retry in a moment, or use the built-in engine.' });
   if (s === 401 || s === 403 || s === 303) throw new AiError('auth', { status: s });
   if (s === 413) throw new AiError('toolarge', { status: s });
   if (s === 429) {
@@ -202,21 +214,30 @@ const viewOf = v => (VIEWS.includes(v) ? v : 'front');
  * One edited image (call 1-3 times in parallel for Subtle / Medium / Bold).
  * @returns {Promise<{canvas:HTMLCanvasElement, level:string, model:string, ms:number}>}
  */
-export async function aiEdit({ image, mask = null, prompt, constraints = null, refs = [], view = 'front', level = 'medium', signal } = {}) {
+export async function aiEdit({ image, mask = null, prompt, constraints = null, refs = [], view = 'front', level = 'medium', garment = null, shape = null, artwork = null, section = '', signal } = {}) {
   if (!image) throw new AiError('bad');
   const body = {
     image: encodeImage(image), mask: mask ? encodeMask(mask, image) : null, prompt: clip(prompt),
     constraints: { keep: strs(constraints?.keep), avoid: strs(constraints?.avoid) },
     refs: encodeRefs(refs), view: viewOf(view), level: ['subtle', 'medium', 'bold'].includes(level) ? level : 'medium',
   };
+  if (garment) body.garment = garment;
+  if (shape) body.shape = shape;
+  if (artwork && artwork.length) body.artwork = strs(artwork);
+  if (section) body.section = String(section).slice(0, 40);
   const r = await post('/api/ai/edit', body, { signal });
   return { canvas: await dataUrlToCanvas(r.image, { size: { w: image.width, h: image.height } }), level: r.level || body.level, model: str(r.model), ms: Number(r.ms) || 0 };
 }
 
-/** A new garment from a description (and up to 3 reference images). @returns {Promise<{canvas:HTMLCanvasElement, model:string}>} */
-export async function aiGenerate({ prompt, refs = [], view = 'front', signal } = {}) {
+/** A new garment (or another view of the same one, with `reference` = its front) from a description and up to 3 style references. @returns {Promise<{canvas:HTMLCanvasElement, model:string}>} */
+export async function aiGenerate({ prompt, refs = [], view = 'front', garment = null, shape = null, artwork = null, reference = null, signal } = {}) {
   if (!clip(prompt)) throw new AiError('bad');
-  const r = await post('/api/ai/generate', { prompt: clip(prompt), refs: encodeRefs(refs), view: viewOf(view) }, { signal });
+  const body = { prompt: clip(prompt), refs: encodeRefs(refs), view: viewOf(view) };
+  if (garment) body.garment = garment;
+  if (shape) body.shape = shape;
+  if (artwork && artwork.length) body.artwork = strs(artwork);
+  if (reference) body.reference = encodeImage(reference);   // the approved front view: the other views are drawn to match it
+  const r = await post('/api/ai/generate', body, { signal });
   return { canvas: await dataUrlToCanvas(r.image, { fit: true }), model: str(r.model) };
 }
 

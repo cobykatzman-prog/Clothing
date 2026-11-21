@@ -85,6 +85,8 @@ Threadform always works without AI: the local garment-shape engine does the shap
 
 Spend limits: AI image calls cost real money. In the OpenAI dashboard set a monthly budget cap (and an email alert) for the project that owns the key. The built-in per-person and daily request limits are an extra brake (they are kept in memory and reset when the server restarts), not a substitute for the cap.
 
+What the AI workflows do (Phase 6): generation sends the garment's type, cut, panels, sleeves, collar, fabric, stripes and construction notes, plus the current shape sliders and the names of your artwork layers; "Redraw one view" draws the back, side or detail from the front as the reference so it stays the same garment; "Redo one garment section" re-makes just the sleeves, collar, body, hem or stripes through the selection mask. Results always arrive as a preview (Accept / Reject / Undo) and never replace your work silently; artwork layers (text, logos, graphics) are separate objects and are never sent for editing, and logos or lettering baked into a photo are kept out of the edit unless your wording names them. When the AI fails, a card says what failed (not configured, rate limit, timeout, upstream error, declined) and offers Retry and Use built-in engine.
+
 Honest note: this backend was verified end to end against a local mock of the OpenAI API (`test/mock-openai.mjs`, run by `npm test`), not against the real service. The request format follows OpenAI's image edit/generation and chat completion APIs, but real-model image quality, and whether a newer model still accepts every parameter, are unverified until you try it with your own key.
 
 ## Using Threadform

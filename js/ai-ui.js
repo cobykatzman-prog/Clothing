@@ -54,6 +54,17 @@ export function engineRow() {
   return root;
 }
 
+/**
+ * The recovery buttons for a failed AI action: Retry (only when retrying can help) and the built-in engine.
+ * Pass the result to startTask().fail(err, { actions }).
+ */
+export function recoveryActions(err, { retry = null, local = null, localLabel = 'Use built-in engine' } = {}) {
+  const a = [];
+  if (retry && (!isAiError(err) || err.retryable)) a.push({ label: 'Retry', retry: true, primary: true, fn: retry });
+  if (local) a.push({ label: localLabel, primary: !a.length, fn: local });
+  return a;
+}
+
 // ---------------------------------------------------------------- task card
 let host = null;
 function getHost() {
@@ -127,7 +138,9 @@ export function startTask({ title, rows = null, hint = '', onCancel = null, onRe
     /** Show a friendly failure with plain next steps. actions: [{label, fn, primary?}]. Rate limits count down before "Try again" unlocks. */
     fail(err, { actions: acts = [], note = '' } = {}) {
       if (closed || ended) return;
-      const text = isAiError(err) ? err.message : 'Something went wrong with the AI service. Try again, or use the built-in engine instead.';
+      const text = isAiError(err) ? err.message : 'AI service error: something unexpected went wrong with the AI request. Retry, or use the built-in engine.';
+      card.dataset.kind = isAiError(err) ? err.kind : 'upstream';
+      heading.textContent = `${title}: ${isAiError(err) ? err.label : 'Upstream error'}`;
       finish('error', note ? `${text} ${note}` : text);
       rowEls.forEach(r => { if (r.el.dataset.state === 'working' || r.el.dataset.state === 'pending') setRow(r, 'failed'); });
       actions.replaceChildren();
@@ -141,21 +154,22 @@ export function startTask({ title, rows = null, hint = '', onCancel = null, onRe
       actions.append(...btns.map(x => x.b), h('button', { type: 'button', class: 'btn ghost sm', onclick: () => api.close() }, 'Dismiss'));
       if (lock) {
         let left = lock;
-        const paint = () => { msg.textContent = `${text} You can try again in ${left} s.`; };
+        const paint = () => { msg.textContent = `${text}${note ? " " + note : ""} You can try again in ${left} s.`; };
         paint();
         cdTimer = setInterval(() => {
           left--;
-          if (left <= 0) { clearInterval(cdTimer); msg.textContent = text; btns.forEach(x => { x.b.disabled = false; }); return; }
+          if (left <= 0) { clearInterval(cdTimer); msg.textContent = note ? `${text} ${note}` : text; btns.forEach(x => { x.b.disabled = false; }); return; }
           paint();
         }, 1000);
       }
       (btns.find(x => !x.b.disabled) || btns[0])?.b.focus?.({ preventScroll: true });
     },
-    succeed(text, { autoClose = 3500 } = {}) {
+    succeed(text, { autoClose = 3500, actions: acts = [] } = {}) {
       if (closed || ended) return;
       finish('done', text);
-      actions.replaceChildren();
-      if (autoClose) closeTimer = setTimeout(() => api.close(), autoClose);
+      actions.replaceChildren(...acts.map(a => h('button', { type: 'button', class: 'btn sm ' + (a.primary ? 'primary' : 'ghost'), onclick: () => { api.close(); a.fn(); } }, a.label)));
+      if (acts.length) actions.append(h('button', { type: 'button', class: 'btn ghost sm', onclick: () => api.close() }, 'Dismiss'));
+      else if (autoClose) closeTimer = setTimeout(() => api.close(), autoClose);
     },
     close() {
       if (closed) return;

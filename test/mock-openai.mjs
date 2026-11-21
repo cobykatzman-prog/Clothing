@@ -40,6 +40,20 @@ export function tintPng(buf) {
   return encodePNG(d.width, d.height, out);
 }
 
+// A transparent-background t-shirt silhouette in one colour: what the mock "generates" (so the studio can cut it out and segment it).
+export function shirtPng(rgb = [200, 180, 140], size = 256) {
+  const px = new Uint8ClampedArray(size * size * 4), s = size / 256;
+  const inRect = (x, y, x0, y0, x1, y1) => x >= x0 * s && x < x1 * s && y >= y0 * s && y < y1 * s;
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const body = inRect(x, y, 76, 60, 180, 230), sleeve = inRect(x, y, 30, 60, 226, 118);
+    const neck = Math.hypot(x - 128 * s, y - 60 * s) < 24 * s;
+    if ((body || sleeve) && !neck) { const i = (y * size + x) * 4; px[i] = rgb[0]; px[i + 1] = rgb[1]; px[i + 2] = rgb[2]; px[i + 3] = 255; }
+  }
+  return encodePNG(size, size, px);
+}
+const COLOUR_WORDS = { navy: [28, 42, 77], cream: [239, 230, 210], red: [193, 39, 45], black: [29, 29, 33], white: [245, 245, 242], green: [60, 138, 79], blue: [47, 95, 176] };
+const colourFromPrompt = t => { const m = Object.keys(COLOUR_WORDS).find(k => new RegExp('\\b' + k + '\\b', 'i').test(t || '')); return COLOUR_WORDS[m] || [200, 180, 140]; };
+
 const CANNED = [
   [/flare/i, { summary: 'Slightly flare both sleeves, no cuffs', paramDeltas: { sleeveFlare: 35 }, sleevePreset: 'slightFlare', regions: ['leftSleeve', 'rightSleeve'], keep: ['body', 'collar'], removeCuffs: true, sleeveFrom: 'wrist', avoid: ['adding cuffs'], extract: null, matchBackToFront: false, confidence: 0.9 }],
   [/boxy/i, { summary: 'Boxier body, same length', paramDeltas: { bodyWidth: 60 }, fitPreset: 'boxy', regions: ['body'], keep: ['hem', 'collar'], keepNotes: ['garment length'], avoid: ['changing the garment length'], extract: null, matchBackToFront: false, confidence: 0.9 }],
@@ -54,7 +68,7 @@ const ELEMENTS = { elements: [
 ] };
 
 export async function startMock({ key = 'sk-test-mock-key' } = {}) {
-  const state = { key, failure: null, requests: [], chatReply: null, delayMs: 0, active: 0, maxActive: 0 };   // failure: null | '429' | '500' | 'timeout' | 'badjson' | 'noimage' | '400'
+  const state = { key, failure: null, failTimes: -1, requests: [], chatReply: null, delayMs: 0, active: 0, maxActive: 0 };   // failure: null | '429' | '500' | 'timeout' | 'badjson' | 'noimage' | '400'
   const sockets = new Set();
 
   const send = (res, status, body, headers = {}) => { res.writeHead(status, { 'Content-Type': 'application/json', ...headers }); res.end(typeof body === 'string' ? body : JSON.stringify(body)); };
@@ -77,7 +91,8 @@ export async function startMock({ key = 'sk-test-mock-key' } = {}) {
       if (req.headers.authorization !== `Bearer ${state.key}`) return err(res, 401, 'invalid_api_key');
       if (/multipart/i.test(ct)) { const p = parseMultipart(body, ct); rec.fields = p.fields; rec.files = p.files; }
       else if (/json/i.test(ct)) { try { rec.json = JSON.parse(body.toString('utf8')); } catch (_) { /* leave null */ } }
-      const f = state.failure;
+      let f = state.failure;
+      if (f && state.failTimes > 0) { state.failTimes--; if (state.failTimes === 0) state.failure = null; }
       if (f === 'timeout') return;                                   // never answers
       if (f === '429') return err(res, 429, 'rate_limit_exceeded', { 'Retry-After': '7' });
       if (f === '500') return err(res, 500, 'server_error');
@@ -88,12 +103,16 @@ export async function startMock({ key = 'sk-test-mock-key' } = {}) {
         if (f === 'noimage') return send(res, 200, { data: [{}] });
         const img = rec.files.find(x => x.name === 'image[]' || x.name === 'image');
         if (!img) return err(res, 400, 'missing_image');
+        const prompt = String(Array.isArray(rec.fields.prompt) ? rec.fields.prompt[0] : rec.fields.prompt || '');
+        if (/approved FRONT view/.test(prompt)) {   // another view of the same garment: same colour as the supplied front
+          let rgb = [200, 180, 140]; try { const d = decodePNG(img.data); const i = (Math.floor(d.height / 2) * d.width + Math.floor(d.width / 2)) * 4; rgb = [d.data[i], d.data[i + 1], d.data[i + 2]]; } catch (_) { /* default */ }
+          return send(res, 200, { created: 1, data: [{ b64_json: shirtPng(rgb).toString('base64') }] });
+        }
         return send(res, 200, { created: 1, data: [{ b64_json: tintPng(img.data).toString('base64') }] });
       }
       if (req.method === 'POST' && req.url === '/v1/images/generations') {
         if (f === 'noimage') return send(res, 200, { data: [{}] });
-        const px = new Uint8ClampedArray(64 * 64 * 4); for (let i = 0; i < px.length; i += 4) { px[i] = 200; px[i + 1] = 180; px[i + 2] = 140; px[i + 3] = 255; }
-        return send(res, 200, { created: 1, data: [{ b64_json: encodePNG(64, 64, px).toString('base64') }] });
+        return send(res, 200, { created: 1, data: [{ b64_json: shirtPng(colourFromPrompt(rec.json && rec.json.prompt)).toString('base64') }] });
       }
       if (req.method === 'POST' && req.url === '/v1/chat/completions') {
         const msgs = (rec.json && rec.json.messages) || [], sys = String((msgs[0] && msgs[0].content) || '');
@@ -114,10 +133,10 @@ export async function startMock({ key = 'sk-test-mock-key' } = {}) {
   return {
     url: `http://127.0.0.1:${port}/v1`, port, requests: state.requests, MARK,
     setKey: k => { state.key = k; },
-    setFailure: f => { state.failure = f; },
+    setFailure: (f, times = -1) => { state.failure = f; state.failTimes = times; },   // times: fail the next N requests then recover (-1 = until reset)
     setDelay: ms => { state.delayMs = ms; }, maxActive: () => state.maxActive,
     setChatReply: v => { state.chatReply = v; },     // string | function({system,user,body}) -> string | null (default behaviour)
-    reset: () => { state.requests.length = 0; state.failure = null; state.chatReply = null; state.delayMs = 0; state.maxActive = 0; },
+    reset: () => { state.requests.length = 0; state.failure = null; state.failTimes = -1; state.chatReply = null; state.delayMs = 0; state.maxActive = 0; },
     close: () => new Promise(r => { for (const s of sockets) s.destroy(); server.close(() => r()); })
   };
 }
