@@ -95,7 +95,7 @@ export function selectionBar() {
   const act = (ic, label, tip, fn, extra = {}) => h('button', { type: 'button', class: 'sb-act', 'aria-label': label, tip, onclick: fn, ...extra }, icon(ic, 16), h('span', { class: 'tl' }, label));
   const undoB = act('undo', 'Undo selection', 'Undo the last selection step (Ctrl+Z while a selection tool is active)', () => S.selUndo(), { 'data-act': 'sel-undo', 'data-level': 'advanced' });
   const redoB = act('redo', 'Redo selection', 'Redo the selection step you undid', () => S.selRedo(), { 'data-act': 'sel-redo', 'data-level': 'advanced' });
-  const clearB = act('x', 'Clear', 'Clear the selection (nothing selected)', () => S.clearSelection(), { 'data-act': 'clear' });
+  const clearB = act('x', 'Unhighlight', 'Remove every highlighted area from this garment view', () => S.clearSelection(), { 'data-act': 'clear' });
   const allB = act('selall', 'Select garment', 'Select the entire garment (Ctrl+A)', () => S.selectEntireGarment(), { 'data-act': 'select-all', 'data-level': 'advanced' });
   const invB = act('invert', 'Invert', 'Swap the selected and the unselected parts of the garment (Ctrl+I)', () => S.invertSelection(), { 'data-act': 'invert', 'data-level': 'advanced' });
   const zoomB = act('zoomSel', 'Zoom to it', 'Zoom the canvas to the selection (Z)', () => stageApi()?.zoomToSelection(), { 'data-act': 'zoom-sel', 'data-level': 'advanced' });
@@ -237,7 +237,7 @@ export function selectionSection({ section }) {
     h('div', { class: 'row gap wrap' },
       btn('Select garment', 'select-all', 'Select the entire garment (Ctrl+A)', () => S.selectEntireGarment()),
       btn('Invert', 'invert', 'Swap selected and unselected (Ctrl+I)', () => S.invertSelection()),
-      btn('Clear', 'clear', 'Clear the selection', () => S.clearSelection()),
+      btn('Unhighlight', 'unhighlight-all', 'Remove every highlighted area from this garment view', () => S.clearSelection()),
       btn('Zoom to selection', 'zoom-sel', 'Zoom the canvas to the selection (Z)', () => stageApi()?.zoomToSelection())),
     extractLogoBtn, replaceTextBtn, extractLogoHelp,
     readout,

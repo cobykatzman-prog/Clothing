@@ -214,3 +214,74 @@ body.view-home{background:#f2f0eb;color:var(--home-ink)}.home{background:#f2f0eb
 .design-material i{width:12px;height:12px;flex-basis:12px;border-radius:50%}
 @media(max-width:520px){.materials-fields{grid-template-columns:1fr}}
 @media(max-width:560px){.home-top{flex-wrap:wrap;height:auto;padding-block:8px}.home-actions{flex-wrap:wrap;justify-content:flex-end;min-width:0;max-width:100%}}
+
+/* Brand kit v2: compact sections, multiple logo variants, editable palette and type pairing */
+.brand-kit-dialog{max-height:min(88vh,820px);overflow:auto}
+.brand-kit-form{gap:17px}
+.brand-kit-section{display:flex;flex-direction:column;gap:10px;padding-bottom:15px;border-bottom:1px solid var(--home-line,#e5e1d8)}
+.brand-kit-section h3{margin:0;font-size:13px;font-weight:700;color:var(--home-ink,#25241f)}
+.brand-kit-section-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.brand-logo-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.brand-logo-row{min-width:0;border:1px solid var(--home-line,#e5e1d8);border-radius:9px;padding:9px;background:#fffefa;display:flex;flex-direction:column;gap:8px}
+.brand-logo-copy{display:flex;flex-direction:column;gap:7px;min-width:0}
+.brand-logo-copy b{font-size:11px}
+.brand-logo-preview{height:66px;border-radius:6px;background:repeating-conic-gradient(#f0eee9 0 25%,#fff 0 50%) 0 0/12px 12px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.brand-logo-preview img{max-width:100%;max-height:60px;object-fit:contain}
+.brand-logo-empty{font-size:10px;color:var(--home-muted,#77746c)}
+.brand-logo-actions{display:flex;flex-direction:column;gap:6px}
+.brand-logo-actions input[type=file]{width:100%;font-size:10px;min-width:0}
+.brand-palette-list{display:flex;flex-direction:column;gap:7px}
+.brand-palette-row{display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;gap:8px}
+.brand-palette-row input[type=color]{width:38px;height:36px;padding:2px;border:1px solid var(--home-line,#e5e1d8);border-radius:7px;background:#fff}
+.brand-palette-row input[type=text],.brand-kit-type-grid select{min-width:0;width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--home-line,#e5e1d8);border-radius:7px;background:#fff;font:inherit}
+.brand-kit-type-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.brand-kit-type-grid select{margin-top:5px}
+@media(max-width:520px){.brand-logo-list{grid-template-columns:1fr}.brand-logo-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center}.brand-kit-type-grid{grid-template-columns:1fr}.brand-palette-row{grid-template-columns:34px minmax(0,1fr) auto}.brand-palette-row .btn{padding:5px 7px}}
+
+/* Stage 3 — materials library management */
+.materials-toolbar{padding:0 20px 12px;display:flex;align-items:center;gap:12px;justify-content:space-between}
+.materials-toolbar input{min-width:0;flex:1;padding:9px 11px;border:1px solid var(--home-line,#e5e1d8);border-radius:8px;background:#fffefa;font:inherit}
+.material-library-card{align-items:center;gap:10px}
+.material-library-card .material-row-copy{gap:4px}
+.material-library-card .material-row-copy span{white-space:normal;line-height:1.35}
+.material-row-actions{display:flex;gap:5px;flex-shrink:0}
+.materials-library-footer{padding:14px 20px 20px;display:flex;justify-content:flex-end}
+.material-edit-dialog{width:min(600px,calc(100vw - 24px));max-height:min(88vh,820px);overflow:auto}
+.material-edit-form{padding:18px 20px 20px;display:flex;flex-direction:column;gap:12px}
+.material-edit-form .materials-fields{align-items:end}
+.material-edit-form input[type=color]{width:100%;height:38px;padding:3px;border:1px solid var(--home-line,#e5e1d8);border-radius:8px;background:#fff}
+.material-assignment-preview{display:flex;align-items:center;gap:10px;min-height:50px;padding:10px;border:1px solid var(--home-line,#e5e1d8);border-radius:9px;background:#fffefa}
+.material-assignment-preview>div{display:flex;flex-direction:column;gap:3px;min-width:0}
+.material-assignment-preview span{font-size:11px;color:var(--home-muted,#77746c);line-height:1.4}
+@media(max-width:520px){.materials-toolbar{align-items:stretch;flex-direction:column;gap:6px}.material-library-card{align-items:flex-start;flex-wrap:wrap}.material-row-actions{width:100%;justify-content:flex-end}.material-edit-form .materials-fields{grid-template-columns:1fr}}
+
+/* Stage 5 — bulk design organisation and clearer selection state */
+.home-filters{flex-wrap:wrap}
+.home-filters .home-search{flex:1 1 220px;min-width:160px}
+.home-filters .home-sort{flex:0 1 190px;min-width:150px}
+.home-filters .btn{flex:none}
+.bulk-toolbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:0 0 14px;padding:10px 12px;border:1px solid var(--home-line,#e5e1d8);border-radius:10px;background:#fffefa}
+.bulk-toolbar>b{font-size:12px;margin-right:auto}
+.dcard{position:relative}
+.dcard-select{position:absolute;z-index:3;top:10px;left:10px;display:flex;align-items:center;gap:6px;padding:6px 9px;border:1px solid rgba(0,0,0,.12);border-radius:999px;background:rgba(255,254,250,.96);box-shadow:0 2px 8px rgba(0,0,0,.08);font-size:11px;font-weight:650;cursor:pointer}
+.dcard-select input{width:15px;height:15px;margin:0;accent-color:#292820}
+.dcard.selected{outline:2px solid #292820;outline-offset:1px}
+.dcard.selectable .dcard-open{cursor:pointer}
+.dcard .dactions .mv{min-width:30px}
+@media(max-width:720px){.bulk-toolbar{align-items:stretch}.bulk-toolbar>b{width:100%}.bulk-toolbar .btn{flex:1}}
+
+/* Stage 7 — shared design review and approval tracking */
+.review-filters{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 12px}
+.review-filter{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--home-line,#e5e1d8);border-radius:999px;padding:6px 11px;background:#fffefa;color:var(--home-ink,#25241f);font:inherit;font-size:11px;cursor:pointer}
+.review-filter.active{background:#292820;border-color:#292820;color:#fff}
+.review-filter-count{font-size:10px;opacity:.72;font-variant-numeric:tabular-nums}
+.dreview{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:5px}
+.review-pill{display:inline-flex;align-items:center;border-radius:999px;padding:3px 7px;font-size:10px;font-weight:700;letter-spacing:.02em}
+.review-draft{background:#efeee9;color:#625f56}
+.review-review{background:#fff1d8;color:#80520d}
+.review-approved{background:#e5efe5;color:#365d3c}
+.review-by{font-size:10px;color:var(--home-muted,#77746c)}
+.review-dialog{width:min(520px,calc(100vw - 24px))}
+.review-form{padding:18px 20px 20px;display:flex;flex-direction:column;gap:12px}
+.review-form textarea{width:100%;min-height:76px;resize:vertical}
+@media(max-width:520px){.review-filters{gap:5px}.review-filter{padding:6px 9px}.review-form{padding:14px}}
