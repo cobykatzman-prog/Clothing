@@ -17,7 +17,7 @@ const { ok } = R;
   const settle = page => page.waitForFunction(() => { const u = window.__threadform.state.ui; return !u.busy && !u.processing; }, null, { timeout: 30000 }).then(() => page.waitForTimeout(250));
   const hash = (page, v) => page.evaluate(vv => { const s = window.__threadform.state, c = s.views[vv || s.activeView].current; if (!c) return null; const d = c.getContext('2d').getImageData(0, 0, 1024, 1024).data; let h = 0, n = 0; for (let i = 0; i < d.length; i += 4 * 7) { h = (h * 31 + d[i] + d[i + 1] * 3 + d[i + 3] * 7) >>> 0; if (d[i + 3] > 20) n++; } return h + ':' + n; }, v);
   const bbox = (page, v) => page.evaluate(vv => { const s = window.__threadform.state, c = s.views[vv || s.activeView].current; const d = c.getContext('2d').getImageData(0, 0, 1024, 1024).data; let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1; for (let y = 0; y < 1024; y++) for (let x = 0; x < 1024; x++) if (d[(y * 1024 + x) * 4 + 3] > 40) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } return { w: x1 - x0, h: y1 - y0, x0, x1, y0, y1 }; }, v);
-  const openSample = async (page) => { await page.goto(url + '#/'); await page.waitForSelector('#home:not([hidden])'); await page.click('#home >> text=Try a sample shirt'); await page.waitForFunction(() => window.__threadform.state.views.front.current); await settle(page); };
+  const openSample = async (page) => { await page.goto(url + '#/'); await page.waitForSelector('#home:not([hidden])'); if (await page.locator('#home >> text=Try a sample shirt').first().isVisible()) await page.click('#home >> text=Try a sample shirt'); else { await page.click('#home >> text=New design'); await page.click('dialog.chooser button.choice:has-text("Try a sample shirt")'); } await page.waitForFunction(() => window.__threadform.state.views.front.current); await settle(page); };
   const canvasPt = (page, ix, iy) => page.evaluate(([x, y]) => { const p = window.__stage.toScreen(x, y), r = document.getElementById('stage').getBoundingClientRect(); return { x: r.left + p.sx, y: r.top + p.sy }; }, [ix, iy]);
   const tab = (page, k) => page.click(`#rtab-${k}`);
 
@@ -198,6 +198,7 @@ const { ok } = R;
   ok((await els()).length === 7, 'Duplicate adds a layer');
   await page.click('#btn-undo'); await page.waitForTimeout(150);
   ok((await els()).length === 6, 'undo removes the duplicate');
+  await page.click(`#sec-layers .erow[data-id="${textId}"] .ename`); await tab(page, 'items');
   await page.evaluate(() => document.querySelectorAll('.insp details').forEach(d => { d.open = true; }));
   await page.click('.insp button:has-text("To Back")'); await page.waitForTimeout(250);
   ok((await els()).filter(e => e.view === 'back').length === 1, 'Duplicate to the back view puts a copy there');
@@ -215,6 +216,122 @@ const { ok } = R;
   await page.fill('input[aria-label="Tint strength %"]', '80').catch(() => {});
   await shot(page, 'j4-logo-inspector');
   noErrors('J4 layers');
+
+  /* ================= J5: save, reopen, deep link, rename, duplicate, delete ================= */
+  R.section('J5 save / reopen');
+  await page.click('.tab[data-v="front"]'); await settle(page);
+  await page.fill('input.name', 'Audit tee'); await tab(page, 'shape'); await setSlider('Body width', 35); await setSlider('Sleeve flare', 45);
+  await page.waitForFunction(() => /Saved/.test(document.querySelector('.save-status')?.textContent || ''), null, { timeout: 15000 });
+  ok(true, 'header shows Saved after edits');
+  const designUrl = page.url(), before5 = await S(page), hBefore = await hash(page, 'front');
+  await page.reload(); await page.waitForFunction(() => window.__threadform && window.__threadform.state.views.front.current, null, { timeout: 20000 }); await settle(page);
+  let a5 = await S(page);
+  ok(page.url() === designUrl, 'reload keeps the design link');
+  ok(a5.name === 'Audit tee' && a5.params.bodyWidth === 35 && a5.params.sleeveFlare === 45, `deep link reload restores name + shape ${JSON.stringify(a5.params)}`);
+  ok(a5.els.length === before5.els.length, 'reload restores all layers');
+  ok(await hash(page, 'front') === hBefore, 'reload restores identical front pixels');
+  ok(await page.evaluate(() => !!window.__threadform.state.views.back.current), 'back view restored');
+  // text layer content survives
+  ok(a5.els.some(e => e.type === 'text' && e.text === 'SPARTA'), 'edited text layer survives reload');
+  // undo after reload does not crash and works
+  await page.goto(url + '#/'); await page.waitForSelector('#home:not([hidden])'); await page.waitForSelector('.dcard');
+  ok(await page.locator('.dcard').count() === 1, 'home lists the saved design');
+  ok((await page.textContent('.dcard .dname')) === 'Audit tee', 'home card shows the name');
+  await shot(page, 'j5-home');
+  await page.click('.dcard .dcard-open'); await page.waitForFunction(() => window.__threadform.state.views.front.current); await settle(page);
+  ok((await S(page)).params.bodyWidth === 35, 'opening from home restores the design');
+  ok(await page.isDisabled('#btn-undo'), 'a reopened design starts with an empty undo history');
+  await tab(page, 'shape'); await setSlider('Body width', 10); await page.click('#btn-undo'); await settle(page);
+  ok((await S(page)).params.bodyWidth === 35, 'undo works on a reopened design');
+  // brand link goes home; rename + duplicate + delete on the home page
+  await page.click('a.home-btn'); await page.waitForSelector('#home:not([hidden])'); await page.waitForSelector('.dcard');
+  await page.click('.dcard >> text=Rename'); await page.fill('dialog.ask input', 'Renamed tee'); await page.click('dialog.ask button[type=submit]'); await page.waitForTimeout(600);
+  ok((await page.textContent('.dcard .dname')) === 'Renamed tee', 'Rename from home works');
+  await page.click('.dcard >> text=Duplicate'); await page.waitForTimeout(900);
+  ok(await page.locator('.dcard').count() === 2, 'Duplicate adds a second design');
+  await page.locator('.dcard').first().locator('text=Delete').click(); await page.waitForSelector('dialog.ask[open]');
+  await page.click('dialog.ask button[type=submit]'); await page.waitForTimeout(700);
+  ok(await page.locator('.dcard').count() === 1, 'Delete removes a design (after confirming)');
+  // a link to a design that does not exist is handled, not a white screen
+  await page.goto(url + '#/design/doesnotexist'); await page.waitForTimeout(1200);
+  ok(await page.isVisible('#home:not([hidden])') && (await page.locator('.toast, [role=status]').count()) > 0, 'unknown design link returns home with a message');
+  noErrors('J5 save');
+
+  /* ================= J6: describe, option cards, compare / accept / reject / regenerate / history ================= */
+  R.section('J6 options + review');
+  await openSample(page); await tab(page, 'look');
+  const h6 = await hash(page, 'front');
+  await page.click('#rpanel-look >> text=make the sleeves flared'); await page.click('#btn-variations');
+  await page.waitForFunction(() => document.querySelectorAll('#variation-cards .vcard:not(.pending)').length === 3, null, { timeout: 30000 }); await settle(page);
+  ok(await page.locator('#variation-cards .vcard').count() === 3, 'three option cards appear');
+  ok(await page.locator('#variation-cards button[data-act=use]').count() === 3 && (await page.textContent('#variation-cards button[data-act=use]')).trim() === 'Use this', 'every card has a "Use this" button');
+  await shot(page, 'j6-cards');
+  // preview + reject
+  await page.click('#variation-cards .vcard:nth-child(2) button[data-act=preview]'); await page.waitForSelector('#review-bar:not([hidden])');
+  ok(await hash(page, 'front') === h6, 'previewing does not change the design');
+  ok(await page.isEnabled('#btn-accept') && await page.isEnabled('#btn-reject') && await page.isEnabled('#btn-regenerate') && await page.isEnabled('#btn-edit-further'), 'review bar buttons are enabled');
+  await shot(page, 'j6-preview');
+  await page.click('#btn-review-compare'); ok(await page.isVisible('#cmp-bar'), 'Compare opens the compare bar');
+  for (const id of ['cmp-slider', 'cmp-side', 'cmp-flip']) { await page.click('#' + id); ok((await page.getAttribute('#' + id, 'aria-pressed')) === 'true', `compare mode ${id} activates`); }
+  await page.click('#cmp-slider'); ok(await page.isVisible('#cmp-handle'), 'slider handle visible'); await page.focus('#cmp-handle'); await page.keyboard.press('ArrowRight');
+  ok(+(await page.getAttribute('#cmp-handle', 'aria-valuenow')) > 50, 'slider handle moves with the arrow keys');
+  await shot(page, 'j6-compare');
+  await page.click('#cmp-close'); ok(!(await page.isVisible('#cmp-bar')), 'Close compare closes the bar');
+  await page.click('#btn-reject'); await page.waitForTimeout(200);
+  ok(!(await page.isVisible('#review-bar')) && await hash(page, 'front') === h6, 'Reject closes the preview and leaves the garment untouched');
+  // preview + Escape rejects
+  await page.click('#variation-cards .vcard:nth-child(1) button[data-act=preview]'); await page.keyboard.press('Escape'); await page.waitForTimeout(200);
+  ok(!(await page.isVisible('#review-bar')), 'Esc rejects a preview');
+  // regenerate
+  await page.click('#variation-cards .vcard:nth-child(3) button[data-act=preview]'); await page.click('#btn-regenerate');
+  await page.waitForFunction(() => document.querySelectorAll('#variation-cards .vcard:not(.pending)').length === 3, null, { timeout: 30000 }); await settle(page);
+  ok(!(await page.isVisible('#review-bar')) && await page.locator('#variation-cards .vcard').count() === 3, 'Regenerate produces a fresh set of three options');
+  // edit prompt further
+  await page.click('#variation-cards .vcard:nth-child(2) button[data-act=preview]'); await page.click('#btn-edit-further');
+  ok((await page.inputValue('#prompt')).length > 0, 'Edit prompt further puts the prompt back in Describe');
+  await page.click('#btn-reject');
+  // accept via the review bar
+  await page.click('#variation-cards .vcard:nth-child(2) button[data-act=preview]'); await page.click('#btn-accept'); await settle(page);
+  ok(await hash(page, 'front') !== h6, 'Accept changes the garment');
+  ok(await page.locator('#variation-cards .vcard.applied').count() === 1, 'accepted card shows Applied');
+  const h6b = await hash(page, 'front');
+  // history drawer
+  await page.click('button:has-text("Version history")'); await page.click('#dtab-edits'); await page.waitForTimeout(200);
+  ok(await page.locator('#edit-history .eitem').count() === 1, 'accepted edit appears in Edit history');
+  await page.click('#edit-history .eitem'); ok(await page.isVisible('#edit-history .edetail'), 'edit detail opens with before / after');
+  await shot(page, 'j6-history');
+  await page.click('#dtab-versions'); ok(await page.locator('.vitem').count() >= 2, 'Versions tab lists versions');
+  await page.keyboard.press('Escape');
+  // undo edit / redo edit
+  await page.click('#btn-undo-edit'); await settle(page);
+  ok(await hash(page, 'front') === h6, 'Undo edit puts the garment back');
+  await page.click('#btn-redo-edit'); await settle(page);
+  ok(await hash(page, 'front') === h6b, 'Redo edit re-applies it');
+  // "Use this": one click puts an option on the garment, recorded in history, undoable
+  await page.click('#btn-undo-edit'); await settle(page);
+  await page.click('#btn-variations'); await page.waitForFunction(() => document.querySelectorAll('#variation-cards .vcard:not(.pending)').length === 3, null, { timeout: 30000 }); await settle(page);
+  await page.click('#variation-cards .vcard:nth-child(3) button[data-act=use]'); await settle(page);
+  ok(await hash(page, 'front') !== h6, '"Use this" applies the option');
+  ok(await page.locator('#variation-cards .vcard.applied').count() === 1, '"Use this" marks the card Applied');
+  await page.click('#btn-undo'); await settle(page);
+  ok(await hash(page, 'front') === h6, 'Undo after "Use this" restores the garment');
+  // compare from the bottom bar
+  await page.click('#btn-compare'); ok(await page.isVisible('#cmp-bar'), 'bottom Compare button opens compare'); await page.click('#cmp-close');
+  noErrors('J6 review');
+
+  /* ================= J7: export ================= */
+  R.section('J7 export');
+  await page.click('#btn-export'); ok(await page.isVisible('#export-menu'), 'Export opens a menu');
+  const items = await page.$$eval('#export-menu .menu-item', b => b.map(x => x.querySelector('b').textContent));
+  for (const it of items.filter(i => !/Custom/.test(i))) {
+    if (!(await page.isVisible('#export-menu'))) await page.click('#btn-export');
+    const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click(`#export-menu .menu-item:has(b:text-is("${it}"))`)]);
+    const f = await dl.path(); const size = fs.statSync(f).size;
+    ok(size > 200, `export "${it}" downloads a non-empty file (${dl.suggestedFilename()}, ${size} B)`);
+  }
+  await page.click('#btn-export'); await page.click('#btn-custom-export'); ok(await page.isVisible('dialog[open]'), 'Custom export dialog opens');
+  await shot(page, 'j7-export-dialog'); await page.keyboard.press('Escape');
+  noErrors('J7 export');
 
   await browser.close(); srv.close();
   const good = R.done(); process.exit(good ? 0 : 1);

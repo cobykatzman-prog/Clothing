@@ -22,11 +22,11 @@ export function hideBanner() {
 }
 export const bannerShown = () => !!bar && !bar.hidden;
 
-/** "Last edited 5 min ago" line; call .set(ms) when the time changes. Refreshes its own text every 30 s. */
+/** "Last edited by Alice 5 min ago" line; call .set(ms, by) when it changes. Refreshes its own text every 30 s. */
 export function lastEditedLine() {
   const el = h('span', { class: 'last-edited', hidden: true });
-  let at = 0;
-  const paint = () => { el.hidden = !at; el.textContent = at ? 'Last edited ' + timeAgo(at) : ''; };
+  let at = 0, by = '';
+  const paint = () => { el.hidden = !at; el.textContent = at ? 'Last edited ' + (by ? 'by ' + by + ' ' : '') + timeAgo(at) : ''; };
   setInterval(paint, 30000);
-  return { el, set(ms) { at = ms || 0; paint(); }, clear() { at = 0; paint(); } };
+  return { el, set(ms, who) { at = ms || 0; by = who && who !== 'local' ? String(who) : ''; paint(); }, clear() { at = 0; by = ''; paint(); } };
 }

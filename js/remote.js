@@ -8,6 +8,7 @@ const MESSAGES = {
   offline: 'Could not reach the shared library. Check your internet connection; Threadform will keep trying.',
   unavailable: 'The shared library is not answering right now. Threadform will keep trying.',
   auth: 'Your login has expired. Reload the page and log in again.',
+  forbidden: 'You have view-only access here, so this change was not saved.',
   conflict: 'Someone else changed this design while you were editing it.',
   notfound: 'That design is no longer in the shared library. It may have been deleted.',
   assetmissing: 'The design is there, but one of its images is still syncing. Wait a moment and open it again.',
@@ -15,7 +16,7 @@ const MESSAGES = {
   bad: 'The shared library could not accept that change. Try again in a moment.',
 };
 export class RemoteError extends Error {
-  /** kind: offline | unavailable | auth | conflict | notfound | assetmissing | toolarge | bad */
+  /** kind: offline | unavailable | auth | forbidden | conflict | notfound | assetmissing | toolarge | bad */
   constructor(kind, { status = 0, currentRev = null, cause = null } = {}) {
     super(MESSAGES[kind] || MESSAGES.bad);
     this.name = 'RemoteError'; this.kind = kind; this.status = status; this.currentRev = currentRev; this.cause = cause; this.user = true;
@@ -42,12 +43,17 @@ async function call(method, path, { json, body, type, timeout = 30000, raw = fal
   }
   clearTimeout(timer);
   const status = res.status;
-  if (status === 401 || status === 403) throw new RemoteError('auth', { status });
+  if (status === 401) throw new RemoteError('auth', { status });
+  if (status === 403) {   // our server answers JSON when it refuses a role; anything else is a gate in front of it
+    if (/json/i.test(res.headers.get('content-type') || '')) throw new RemoteError('forbidden', { status });
+    throw new RemoteError('auth', { status });
+  }
+  if (status === 422) throw new RemoteError('bad', { status });
   if (status === 404) throw new RemoteError('notfound', { status });
   if (status === 413) throw new RemoteError('toolarge', { status });
   if (status === 409) {
-    let cur = null; try { cur = (await res.json()).currentRev ?? null; } catch { /* no body */ }
-    throw new RemoteError('conflict', { status, currentRev: cur });
+    let cur = null, by = null; try { const j = await res.json(); cur = j.currentRev ?? null; by = j.by ?? null; } catch { /* no body */ }
+    const e = new RemoteError('conflict', { status, currentRev: cur }); e.by = by; throw e;
   }
   if (status >= 500) throw new RemoteError('unavailable', { status });
   if (!res.ok) throw new RemoteError('bad', { status });
@@ -148,6 +154,30 @@ export async function getAsset(id, hash) {
     throw e;
   }
   remember(key, blob);
+  return blob;
+}
+
+/* ---- identity, versions, sharing ---- */
+export const me = () => call('GET', '/api/shared/me', { timeout: 12000 });
+export const history = id => call('GET', `/api/designs/${ID(id)}/history`);
+export const historyEntry = (id, rev) => call('GET', `/api/designs/${ID(id)}/history/${Number(rev)}`);
+export const restoreRev = (id, rev, baseRev) => call('POST', `/api/designs/${ID(id)}/restore`, { json: { rev, baseRev } });
+export const getAcl = id => call('GET', `/api/designs/${ID(id)}/acl`);
+export const putAcl = (id, members) => call('PUT', `/api/designs/${ID(id)}/acl`, { json: { members } });
+
+/* ---- shared Brand Kit (see SHARED-API.md "Workspace") ---- */
+export const kitList = kind => call('GET', '/api/workspace' + (kind ? `?kind=${ID(kind)}` : ''));
+export const kitPut = (kind, id, body) => call('PUT', `/api/workspace/${ID(kind)}/${ID(id)}`, { json: body });
+export const kitDelete = (kind, id) => call('DELETE', `/api/workspace/${ID(kind)}/${ID(id)}`);
+export const kitMissing = async hashes => hashes.length ? (await call('POST', '/api/workspace/blobs/missing', { json: { hashes } })).missing || [] : [];
+export async function kitPutBlob(hash, blob) {
+  await call('PUT', `/api/workspace/blobs/${hash}`, { body: blob, type: await mimeOf(blob), timeout: 90000 });
+  remember(`kit/${hash}`, blob);
+}
+export async function kitGetBlob(hash) {
+  if (assetCache.has(`kit/${hash}`)) return assetCache.get(`kit/${hash}`);
+  const blob = await retry(() => call('GET', `/api/workspace/blobs/${hash}`, { raw: true, timeout: 60000 }));
+  remember(`kit/${hash}`, blob);
   return blob;
 }
 

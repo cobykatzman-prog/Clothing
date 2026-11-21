@@ -73,7 +73,7 @@ await t('status: ok, then clear reasons for bad key / missing tables / paused / 
 
 await t('create, get, list (newest first), rev', async () => {
   const a = idN(1), b = idN(2);
-  assert.deepEqual(await J(await create(a)), { status: 200, body: { rev: 1 } });
+  { const c = await J(await create(a)); assert.equal(c.status, 200); assert.equal(c.body.rev, 1); assert.equal(c.body.updatedBy, 'shared'); }
   await new Promise(r => setTimeout(r, 5));
   await create(b, { name: 'Hoodie' });
   const g = (await J(await api(`/api/designs/${a}`))).body;
@@ -90,7 +90,7 @@ await t('update with correct rev, then stale rev gives 409 with currentRev', asy
   assert.equal(u.status, 200); assert.equal(u.body.rev, 2); assert.ok(u.body.updatedAt);
   const g = (await J(await api(`/api/designs/${id}`))).body; assert.equal(g.name, 'Tee v2'); assert.equal(g.rev, 2); assert.deepEqual(g.doc, { layers: [1] });
   const stale = await J(await api(`/api/designs/${id}`, { method: 'PUT', body: { baseRev: 1, name: 'x', meta: {}, doc: {}, keepAssets: [] } }));
-  assert.deepEqual(stale, { status: 409, body: { error: 'conflict', currentRev: 2 } });
+  assert.equal(stale.status, 409); assert.equal(stale.body.error, 'conflict'); assert.equal(stale.body.currentRev, 2);
   assert.equal((await api(`/api/designs/${id}`)).status, 200);
   assert.equal((await J(await api(`/api/designs/${id}`))).body.name, 'Tee v2');   // stale write changed nothing
   assert.equal((await api(`/api/designs/${idN(99)}`, { method: 'PUT', body: { baseRev: 1, name: 'x', meta: {}, doc: {} } })).status, 404);
