@@ -6,6 +6,20 @@ const SIZE = 1024;
 const PAD = 14; // internal raster padding (px at res 1) for shadows
 
 let _id = 1;
+/** Clone editable data without copying browser image/canvas objects used by logo layers. */
+function cloneElementValue(value) {
+  if (Array.isArray(value)) return value.map(cloneElementValue);
+  if (value && typeof value === 'object') {
+    const proto = Object.getPrototypeOf(value);
+    if (proto === Object.prototype || proto === null) {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneElementValue(item)]));
+    }
+  }
+  return value;
+}
+function cloneElementProps(props = {}) {
+  return Object.fromEntries(Object.entries(props).map(([key, value]) => [key, cloneElementValue(value)]));
+}
 export const ELEMENT_TYPES = ['text', 'logo', 'crest', 'graphic', 'stripe', 'piping', 'embroidery', 'print', 'patch'];
 // Fonts: no web-font loading (the site makes no runtime network requests), so every entry is a family name
 // with a generic fallback. A family renders as designed only where it is installed; manual.js marks the rest.
@@ -44,16 +58,18 @@ export class ElementLayer {
     this.flipX = false; this.flipY = false;   // mirror horizontally / vertically (drawn about the element centre)
   }
   clone() {
-    const e = new ElementLayer(this.type, { ...this.props });
+    // Undo history and duplicates must not share nested style objects (shadow, colour maps, etc.).
+    const e = new ElementLayer(this.type, cloneElementProps(this.props));
     Object.assign(e, { x: this.x, y: this.y, w: this.w, h: this.h, rotation: this.rotation, view: this.view, visible: this.visible, locked: this.locked, name: this.name, opacity: this.opacity, base: this.base ? { ...this.base } : null, flipX: !!this.flipX, flipY: !!this.flipY });
     return e;
   }
   toJSON() {
-    const p = { ...this.props }; if (p.image) { p.image = imageToDataURL(p.image); }
+    // Freeze the saved representation before asynchronous storage/network work begins.
+    const p = cloneElementProps(this.props); if (p.image) { p.image = imageToDataURL(p.image); }
     return { id: this.id, type: this.type, x: this.x, y: this.y, w: this.w, h: this.h, rotation: this.rotation, props: p, view: this.view, visible: this.visible, locked: this.locked, name: this.name, opacity: this.opacity, base: this.base, flipX: !!this.flipX, flipY: !!this.flipY };
   }
   static fromJSON(o) {
-    const e = new ElementLayer(o.type, { ...o.props });
+    const e = new ElementLayer(o.type, cloneElementProps(o.props || {}));
     Object.assign(e, { id: o.id || e.id, x: o.x, y: o.y, w: o.w, h: o.h, rotation: o.rotation || 0, view: o.view || 'front', visible: o.visible !== false, locked: !!o.locked, name: o.name || o.type, opacity: o.opacity ?? 1, base: o.base || null, flipX: !!o.flipX, flipY: !!o.flipY });
     return e;
   }
@@ -156,8 +172,11 @@ function resolveSVG(el) {
   if (!src && lib) src = lib.svg;
   if (!src) return null;
   const cols = Object.assign({}, lib ? lib.colors : {}, p.colors || {});
-  if (p.color) cols.c1 = p.color; if (p.color2) cols.c2 = p.color2; if (p.color3) cols.c3 = p.color3;
-  return src.replace(/\{\{c([123])\}\}/g, (_, n) => cols['c' + n] || '#888');
+  for (let i = 1; i <= 6; i++) {
+    const key = i === 1 ? 'color' : 'color' + i;
+    if (p[key]) cols['c' + i] = p[key];
+  }
+  return src.replace(/\{\{c([1-6])\}\}/g, (_, n) => cols['c' + n] || '#888');
 }
 
 /* ------------------------------------------------------------------ asset loading (SVG & image) */
@@ -510,7 +529,8 @@ export const rasterizeElement = rasteriseElement;
 /* ------------------------------------------------------------------ drawing */
 /** Drop shadow props: {on, color:'#rrggbb', alpha 0..1, blur px, x px, y px}. Stored as a plain object (replaced, never mutated). */
 const shadowRGBA = sh => { const [r, g, b] = hexToRgb(sh.color || '#000000'); return `rgba(${r},${g},${b},${sh.alpha ?? 0.45})`; };
-const inView =(el, view) => el.visible !== false && (!el.view || el.view === 'all' || el.view === view);
+// Fully transparent layers are visually absent and should not intercept clicks on artwork beneath them.
+const inView = (el, view) => el.visible !== false && (el.opacity ?? 1) > 0 && (!el.view || el.view === 'all' || el.view === view);
 export function handlesFor(el, hs = 1) {
   const hw = el.w / 2, hh = el.h / 2; const cos = Math.cos(el.rotation * Math.PI / 180), sin = Math.sin(el.rotation * Math.PI / 180);
   const T = (lx, ly) => ({ x: el.x + lx * cos - ly * sin, y: el.y + lx * sin + ly * cos });
@@ -659,7 +679,7 @@ function innerSVG(el) {
 const SAFE_COLOR = /^(#[0-9a-f]{3,8}|(rgb|hsl)a?\(\s*[0-9.,%\s/-]+\)|[a-z]{3,20})$/i;
 const safeCol = (c, d = '#000000') => (typeof c === 'string' && SAFE_COLOR.test(c.trim()) ? c.trim() : d);
 const safeNum = (v, d = 0) => (Number.isFinite(Number(v)) && v !== '' && v !== null ? Number(v) : d);
-const SVG_COLOR_KEYS = ['color', 'color2', 'color3', 'bg', 'border', 'textColor', 'outlineColor', 'tint'];
+const SVG_COLOR_KEYS = ['color', 'color2', 'color3', 'color4', 'color5', 'color6', 'bg', 'border', 'textColor', 'outlineColor', 'tint'];
 const SVG_NUM_KEYS = ['size', 'thickness', 'opacity', 'letterSpacing', 'outline', 'count', 'gapRatio', 'curve', 'tintAmount', 'gap', 'width', 'height', 'bend'];
 function svgSafeElement(el) {
   const out = Object.assign(Object.create(Object.getPrototypeOf(el)), el);

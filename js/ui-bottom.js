@@ -3,7 +3,7 @@ import { state, VIEWS, activeView, subscribe, notify, markFlow, pushVersion, res
 import { h, icon, toast, makeCanvas, SIZE, canvasToBlob, friendly, userError, setDisabled } from './util.js';
 import * as A from './ui-actions.js';
 import { exportPNG, exportSVG, exportDesignSheet, download } from './export.js';
-import { exportMeasureData, measurementsCSV, manufacturerSpecCSV } from './measure.js';
+import { exportMeasureData, measurementsCSV, manufacturerSpecCSV, gradedMeasurementCSV } from './measure.js';
 import { openExportDialog } from './export-dialog.js';
 import { editControls, editHistoryPanel } from './ui-review.js';
 
@@ -53,6 +53,11 @@ export function initBottom(root) {
       const view = S.views.front?.current ? 'front' : S.activeView;
       const d = exportMeasureData(S, view, { unit: 'cm' }); if (!d) throw userError('Nothing to measure yet. Load or generate a garment first.');
       download(new Blob([manufacturerSpecCSV(d, { design: S.name, view })], { type: 'text/csv;charset=utf-8' }), `${slug()}-manufacturer-spec-cm.csv`);
+    }),
+    item('Graded size chart (XS–XXL CSV)', 'Estimated size run using the selected size as the base', async () => {
+      const view = S.views.front?.current ? 'front' : S.activeView;
+      const d = exportMeasureData(S, view); if (!d) throw userError('Load a Front or Back garment view before exporting a graded size chart.');
+      download(new Blob([gradedMeasurementCSV(d, { design: S.name, view })], { type: 'text/csv;charset=utf-8' }), `${slug()}-graded-size-chart.csv`);
     }),
     item('Design sheet', 'Specs, swatches, all views', async () => {
       const views = {}; for (const n of VIEWS) if (S.views[n].current) views[n] = S.views[n].current;
