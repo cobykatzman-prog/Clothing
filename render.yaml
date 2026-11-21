@@ -24,6 +24,9 @@ services:
         sync: false            # e.g. https://abcdxyz.supabase.co, typed in the Render dashboard
       - key: SUPABASE_SERVICE_KEY
         sync: false            # the service_role key: server only, never put it in the repo
+      # Optional individual logins and roles (README, 'Password login' and 'Shared workspace'); set in the dashboard, never in the repo.
+      # - key: SITE_USERS      (alice:password,bob:password)
+      # - key: SITE_ROLES      (alice:owner,bob:editor)
       # Optional AI editing (see README, "AI editing"). Without a key the app uses the local engine only.
       - key: OPENAI_API_KEY
         sync: false            # typed in the Render dashboard, never in the repo

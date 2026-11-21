@@ -15,6 +15,8 @@ import { initHome, refreshHome } from './home.js';
 import { aiStatus } from './ai.js';
 import * as sel from './selection.js';
 import { showBanner, hideBanner, bannerShown, lastEditedLine } from './sync.js';
+import { syncState } from './syncstate.js';
+import { identity, openHistoryDialog, openSharingDialog, kitStatusChip } from './workspace-ui.js';
 
 const $ = id => document.getElementById(id);
 initTooltips();
@@ -46,13 +48,21 @@ const saveStatus = h('span', { class: 'save-status', role: 'status', 'aria-live'
 header.querySelector('.head-right')?.prepend(saveStatus);
 const SHARED = store.shared();   // shared library mode: designs live on the server and are the same for everyone with the password
 const lastEdited = lastEditedLine();
-if (SHARED) header.querySelector('input.name')?.after(lastEdited.el);
+const me = identity();
+if (SHARED) {
+  header.querySelector('input.name')?.after(lastEdited.el);
+  const historyBtn = h('button', { type: 'button', class: 'btn ghost sm', tip: 'Earlier saved versions of this design, and restore', onclick: () => openHistory() }, 'History');
+  const shareBtn = h('button', { type: 'button', class: 'btn ghost sm', hidden: !me?.multi, tip: 'Choose who can edit or only view this design', onclick: () => openSharing() }, 'Share');
+  const roleChip = h('span', { class: 'role-chip', hidden: true });
+  lastEdited.el.after(historyBtn, shareBtn, roleChip, kitStatusChip());
+  window.__tfWorkspace = { shareBtn, roleChip };
+}
 header.addEventListener('input', e => { if (e.target.classList?.contains('name')) markDirty(); });   // header rename
 
 // ---- state of the open design ----
 let currentId = null, loaded = false, loading = false, dirty = false, createdAt = 0, nav = 0;
 let queue = Promise.resolve(), lastStatus = '';
-let saving = false, conflict = null;   // conflict: null | 'changed' | 'deleted' (shared mode: waiting for the user's choice)
+let saving = false, conflict = null, readOnly = false, myRole = 'owner';   // conflict: null | 'changed' | 'deleted' (shared mode: waiting for the user's choice)
 const unsynced = new Map();            // id -> record that could not reach the shared library yet (retried with backoff)
 let retryTimer = 0, retryN = 0;
 const NON_CONTENT = new Set(['render', 'zoom', 'processing', 'busy', 'compare', 'tool', 'view', 'selection', 'history', 'mode', 'tab', 'part', 'refine']);
@@ -61,7 +71,8 @@ function setStatus(kind, t) {
   lastStatus = kind;
   const text = (SHARED ? {
     pending: 'Unsaved changes', saving: 'Saving...', full: 'Not saved: storage full', error: 'Not saved',
-    saved: 'Saved to shared library', offline: 'Not saved (offline): will retry', conflict: 'Not saved: someone else changed this design',
+    saved: 'Saved to shared library', offline: 'Not saved (offline): will retry' + (unsynced.size > 1 ? ` (${unsynced.size} designs waiting)` : ''), conflict: 'Not saved: someone else changed this design',
+    viewonly: 'View only: changes are not saved',
   } : {
     pending: 'Unsaved changes', saving: 'Saving…', full: 'Not saved: storage full', error: 'Not saved',
     saved: 'Saved',
@@ -69,6 +80,10 @@ function setStatus(kind, t) {
   saveStatus.textContent = text;
   saveStatus.title = text + (t ? ' (last saved ' + new Date(t).toLocaleString() + ')' : '');   // full text even when the label is cut short
   saveStatus.dataset.kind = kind;
+  if (SHARED) {
+    const map = { pending: 'saving', saving: 'saving', saved: 'saved', viewonly: 'saved', offline: 'offline', conflict: 'conflict', error: 'error', full: 'error' };
+    syncState.set('design', map[kind] || 'saved', { pending: unsynced.size, detail: text });
+  }
 }
 
 const pickThumb = () => {
@@ -94,7 +109,7 @@ async function buildRecord(id) {
 }
 
 async function doSave() {
-  if (!dirty || !currentId || loading) return;
+  if (!dirty || !currentId || loading || readOnly) return;
   if (conflict) return;   // shared mode: waiting for "Load their version" or "Keep mine"
   dirty = false;
   const id = currentId;
@@ -106,7 +121,7 @@ async function doSave() {
     rec = built.rec;
     unsynced.delete(id);
     const res = await store.putDesign(rec);
-    if (SHARED) { store.dropBackup(id); retryN = 0; lastEdited.set(res?.updatedAt || built.now); }
+    if (SHARED) { store.dropBackup(id); retryN = 0; lastEdited.set(res?.updatedAt || built.now, res?.updatedBy || me?.name); }
     setStatus('saved', built.now);
   } catch (e) {
     dirty = true;   // the next change retries
@@ -123,7 +138,7 @@ async function doSave() {
 const flushSave = () => (queue = queue.then(doSave, doSave));
 const scheduleSave = debounce(() => flushSave(), 900);
 function markDirty() {
-  if (!currentId || loading) return;
+  if (!currentId || loading || readOnly) return;
   dirty = true;
   if (conflict) return;   // the banner is waiting for a decision; nothing is saved over their version meanwhile
   setStatus('pending'); scheduleSave();
@@ -134,9 +149,13 @@ subscribe(r => { if (!NON_CONTENT.has(r)) markDirty(); });
 const copyName = n => String(n || 'Untitled design').replace(/ \(my version\)$/, '').slice(0, 100) + ' (my version)';
 
 function sharedSaveFailed(e, id, rec) {
+  if (e.kind === 'forbidden') {   // the role changed to view-only while this was open: keep the work as a copy offer
+    dirty = false; enterReadOnly('viewer');
+    return;
+  }
   if (e.kind === 'conflict' || e.kind === 'notfound') {
     if (rec) store.backupLocally(rec, store.revOf(id)).catch(() => { });
-    return showConflict(e.kind === 'notfound' ? 'deleted' : 'changed');
+    return showConflict(e.kind === 'notfound' ? 'deleted' : 'changed', e.by);
   }
   const prev = lastStatus;
   if (e.transient) {
@@ -176,7 +195,34 @@ async function saveRecordAsCopy(rec) {
   return id;
 }
 
-function showConflict(kind) {
+/** Shows the design as view-only (your role, or a per-design setting, does not let you change it) with a way to keep a private copy. */
+function enterReadOnly(role) {
+  readOnly = true; myRole = role || 'viewer';
+  clearTimeout(retryTimer);
+  setStatus('viewonly');
+  const w = window.__tfWorkspace; if (w) { w.roleChip.hidden = false; w.roleChip.textContent = 'View only'; }
+  showBanner('You can look at this design but not change it. Your changes will not be saved here. Save a copy to work on your own version.', [{ label: 'Save a copy and edit it', primary: true, onclick: () => copyAndEdit() }, { label: 'Dismiss', onclick: () => hideBanner() }]);
+}
+async function copyAndEdit() {
+  const id = currentId; if (!id) return;
+  try {
+    const { rec } = await buildRecord(id);
+    const name = String(rec.meta.name || 'Untitled design').slice(0, 100) + ' (my copy)', nid = store.newId(), now = Date.now();
+    await store.putDesign({ id: nid, meta: { ...rec.meta, id: nid, name, createdAt: now, updatedAt: now, order: undefined }, doc: { ...rec.doc, name, createdAt: now, updatedAt: now }, assets: rec.assets });
+    readOnly = false; myRole = 'owner'; hideBanner();
+    const w = window.__tfWorkspace; if (w) w.roleChip.hidden = true;
+    location.hash = '#/design/' + nid;
+    toast('Saved as "' + name + '". You can edit this copy.', 'ok', 5000);
+  } catch (e) { toast(friendly(e, 'Could not save a copy right now. Try again in a moment.'), 'error', 5000); }
+}
+async function openHistory() {
+  const id = currentId; if (!id || !loaded) return;
+  await flushSave();   // what you see now becomes the newest saved version first
+  openHistoryDialog({ id, canRestore: !readOnly && myRole !== 'viewer', onRestore: async rev => { await store.restoreVersion(id, rev); await reloadRemote(false); toast('Restored version ' + rev + '.', 'ok'); } });
+}
+function openSharing() { if (currentId && loaded) openSharingDialog({ id: currentId }); }
+
+function showConflict(kind, by) {
   conflict = kind;
   clearTimeout(retryTimer);
   setStatus('conflict');
@@ -184,7 +230,7 @@ function showConflict(kind) {
   if (kind === 'deleted') {
     showBanner('This design was deleted from the shared library by someone else. You can keep your version as a new design.', [{ ...keep, primary: true }, { label: 'Go to all designs', onclick: () => { conflict = null; dirty = false; hideBanner(); location.hash = '#/'; } }]);
   } else {
-    showBanner('Your friend changed this design while you were editing it. Their version has not been loaded, so nothing of yours was overwritten.', [{ label: 'Load their version', primary: true, onclick: () => loadTheirs() }, keep]);
+    showBanner((by && by !== me?.name ? by : 'Someone') + ' changed this design while you were editing it. Their version has not been loaded, so nothing of yours was overwritten.', [{ label: 'Load their version', primary: true, onclick: () => loadTheirs() }, keep]);
   }
 }
 async function loadTheirs() {
@@ -221,7 +267,7 @@ async function reloadRemote(quiet) {
     createdAt = rec.meta?.createdAt || rec.doc?.createdAt || createdAt;
   } finally { loading = false; dirty = false; }
   conflict = null; unsynced.delete(id); store.dropBackup(id); hideBanner();
-  setStatus('saved', rec.meta?.updatedAt); lastEdited.set(rec.meta?.updatedAt);
+  setStatus('saved', rec.meta?.updatedAt); lastEdited.set(rec.meta?.updatedAt, rec.meta?.updatedBy);
 }
 let polling = false;
 async function pollRev() {
@@ -232,10 +278,10 @@ async function pollRev() {
   try {
     const r = await R.rev(id);
     if (id !== currentId || saving || conflict || loading) return;
-    lastEdited.set(R.toMs(r.updatedAt) || undefined);
+    lastEdited.set(R.toMs(r.updatedAt) || undefined, r.updatedBy);
     if (r.rev > (store.revOf(id) ?? known)) {
-      if (dirty) showConflict('changed');
-      else { await reloadRemote(true); if (!conflict && id === currentId) toast('Updated with changes from your friend', 'ok', 4000); }
+      if (dirty) showConflict('changed', r.updatedBy);
+      else { await reloadRemote(true); if (!conflict && id === currentId) toast('Updated with changes from ' + (r.updatedBy && r.updatedBy !== me?.name ? r.updatedBy : 'someone else'), 'ok', 4000); }
     }
   } catch (e) {
     if (e.kind === 'notfound' && id === currentId) { dirty ? showConflict('deleted') : (toast('This design was deleted from the shared library by someone else.', 'error', 5000), location.hash = '#/'); }
@@ -244,6 +290,8 @@ async function pollRev() {
 }
 if (SHARED) {
   setInterval(pollRev, 8000);
+  window.addEventListener('online', () => { retryN = 0; clearTimeout(retryTimer); if (unsynced.size || dirty) retryUnsynced(); pollRev(); });   // back online: send what was queued now
+  window.addEventListener('offline', () => { if (currentId && (dirty || unsynced.size)) setStatus('offline'); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) pollRev(); });
 }
 /** Changes that could not be saved earlier (offline, or a crash): put them back, or keep them as a copy if someone else saved first. */
@@ -272,7 +320,7 @@ async function goHome() {
   if (SHARED && conflict && currentId) await keepMine();   // leaving with an unresolved conflict: keep their work as a copy
   await flushSave();
   if (my !== nav) return;
-  currentId = null; loaded = false; dirty = false; conflict = null; hideBanner(); lastEdited.clear();
+  currentId = null; loaded = false; dirty = false; conflict = null; readOnly = false; hideBanner(); lastEdited.clear();
   app.hidden = true; home.hidden = false; document.body.classList.add('view-home');
   await refreshHome();
 }
@@ -282,7 +330,8 @@ async function openDesign(id) {
   if (SHARED && conflict && currentId) await keepMine();
   await flushSave();
   if (my !== nav) return;
-  conflict = null; hideBanner();
+  conflict = null; hideBanner(); readOnly = false; myRole = 'owner';
+  { const w = window.__tfWorkspace; if (w) w.roleChip.hidden = true; }
   showStudio();   // visible before hydrating so the canvas gets its size
   let rec = null;
   const done0 = SHARED ? busy('Opening design…') : null;   // downloading from the shared library can take a moment
@@ -308,11 +357,19 @@ async function openDesign(id) {
   } finally { loading = false; dirty = !!(SHARED && unsynced.has(id)); done(); }
   if (SHARED && unsynced.has(id)) { setStatus('offline'); scheduleRetry(); }
   else setStatus('saved', rec.meta?.updatedAt);
-  if (SHARED) lastEdited.set(rec.meta?.updatedAt);
+  if (SHARED) {
+    lastEdited.set(rec.meta?.updatedAt, rec.meta?.updatedBy);
+    myRole = rec.role || rec.meta?.role || 'owner';
+    const w = window.__tfWorkspace;
+    if (w) { w.shareBtn.hidden = !(me?.multi && myRole === 'owner'); w.roleChip.hidden = true; }
+    if (myRole === 'viewer') enterReadOnly('viewer');
+  }
 }
 /** Creates a blank design, opens it, then runs `action` (e.g. load a sample) on it. */
 async function newDesign(action) {
+  if (SHARED && me?.role === 'viewer') { toast('Your login is view-only, so you cannot create designs. Ask an owner to change your role.', 'error', 5000); return; }
   const my = ++nav;
+  readOnly = false; myRole = 'owner';
   await flushSave();
   if (my !== nav) return;
   const id = store.newId();

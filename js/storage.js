@@ -63,9 +63,14 @@ export async function initStorage() {
 function lsIndex() {
   try { return JSON.parse(localStorage.getItem(LS_INDEX) || '[]'); } catch { return []; }
 }
-const blobToDataURL = b => new Promise((res, rej) => {
+const blobToDataURL = b => (typeof FileReader === 'undefined' ? blobToDataURLNoReader(b) : new Promise((res, rej) => {
   const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(fr.error); fr.readAsDataURL(b);
-});
+}));
+async function blobToDataURLNoReader(b) {   // no FileReader (tests in Node)
+  const u = new Uint8Array(await b.arrayBuffer()); let bin = '';
+  for (let i = 0; i < u.length; i += 8192) bin += String.fromCharCode(...u.subarray(i, i + 8192));
+  return `data:${b.type || 'application/octet-stream'};base64,${btoa(bin)}`;
+}
 async function assetsToStrings(assets = {}) {
   const out = {};
   for (const [k, v] of Object.entries(assets)) out[k] = typeof v === 'string' ? v : await blobToDataURL(v);
@@ -189,12 +194,42 @@ function mapRefs(doc, fn) {
 }
 const IS_HASH = /^[0-9a-f]{64}$/;
 /** every image hash a document references (keys that never became an upload are left out: the server accepts hashes only) */
-const refsOf = doc => { const s = new Set(); mapRefs(doc, k => (s.add(k), k)); return [...s].filter(k => typeof k === 'string' && IS_HASH.test(k)); };
+const refsOf = doc => {
+  const s = new Set(); mapRefs(doc, k => (s.add(k), k));
+  walkStrings(doc, v => { const m = INLINE_REF.exec(v); if (m) s.add(m[1]); return v; });
+  return [...s].filter(k => typeof k === 'string' && IS_HASH.test(k));
+};
+
+/* Big pictures inside layer data (an uploaded logo's data URL, say) never stay in the design JSON: they are uploaded as assets and
+   the JSON holds "asset:<sha-256>" instead. Small thumbnails (key "thumb") may stay inline. See SHARED-API.md. */
+const INLINE_REF = /^asset:([0-9a-f]{64})$/, INLINE_MIN = 8000, INLINE_IMG = /^data:image\/(png|jpeg|webp);base64,/;
+function walkStrings(v, fn, key = '') {
+  if (typeof v === 'string') return key === 'thumb' ? v : fn(v);
+  if (Array.isArray(v)) { for (let i = 0; i < v.length; i++) v[i] = walkStrings(v[i], fn, key); return v; }
+  if (v && typeof v === 'object') { for (const k of Object.keys(v)) v[k] = walkStrings(v[k], fn, k); return v; }
+  return v;
+}
+async function externalizeInline(doc, blobs) {
+  const found = new Map();   // data URL -> hash
+  walkStrings(doc, v => { if (v.length > INLINE_MIN && INLINE_IMG.test(v)) found.set(v, null); return v; });
+  for (const url of found.keys()) { const b = R.dataUrlToBlob(url), h = await R.hashBlob(b); blobs.set(h, b); found.set(url, h); }
+  if (found.size) walkStrings(doc, v => (found.has(v) ? 'asset:' + found.get(v) : v));
+  return doc;
+}
+async function inlineBack(doc, assets) {
+  const want = new Set();
+  walkStrings(doc, v => { const m = INLINE_REF.exec(v); if (m) want.add(m[1]); return v; });
+  if (!want.size) return doc;
+  const urls = new Map();
+  for (const h of want) if (assets[h]) urls.set(h, await blobToDataURL(assets[h]));
+  walkStrings(doc, v => { const m = INLINE_REF.exec(v); return m && urls.has(m[1]) ? urls.get(m[1]) : v; });
+  return doc;
+}
 
 const toBlob = v => (typeof v === 'string' ? R.dataUrlToBlob(v) : v);
-const stamp = (meta, row) => ({ ...meta, id: row.id, name: row.name, rev: row.rev, createdAt: R.toMs(row.createdAt), updatedAt: R.toMs(row.updatedAt) });
+const stamp = (meta, row) => ({ ...meta, id: row.id, name: row.name, rev: row.rev, createdAt: R.toMs(row.createdAt), updatedAt: R.toMs(row.updatedAt), ...(row.updatedBy !== undefined ? { updatedBy: row.updatedBy } : {}), ...(row.owner !== undefined ? { owner: row.owner } : {}), ...(row.role !== undefined ? { role: row.role } : {}) });
 const wireMeta = (meta = {}) => {
-  const { id, name, rev, createdAt, updatedAt, backupBaseRev, sharedCopy, ...rest } = meta;
+  const { id, name, rev, createdAt, updatedAt, backupBaseRev, sharedCopy, updatedBy, owner, role, members, ...rest } = meta;
   if (typeof rest.thumb === 'string' && rest.thumb.length > MAX_THUMB) delete rest.thumb;
   for (const k of Object.keys(rest)) if (rest[k] === undefined) delete rest[k];
   return rest;
@@ -213,6 +248,7 @@ async function prepare(rec) {
   const doc0 = JSON.parse(JSON.stringify(rec.doc || {}));
   if (Array.isArray(doc0.versions) && doc0.versions.length > MAX_VERSIONS_SHARED) doc0.versions = doc0.versions.slice(0, MAX_VERSIONS_SHARED);   // free database: newest 20 only
   const doc = mapRefs(doc0, k => hashOf.get(k) || k);
+  await externalizeInline(doc, blobs);
   return { doc, blobs, keep: refsOf(doc) };
 }
 async function uploadMissing(id, blobs, keep) {
@@ -241,7 +277,7 @@ async function remotePut(rec, { createOnly = false } = {}) {
     if (row) {
       revs.set(rec.id, 1); metaSeen.set(rec.id, meta);
       await uploadMissing(rec.id, blobs, keep);
-      return { rev: 1, updatedAt: Date.now(), created: true };
+      return { rev: 1, updatedAt: R.toMs(row.updatedAt) || Date.now(), updatedBy: row.updatedBy || null, created: true };
     }
   }
   await uploadMissing(rec.id, blobs, keep);
@@ -258,7 +294,7 @@ async function remotePut(rec, { createOnly = false } = {}) {
     throw e;
   }
   revs.set(rec.id, row.rev); metaSeen.set(rec.id, meta);
-  return { rev: row.rev, updatedAt: R.toMs(row.updatedAt) || Date.now() };
+  return { rev: row.rev, updatedAt: R.toMs(row.updatedAt) || Date.now(), updatedBy: row.updatedBy || null };
 }
 
 async function remoteList() {
@@ -275,7 +311,7 @@ async function remoteGet(id) {
   const worker = async () => { while (i < hashes.length) { const h = hashes[i++]; assets[h] = await R.getAsset(id, h); } };
   await Promise.all(Array.from({ length: Math.min(5, hashes.length) }, worker));
   revs.set(id, d.rev); metaSeen.set(id, d.meta || {});
-  return { id, rev: d.rev, meta: stamp(d.meta || {}, d), doc: d.doc, assets };
+  return { id, rev: d.rev, meta: stamp(d.meta || {}, d), doc: await inlineBack(d.doc, assets), assets, role: d.role || 'owner', members: d.members || {} };
 }
 
 /** Meta and/or doc fields change without touching images. Retries when someone else saved in between. */
@@ -304,7 +340,7 @@ export async function getDesign(id) {
 }
 export async function putDesign(rec, opts) {
   if (!R.sharedEnabled()) return localPut(rec);
-  try { return await remotePut(rec, opts); } catch (e) { throw wrap(e); }
+  try { return await remotePut(rec, opts); } catch (e) { if (globalThis.__TF_DEBUG) console.error(e); throw wrap(e); }
 }
 export async function patchDesign(id, p) {
   if (!R.sharedEnabled()) return localPatch(id, p);
@@ -367,3 +403,21 @@ export async function moveLocalDesign(id) {
     return r === 'exists' ? 'exists' : 'created';
   } catch (e) { throw wrap(e); }
 }
+
+
+/* ---------------------------------------------------------------- version history and sharing (shared mode only) */
+/** [{rev, name, editedBy, savedAt (ms), note}] newest first. */
+export async function listVersions(id) {
+  try { return ((await R.history(id)).revs || []).map(v => ({ ...v, savedAt: R.toMs(v.savedAt) })); } catch (e) { throw wrap(e); }
+}
+/** Makes an older version the current one (as a NEW revision, so nothing is lost). Returns { rev, updatedAt }. The caller reloads the design afterwards. */
+export async function restoreVersion(id, rev) {
+  try {
+    const cur = await R.rev(id);
+    const r = await R.restoreRev(id, rev, cur.rev);
+    revs.set(id, r.rev);
+    return r;
+  } catch (e) { throw wrap(e); }
+}
+export const getMembers = async id => { try { return await R.getAcl(id); } catch (e) { throw wrap(e); } };
+export const setMembers = async (id, members) => { try { return await R.putAcl(id, members); } catch (e) { throw wrap(e); } };

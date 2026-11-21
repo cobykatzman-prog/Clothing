@@ -3,6 +3,10 @@
 //
 //   SITE_PASSWORD   required in production (min 8 chars, 12+ recommended). Visitors must log in with it.
 //   SITE_USERNAME   optional. If set, visitors must also enter this username.
+//   SITE_USERS      optional. Individual logins: "alice:her-password,bob:his-password" (comma separated; passwords 8+ chars, no commas).
+//                   Can be used with or without SITE_PASSWORD (the shared password then still works when the username is left blank).
+//   SITE_ROLES      optional. Workspace roles, "alice:owner,bob:viewer" (owner | editor | viewer). Users not listed are editors; with no
+//                   SITE_ROLES at all the first user in SITE_USERS is the owner. SITE_SHARED_ROLE sets the role of the shared password (default owner).
 //   SESSION_SECRET  optional. Signs login cookies. If unset, a random one is made at start-up
 //                   (everyone is logged out when the server restarts).
 //   SESSION_DAYS    optional, how long a login lasts (default 7).
@@ -43,32 +47,76 @@ function loadSecurityHeaders() {
   }
 }
 
+/** SITE_USERS / SITE_ROLES / SITE_SHARED_ROLE -> { users: Map(name -> password), roles: Map(name -> role), sharedRole } */
+export function parseIdentities(env) {
+  const ROLE_OK = new Set(['owner', 'editor', 'viewer']);
+  const users = new Map(), roles = new Map();
+  for (const raw of String(env.SITE_USERS || '').split(',')) {
+    const entry = raw.trim(); if (!entry) continue;
+    const i = entry.indexOf(':');
+    const name = (i < 0 ? '' : entry.slice(0, i)).trim().toLowerCase(), pw = i < 0 ? '' : entry.slice(i + 1);
+    if (!/^[a-z0-9._-]{1,32}$/.test(name)) throw new Error('SITE_USERS: each entry must look like name:password, with a name of letters, digits, . _ - (max 32).');
+    if (pw.length < 8) throw new Error(`SITE_USERS: the password for "${name}" must be at least 8 characters.`);
+    if (users.has(name)) throw new Error(`SITE_USERS: "${name}" is listed twice.`);
+    users.set(name, pw);
+  }
+  const explicit = String(env.SITE_ROLES || '').trim();
+  for (const raw of explicit.split(',')) {
+    const entry = raw.trim(); if (!entry) continue;
+    const [n, r] = entry.split(':').map(x => (x || '').trim().toLowerCase());
+    if (!users.has(n) || !ROLE_OK.has(r)) throw new Error('SITE_ROLES: entries look like name:owner|editor|viewer and the name must be in SITE_USERS.');
+    roles.set(n, r);
+  }
+  if (!explicit && users.size) roles.set([...users.keys()][0], 'owner');   // nobody configured: the first user runs the workspace
+  const sr = String(env.SITE_SHARED_ROLE || 'owner').trim().toLowerCase();
+  if (!ROLE_OK.has(sr)) throw new Error('SITE_SHARED_ROLE must be owner, editor or viewer.');
+  return { users, roles, sharedRole: sr };
+}
+
 export function createApp(env = process.env) {
   const PASSWORD = env.SITE_PASSWORD || '';
   const USERNAME = env.SITE_USERNAME || '';
   const prod = env.NODE_ENV === 'production';
-  if (!PASSWORD) {
-    if (prod && env.ALLOW_OPEN !== '1') throw new Error('SITE_PASSWORD is not set. Set it in the environment (or ALLOW_OPEN=1 to run without a login, development only).');
-  } else if (PASSWORD.length < 8) throw new Error('SITE_PASSWORD must be at least 8 characters (12 or more is recommended).');
-  const gated = !!PASSWORD;
+  const { users: USERS, roles: ROLES, sharedRole: SHARED_ROLE } = parseIdentities(env);
+  if (!PASSWORD && !USERS.size) {
+    if (prod && env.ALLOW_OPEN !== '1') throw new Error('SITE_PASSWORD is not set (or use SITE_USERS). Set it in the environment (or ALLOW_OPEN=1 to run without a login, development only).');
+  } else if (PASSWORD && PASSWORD.length < 8) throw new Error('SITE_PASSWORD must be at least 8 characters (12 or more is recommended).');
+  const gated = !!PASSWORD || USERS.size > 0;
+  const multiUser = USERS.size > 0;
   const SECRET = env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
   const SESSION_MS = (Number(env.SESSION_DAYS) > 0 ? Number(env.SESSION_DAYS) : 7) * 86400000;
   const SEC = loadSecurityHeaders();
   const pwTag = sha(PASSWORD).toString('hex');   // changing the password invalidates every existing session
+  const usersTag = sha([...USERS].map(([n, p]) => n + '\n' + p).join('\0')).toString('hex');   // so does changing any user's password
 
-  /* ---------------- sessions: stateless signed cookie "<expiry>.<hmac>" ---------------- */
+  /* ---------------- sessions: stateless signed cookie "<expiry>.<hmac>" (shared password) or "<expiry>.<user>.<hmac>" (individual user) ---------------- */
   const mac = exp => b64u(crypto.createHmac('sha256', SECRET).update(`v1.${exp}.${pwTag}`).digest());
-  const makeToken = (now = Date.now()) => { const exp = now + SESSION_MS; return `${exp}.${mac(exp)}`; };
-  function validToken(tok, now = Date.now()) {
-    if (typeof tok !== 'string') return false;
-    const [exp, sig, extra] = tok.split('.');
-    if (extra !== undefined || !/^\d{10,16}$/.test(exp || '') || !sig) return false;
-    if (Number(exp) < now) return false;
-    const a = Buffer.from(sig), b = Buffer.from(mac(exp));
-    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  const macUser = (exp, u) => b64u(crypto.createHmac('sha256', SECRET).update(`v2.${exp}.${u}.${usersTag}`).digest());
+  const makeToken = (now = Date.now(), user = null) => {
+    const exp = now + SESSION_MS;
+    if (user) { const u = b64u(user); return `${exp}.${u}.${macUser(exp, u)}`; }
+    return `${exp}.${mac(exp)}`;
+  };
+  const sharedIdentity = () => ({ name: USERNAME || 'shared', role: SHARED_ROLE, shared: true, multi: multiUser });
+  /** token -> { name, role, shared } or null */
+  function identityOfToken(tok, now = Date.now()) {
+    if (typeof tok !== 'string') return null;
+    const parts = tok.split('.');
+    if (parts.length < 2 || parts.length > 3 || !/^\d{10,16}$/.test(parts[0] || '') || !parts[parts.length - 1]) return null;
+    const exp = parts[0];
+    if (Number(exp) < now) return null;
+    const sig = parts[parts.length - 1];
+    const want = parts.length === 3 ? macUser(exp, parts[1]) : mac(exp);
+    const a = Buffer.from(sig), b = Buffer.from(want);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    if (parts.length === 2) return PASSWORD ? sharedIdentity() : null;
+    let name = ''; try { name = Buffer.from(parts[1], 'base64url').toString('utf8'); } catch (_) { return null; }
+    return USERS.has(name) ? { name, role: ROLES.get(name) || 'editor', shared: false, multi: true } : null;
   }
+  const validToken = (tok, now = Date.now()) => !!identityOfToken(tok, now);
   const cookies = req => Object.fromEntries(String(req.headers.cookie || '').split(';').map(s => { const i = s.indexOf('='); return i < 0 ? ['', ''] : [s.slice(0, i).trim(), s.slice(i + 1).trim()]; }));
   const authed = req => !gated || validToken(cookies(req)[COOKIE]);
+  const identityOf = req => (gated ? identityOfToken(cookies(req)[COOKIE]) : { name: 'local', role: 'owner', shared: true, multi: false });
   const isSecure = req => prod || String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https';
   const setCookie = (req, value, maxAgeSec) => `${COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSec}${isSecure(req) ? '; Secure' : ''}`;
 
@@ -133,8 +181,8 @@ button{margin-top:20px;width:100%;padding:12px;border:0;border-radius:9px;backgr
 <h1>Threadform</h1><p>This studio is private. Log in to continue.</p>
 <form method="post" action="/login" autocomplete="on">
 <input type="hidden" name="next" value="${esc(next)}">
-${USERNAME ? '<label for="u">Username</label><input id="u" name="username" autocomplete="username" required autofocus>' : ''}
-<label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" required${USERNAME ? '' : ' autofocus'}>
+${USERNAME || multiUser ? `<label for="u">Username${!USERNAME && PASSWORD ? ' (leave empty to use the shared password)' : ''}</label><input id="u" name="username" autocomplete="username"${USERNAME || !PASSWORD ? ' required' : ''} autofocus>` : ''}
+<label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" required${USERNAME || multiUser ? '' : ' autofocus'}>
 ${failed ? '<p class="err" role="alert">That did not match. Please try again.</p>' : ''}
 <button type="submit">Log in</button></form></main></body></html>`;
   }
@@ -158,9 +206,10 @@ ${failed ? '<p class="err" role="alert">That did not match. Please try again.</p
   }
   const shared = createShared({ env, baseHeaders, sameOriginPost });
   const ai = createAi({ env, baseHeaders, sameOriginPost, clientIp });
-  const indexHtml = () => {
+  const indexHtml = me => {
     let t = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
     if (gated) t = t.replace('</head>', '<meta name="threadform-auth" content="1">\n</head>');
+    if (me) t = t.replace('</head>', `<meta name="threadform-user" content="${esc(me.name)}" data-role="${esc(me.role)}" data-multi="${multiUser ? 1 : 0}">\n</head>`);
     if (shared.enabled) t = t.replace('</head>', '<meta name="threadform-shared" content="1">\n</head>');
     if (ai.enabled) t = t.replace('</head>', '<meta name="threadform-ai" content="1">\n</head>');
     return t;
@@ -188,9 +237,15 @@ ${failed ? '<p class="err" role="alert">That did not match. Please try again.</p
           if (wait) return send(req, res, 429, 'Too many attempts. Please wait and try again.', { 'Retry-After': String(wait) });
           const f = await readForm(req);
           const next = safeNext(f.get('next'));
-          const okUser = USERNAME ? same(f.get('username') || '', USERNAME) : true;
-          const okPass = same(f.get('password') || '', PASSWORD);
-          if (okUser && okPass) { fails.delete(ip); return redirect(req, res, next, { 'Set-Cookie': setCookie(req, makeToken(), Math.floor(SESSION_MS / 1000)) }); }
+          const given = String(f.get('username') || '').trim().toLowerCase(), pw = f.get('password') || '';
+          let token = null;
+          if (given && USERS.has(given)) { if (same(pw, USERS.get(given))) token = makeToken(Date.now(), given); else same(pw, pw); }
+          else if (PASSWORD) {
+            const okUser = USERNAME ? same(given, USERNAME.toLowerCase()) : !given;   // blank username = shared password (when no SITE_USERNAME)
+            const okPass = same(pw, PASSWORD);
+            if (okUser && okPass) token = makeToken();
+          } else same(pw, pw);
+          if (token) { fails.delete(ip); return redirect(req, res, next, { 'Set-Cookie': setCookie(req, token, Math.floor(SESSION_MS / 1000)) }); }
           recordFail(ip); await sleep(env.NODE_ENV === 'test' ? 0 : 400);
           return redirect(req, res, `/login?e=1&next=${encodeURIComponent(next)}`);
         }
@@ -207,7 +262,7 @@ ${failed ? '<p class="err" role="alert">That did not match. Please try again.</p
         if ((m === 'GET' || m === 'HEAD') && /text\/html/.test(String(req.headers.accept || 'text/html'))) return redirect(req, res, `/login?next=${encodeURIComponent(safeNext(pathname + url.search))}`);
         return send(req, res, 401, 'Please log in.');
       }
-      if (SHARED_ROUTES.test(pathname)) return shared.handle(req, res, url);
+      if (SHARED_ROUTES.test(pathname)) return shared.handle(req, res, url, identityOf(req));
       if (AI_ROUTES.test(pathname)) return ai.handle(req, res, url);
       if (m !== 'GET' && m !== 'HEAD') return send(req, res, 405, 'Method not allowed', { Allow: 'GET, HEAD' });
 
@@ -216,7 +271,7 @@ ${failed ? '<p class="err" role="alert">That did not match. Please try again.</p
       const ext = path.extname(file).toLowerCase();
       if (path.basename(file) === 'index.html' && path.dirname(file) === fs.realpathSync(ROOT)) {
         res.writeHead(200, baseHeaders(req, { 'Content-Type': MIME['.html'] }));
-        return res.end(m === 'HEAD' ? undefined : indexHtml());
+        return res.end(m === 'HEAD' ? undefined : indexHtml(identityOf(req)));
       }
       const st = fs.statSync(file), etag = `W/"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}"`;
       const hdrs = baseHeaders(req, { 'Content-Type': MIME[ext], 'Cache-Control': 'private, no-cache', ETag: etag });
@@ -229,7 +284,7 @@ ${failed ? '<p class="err" role="alert">That did not match. Please try again.</p
       return send(req, res, 500, 'Something went wrong.');   // never echo internals
     }
   }
-  return { handler, gated, makeToken, validToken, config: { prod } };
+  return { handler, gated, makeToken, validToken, identityOfToken, config: { prod, multiUser } };
 }
 
 export function startServer(env = process.env, port = env.PORT ? Number(env.PORT) : 8080) {

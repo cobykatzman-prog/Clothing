@@ -4,11 +4,16 @@ import http from 'node:http';
 
 const SCHEMA = {
   designs: { pk: ['id'], required: ['id', 'name', 'doc'], defaults: () => ({ rev: 1, meta: {}, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }) },
-  assets: { pk: ['design_id', 'hash'], required: ['design_id', 'hash', 'mime', 'data', 'bytes'], defaults: () => ({ created_at: new Date().toISOString() }) }
+  assets: { pk: ['design_id', 'hash'], required: ['design_id', 'hash', 'mime', 'data', 'bytes'], defaults: () => ({ created_at: new Date().toISOString() }) },
+  design_revs: { pk: ['design_id', 'rev'], required: ['design_id', 'rev', 'name', 'doc'], fk: 'designs', defaults: () => ({ meta: {}, assets: [], saved_at: new Date().toISOString() }) },
+  workspace_items: { pk: ['kind', 'id'], required: ['kind', 'id', 'name'], defaults: () => ({ rev: 1, data: {}, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }) },
+  workspace_blobs: { pk: ['hash'], required: ['hash', 'mime', 'data', 'bytes'], defaults: () => ({ created_at: new Date().toISOString() }) }
 };
+// designs also has owner, updated_by (text) and acl (jsonb, default {}) in the real schema
+SCHEMA.designs.defaults = () => ({ rev: 1, meta: {}, acl: {}, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
 
 export async function startMock({ key = 'service-key-for-tests' } = {}) {
-  const tables = { designs: [], assets: [] };
+  const tables = { designs: [], assets: [], design_revs: [], workspace_items: [], workspace_blobs: [] };
   const state = { key, failure: null, requests: [], delayMs: 0 };   // failure: null | 'missingTables' | 'paused' | 'down'
 
   const send = (res, status, body, headers = {}) => {
@@ -25,6 +30,7 @@ export async function startMock({ key = 'service-key-for-tests' } = {}) {
       if (['select', 'order', 'limit', 'offset'].includes(k)) continue;
       let m;
       if ((m = /^eq\.(.*)$/.exec(v))) conds.push(r => String(r[k]) === m[1]);
+      else if ((m = /^(lt|lte|gt|gte)\.(.*)$/.exec(v))) { const n = Number(m[2]), op = m[1]; conds.push(r => (op === 'lt' ? Number(r[k]) < n : op === 'lte' ? Number(r[k]) <= n : op === 'gt' ? Number(r[k]) > n : Number(r[k]) >= n)); }
       else if ((m = /^not\.in\.(\(.*\))$/.exec(v))) { const l = splitList(m[1]); conds.push(r => !l.includes(String(r[k]))); }
       else if ((m = /^in\.(\(.*\))$/.exec(v))) { const l = splitList(m[1]); conds.push(r => l.includes(String(r[k]))); }
       else throw Object.assign(new Error('unsupported filter ' + k), { code: 'PGRST100' });
@@ -76,7 +82,7 @@ export async function startMock({ key = 'service-key-for-tests' } = {}) {
             if (/resolution=ignore-duplicates/.test(prefer)) continue;
             return pgErr(res, 409, '23505', 'duplicate key value violates unique constraint');
           }
-          if (name === 'assets' && !tables.designs.some(d => d.id === row.design_id)) return pgErr(res, 409, '23503', 'violates foreign key constraint');
+          if ((name === 'assets' || name === 'design_revs') && !tables.designs.some(d => d.id === row.design_id)) return pgErr(res, 409, '23503', 'violates foreign key constraint');
           added.push(row);
         }
         rows.push(...added);
@@ -90,7 +96,7 @@ export async function startMock({ key = 'service-key-for-tests' } = {}) {
       if (req.method === 'DELETE') {
         const hit = rows.filter(match);
         for (const r of hit) rows.splice(rows.indexOf(r), 1);
-        if (name === 'designs') for (const r of hit) tables.assets = tables.assets.filter(a => a.design_id !== r.id);   // on delete cascade
+        if (name === 'designs') for (const r of hit) { tables.assets = tables.assets.filter(a => a.design_id !== r.id); tables.design_revs = tables.design_revs.filter(a => a.design_id !== r.id); }   // on delete cascade
         return wantRep ? send(res, 200, hit.map(r => project(r, sel))) : send(res, 204);
       }
       return pgErr(res, 405, 'PGRST000', 'method');

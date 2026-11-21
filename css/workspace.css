@@ -1,0 +1,13 @@
+/* Shared workspace: history, sharing, role and Brand Kit sync chips (owner: sync). Theme tokens come from style.css. */
+.role-chip,.kit-status{font-size:12px;font-weight:600;white-space:nowrap;padding:2px 8px;border-radius:999px;border:1px solid var(--line,#dcdad4);color:var(--muted,#6b6a66)}
+.role-chip[hidden],.kit-status[hidden]{display:none}
+.kit-status[data-kind=offline],.kit-status[data-kind=conflict]{color:#b45309;border-color:#f59e0b}
+.kit-status[data-kind=error]{color:var(--danger,#b42318);border-color:currentColor}
+.ws-dlg .ws-list{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:6px;max-height:min(55vh,420px);overflow:auto}
+.ws-row{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 10px;border:1px solid var(--line,#dcdad4);border-radius:10px}
+.ws-main{display:grid;gap:2px;min-width:0;font-size:13.5px}
+.ws-members{display:grid;gap:6px;margin:10px 0}
+.ws-add{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px}
+.ws-add input,.ws-role{padding:7px 9px;border:1px solid var(--line,#dcdad4);border-radius:8px;background:transparent;color:inherit;font:inherit}
+.ws-add input{flex:1;min-width:140px}
+@media (max-width:700px){.role-chip,.kit-status{display:none}}

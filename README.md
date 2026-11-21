@@ -19,6 +19,8 @@ Set the environment variable **`SITE_PASSWORD`** and `server.mjs` will not serve
 |---|---|
 | `SITE_PASSWORD` | Required in production. 8+ characters, 12+ recommended. Share it only with the people who should have access. |
 | `SITE_USERNAME` | Optional. If set, visitors must enter this username as well. |
+| `SITE_USERS` | Optional. Individual logins: `alice:her-password,bob:his-password` (comma separated; passwords 8+ characters, no commas). Works with or without `SITE_PASSWORD`; when both are set, leaving the username empty at login uses the shared password. Needed for real names in "last edited by" and for per-person permissions. |
+| `SITE_ROLES` | Optional. Workspace roles: `alice:owner,bob:editor,carol:viewer`. Owner = everything (delete, share); editor = create and change; viewer = look only. Users not listed are editors; with no `SITE_ROLES` the first user in `SITE_USERS` is the owner. `SITE_SHARED_ROLE` sets the role of the shared password (default `owner`, so single-password sites behave exactly as before). |
 | `SESSION_SECRET` | Optional. Signs login cookies. Render generates one for you; without it a random one is made at start-up and everyone is logged out on restart. |
 | `SESSION_DAYS` | Optional. How long a login lasts (default 7). |
 | `NODE_ENV=production` | Makes the server refuse to start if `SITE_PASSWORD` is missing, so a forgotten variable can never leave the site open. |
@@ -58,7 +60,20 @@ Things to know, honestly:
 - **Free Supabase projects pause after about a week of inactivity.** If the badge says the project is paused or unreachable, open the Supabase dashboard and press **Restore project**; your data is kept.
 - **The free database is 500 MB.** Designs are small, but each image takes space. Images a design no longer uses are cleaned up automatically on save.
 - **Tested against a mock, not a live project.** The server and the browser side were verified end to end against an in-memory imitation of the Supabase API (`test/mock-supabase.mjs`, also used by `npm test`), not a real Supabase project, and the tests do not run `supabase/schema.sql`. The **Check connection** button is the real test of your own setup.
-- There are no per-person accounts: everyone with the site password can edit and delete every shared design, and if two people save at once the second is asked what to do rather than overwriting.
+- Without `SITE_USERS` there are no per-person accounts: everyone with the site password can edit and delete every shared design (all shown as "shared"), and if two people save at once the second is asked what to do rather than overwriting.
+
+### Shared workspace (v2 phase 3)
+
+Everything below needs the shared library on, and **you must run the latest `supabase/schema.sql` again** (safe to repeat; it adds the version, permission and Brand Kit tables). Until you do, the connection badge says so.
+
+- **People and permissions.** Set `SITE_USERS` (and optionally `SITE_ROLES`). Each person logs in with their own name. Workspace roles are owner / editor / viewer. A design's owner (its creator) and workspace owners can open **Share** in the header to give individual people a different role on that one design (for example make Carol an editor of one design, or Bob a viewer). Viewers get a read-only design with a one-click *Save a copy and edit it*.
+- **Last edited by.** The header shows *Last edited by Alice 5 min ago*; conflict banners and "updated by someone else" notices name the person.
+- **Version history.** The **History** button lists the saved versions (who, when). *Restore* makes an old version the current one as a new version, so nothing is lost. The server keeps the newest 20 per design (`WORKSPACE_REV_KEEP`, 2 to 100); autosaves by the same person within 5 minutes share one version (`WORKSPACE_REV_INTERVAL_SEC`, `0` = one per save). Images a kept version uses are kept too, so restore always finds them.
+- **Brand Kit in the cloud.** Brand assets, colour palettes, typography, materials and collections are stored on the server (`js/kit.js`, `/api/workspace`), so everyone sees the same kit; with the shared library off they stay in this browser as before. Edits are saved locally first and queued, so they survive going offline or reloading, and are sent with retries. If two people change the same item, the other version stays and yours is saved as "... (my version)". The kit storage module is in place; the Brand Kit screens call it (see SHARED-API.md).
+- **Sync status.** The header always says Saved, Saving, Offline: will retry (with a count of waiting designs), Not saved, or shows the conflict banner; the Brand Kit shows its own chip when it is not saved. It retries on its own and immediately when the browser comes back online.
+- **Images are never base64 in design data.** Pictures go to asset storage by hash; layer images are replaced by `asset:<hash>` in the design JSON and the server refuses inline images over 16 KB (thumbnails up to 64 KB are allowed).
+- **Honest limits.** All of this was tested against `test/mock-supabase.mjs`, not a real Supabase project. Permissions are enforced by this server, not by the database (the service key bypasses row-level security by design). Passwords for named users live in environment variables; there is no password reset or self-signup, and renaming or removing a user in `SITE_USERS` does not rewrite the names already recorded on old designs.
+
 
 ## AI editing (optional, OpenAI)
 

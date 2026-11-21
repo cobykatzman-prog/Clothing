@@ -42,3 +42,39 @@ Limits: doc JSON <= 1.5 MB, name <= 120 chars, meta <= 80 KB, asset <= 8 MB, <= 
 - Live sync: while a design is open poll `GET /api/designs/:id/rev` about every 8 s (pause while the tab is hidden). If the remote rev is newer: with no unsaved local changes, reload it quietly and show a toast ("Updated with changes from your friend"); with unsaved local changes show a banner offering "Load their version" or "Keep mine (save as a copy)". A 409 on save shows the same banner. The home grid refreshes about every 20 s.
 - Home shows a "Shared library" badge with live status from /api/shared/status (green Connected / red with the reason) and a "Check connection" button.
 - If shared mode is on and the browser still holds old per-browser designs, home offers "Move my local designs to the shared library" (uploads them, then offers to remove the local copies).
+
+
+## Phase 3: identities, permissions, history, Brand Kit (v2)
+
+### Identity and roles (server.mjs)
+- `SITE_USERS` = `name:password,name2:password2` (names `[a-z0-9._-]{1,32}`, case-insensitive, passwords >= 8 chars, no commas). `SITE_ROLES` = `name:owner|editor|viewer` (users not listed are editors; with no `SITE_ROLES` the first user is the owner). `SITE_SHARED_ROLE` (default `owner`) is the role of the shared `SITE_PASSWORD` login, whose identity name is `SITE_USERNAME` or `shared`. Without `SITE_USERS` nothing changes.
+- Login form: `username` + `password`. A known username must match its own password. A blank username (no `SITE_USERNAME`) uses `SITE_PASSWORD`. Session cookie: `<exp>.<hmac>` (shared) or `<exp>.<base64url name>.<hmac>` (user; the MAC covers a hash of the whole user list, so changing any password logs everyone out). The same brute-force limits apply.
+- `index.html` gets `<meta name="threadform-user" content="<name>" data-role="<role>" data-multi="0|1">`.
+- `GET /api/shared/me` -> `{user, role, shared:boolean, multiUser:boolean}` (works with shared mode off).
+- Per design, effective role = `owner` for workspace owners and the design's `owner`; else `acl[name]` if present; else the workspace role. viewer = GET only; editor = PUT, assets, missing, restore, duplicate, create; owner = also DELETE and ACL. Refusals are `403 {error}` (JSON). Workspace-level viewers cannot create designs.
+
+### Schema additions (run supabase/schema.sql again)
+`designs` gains `owner text, updated_by text, acl jsonb` (`{"alice":"editor"}`); new `design_revs(design_id, rev, name, meta, doc, assets jsonb, edited_by, note, saved_at)`, `workspace_items(kind, id, name, rev, data jsonb, ref, updated_by, created_at, updated_at)`, `workspace_blobs(hash, mime, data base64, bytes)`. RLS on, no policies, public roles revoked, as before. `/api/shared/status` also probes the new tables and says "run the latest supabase/schema.sql" when they are missing.
+
+### Design routes (additions / changes)
+- `GET /api/designs` and `GET /api/designs/:id` rows add `owner, updatedBy, members (the acl), role (caller's effective role)`. `GET /api/designs/:id/rev` adds `updatedBy`. Create/update/restore answers add `updatedAt, updatedBy`. A 409 conflict adds `by` (who saved the newer revision).
+- `GET /api/designs/:id/history` -> `{revs:[{rev,name,editedBy,savedAt,note}]}` newest first (at most `WORKSPACE_REV_KEEP`, default 20). `GET /api/designs/:id/history/:rev` -> `{rev,name,meta,doc,assets,editedBy,savedAt,note}`.
+- `POST /api/designs/:id/restore` `{rev, baseRev}` (editor) -> saves that version as revision `baseRev+1` (`note: "restored from version N"`) -> `{rev,updatedAt,updatedBy,restoredFrom}`; 409 if `baseRev` is stale; 404 if the version was pruned; 422 if its images are gone.
+- `GET|PUT /api/designs/:id/acl` (`PUT` owner only) `{members:{name:'owner'|'editor'|'viewer'}}` -> `{members}`; GET -> `{owner, members, role}`.
+- Versions: every successful save writes a snapshot; autosaves by the same editor within `WORKSPACE_REV_INTERVAL_SEC` (default 300) replace the latest snapshot instead of adding one. Snapshots beyond `WORKSPACE_REV_KEEP` are deleted. Garbage collection of design assets keeps the union of `keepAssets` and the `assets` of every retained version.
+- No base64 in metadata: any string starting `data:` longer than 16 KB (64 KB when the key is `thumb`) anywhere in `doc` or `meta` is refused with 413. The client uploads such images as assets and stores `asset:<sha256>` in the JSON (storage.js), turning them back into data URLs on load.
+
+### Workspace / Brand Kit (`/api/workspace`, shared mode only; 404 when off)
+kinds: `asset` (data must hold `hash`), `palette`, `typography`, `material`, `collection`. Item ids `/^[A-Za-z0-9_-]{6,64}$/`; data <= 200 KB; <= 2000 items; <= 500 images of <= 8 MB (png/jpeg/webp, magic bytes + sha-256 checked).
+| Route | Result |
+|---|---|
+| `GET /api/workspace[?kind=k]` | `{items:[{kind,id,name,rev,data,ref,updatedBy,createdAt,updatedAt}]}` newest first (any role) |
+| `PUT /api/workspace/:kind/:id` `{baseRev,name,data}` | `baseRev:0` creates (409 `exists` if present); otherwise optimistic update -> `{rev,updatedAt}`; 409 `{error:'conflict',currentRev}`; 404 if missing. editor/owner only |
+| `DELETE /api/workspace/:kind/:id` | `{ok:true}` (editor/owner); an asset's image is deleted when no item references it any more |
+| `POST /api/workspace/blobs/missing` `{hashes}` | `{missing:[...]}` |
+| `PUT /api/workspace/blobs/:hash` | raw image bytes, idempotent (editor/owner) |
+| `GET /api/workspace/blobs/:hash` | raw image, immutable cache |
+
+### Browser (js/kit.js, js/syncstate.js, js/workspace-ui.js, storage.js, main.js)
+- `kit.js`: `listKit, saveKitItem, deleteKitItem, addKitAsset, getKitAssetBlob, flush, onKitChange, moveLocalKit` etc. Shared mode: edit locally, queue (persisted in localStorage `threadform.kit.shared.v1`), flush in order with exponential backoff (2 s .. 30 s) and on the browser `online` event. Conflict: their item stays, yours becomes "<name> (my version)" (queued as a new item); identical content just adopts their rev; a remote deletion lets your edit recreate it. A refusal (view-only role) drops the edit and reports `error`. Not shared: same API on per-browser storage (`threadform.kit.v1`, images in IndexedDB `threadform-kit`).
+- `syncstate.js`: `syncState.set(source, 'saved'|'saving'|'offline'|'conflict'|'error', {pending, detail})`; aggregate precedence conflict > error > offline > saving > saved. The editor reports as source `design`, the Brand Kit as `brandkit`.
