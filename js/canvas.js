@@ -97,7 +97,7 @@ export function createStage(el, wrap) {
     ctx.shadowColor = 'rgba(30,30,40,.14)'; ctx.shadowBlur = 24 / T.zoom; ctx.shadowOffsetY = 6 / T.zoom;
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, SIZE, SIZE);
     ctx.shadowColor = 'transparent';
-    ctx.fillStyle = '#f4f2ee'; ctx.fillRect(0, 0, SIZE, SIZE);
+    ctx.fillStyle = checkerPattern(ctx); ctx.fillRect(0, 0, SIZE, SIZE);
     ctx.imageSmoothingQuality = 'high';
     ctx.imageSmoothingEnabled = T.zoom < 2.5;     // zoomed right in, show true pixels so small details can be selected exactly
     if (V.current) {
