@@ -77,8 +77,8 @@ export function measureBlock() {
       const flatView = ['front', 'back'].includes(S.activeView);
       table.replaceChildren(h('div', { class: 'muted small' }, flatView
         ? 'Load or generate a garment on this view to see its measurements.'
-        : 'Standard flat-garment measurements are shown on Front and Back. Side and Detail views are not reliable flat measurement references.'));
-      basis.textContent = flatView ? '' : 'Switch to Front or Back for the manufacturer measurement table and dimension callouts.';
+        : S.activeView === 'side' ? 'Load a side-profile garment image to see its silhouette measurements.' : 'Detail views are close-ups; use Front, Back or Side for garment measurements.'));
+      basis.textContent = flatView ? '' : S.activeView === 'side' ? 'Side measurements use the Front size scale and describe the visible silhouette, not a flat manufacturer pattern measurement.' : 'Switch to Front, Back or Side for garment measurements.';
       return;
     }
     const u = 'cm';
@@ -92,7 +92,7 @@ export function measureBlock() {
         h('span', { class: 'mchg ' + (!vis ? 'zero' : r.deltaCm > 0 ? 'up' : 'down'), role: 'cell' }, vis ? formatMeasure(r.deltaCm, u, { sign: true }) : '0')));
     }
     table.replaceChildren(...rows);
-    let t = (d.cal.manual ? 'Calibrated scale' : 'Estimated scale') + ' from ' + calibrationText(d.cal, u) + '. C = calibrated, E = estimated (not production-verified).';
+    let t = d.profile ? 'Side silhouette estimates use the Front size scale; they are not flat pattern measurements.' : (d.cal.manual ? 'Calibrated scale' : 'Estimated scale') + ' from ' + calibrationText(d.cal, u) + '. C = calibrated, E = estimated (not production-verified).';
     if (d.cal.adjusted.length && !d.cal.manual) t += ` The picture is drawn with different proportions than a typical ${(KIND_LABELS[d.kind] || '').toLowerCase()}, so ${d.cal.adjusted.map(a => a === 'length' ? 'body length' : 'sleeve length').join(' and ')} follow the size chart.`;
     basis.textContent = t;
   }
@@ -106,5 +106,5 @@ export function measureBlock() {
 /** The ready-made right-panel section. */
 export function measureSection() {
   const b = measureBlock();
-  return { sec: section('•', 'Measurements', 'Approximate flat-garment measurements in centimetres (cm). They update as you change the garment. Pick the size, or type one real measurement to set the scale.', [b.el], true, 'sec-measure'), sync: b.sync };
+  return { sec: section('•', 'Measurements', 'Approximate garment measurements in centimetres (cm). Front and Back show flat measurements; Side shows silhouette dimensions. Pick the size or calibrate using a real measurement.', [b.el], true, 'sec-measure'), sync: b.sync };
 }
