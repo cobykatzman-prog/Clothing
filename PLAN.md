@@ -81,3 +81,6 @@ Run in order; push to `main` after each phase passes its tests; next phase start
 7. Colourways, variations & materials: colourways from one base, branching with shared structure, per-section colour/fabric, supplier notes, compare + export.
 8. Testing, security, performance: e2e + regression, two-session shared tests, API error handling, auth review, perf, responsive, verify live Render deploy.
 Known limits to keep honest: no real Supabase/OpenAI/Render access from sandbox (mocks only); estimated measurements must stay labelled estimates.
+
+
+OWNER SCOPE RULE: only ROADMAP v2 (the PDF brief) is in scope. The earlier brief and its phase list above are cancelled; do not build features from them.
