@@ -4,6 +4,7 @@ Two layers: fast unit/server tests (`npm test`) and browser journeys (`npm run t
 
 ```bash
 npm test            # (now also spec.test: POM grading/sources/validation/CSV) server 15, shared 18, ai 16, prompt 26, mask 187, aiedit 14, measure, generate (seconds)
+npm test            # server 15, shared 18, ai 19, prompt 26, mask 187, aiedit 14, aigen 8, measure, generate (seconds)
 npm run test:e2e    # browser journeys below (about 4 minutes); screenshots go to $OUT (default <tmpdir>/threadform-e2e)
 node test/e2e.browser.test.cjs          # one file at a time
 ```
@@ -11,7 +12,7 @@ node test/e2e.browser.test.cjs          # one file at a time
 The e2e scripts serve the app themselves with the production CSP headers from `vercel.json` (so a CSP violation, a failed request,
 an external request or any `pageerror` / `console.error` fails the journey) and need `require('playwright')` to resolve.
 `test/e2e.shared.browser.test.cjs` starts the real `server.mjs` (login gate + shared library) against `test/mock-supabase.mjs`.
-Real Supabase / OpenAI / Render are never contacted; the AI engine is not exercised by these journeys (see `test/mock-openai.mjs`, `npm test`).
+Real Supabase / OpenAI / Render are never contacted; the AI engine is exercised only by `test/ai.browser.test.cjs`, which runs the real `server.mjs` against `test/mock-openai.mjs` (never the real OpenAI).
 
 ## Critical journeys (automated: file / journey) and the manual checklist
 
@@ -31,6 +32,7 @@ Tick every line by hand after a release too; each has an automated twin.
 | 10 | Selection + AI-free edit logic | Mask engine, region/smart/wand selection, instruction semantics (avoid/lock/keep), lift to layer, back-to-front match | `mask.browser`, `phase3b.browser` |
 | 11 | Editor layout + arrange tools | At 1440x900, 1024x768, 768x1024 and 390x844 (Basic and Advanced): no page scroll, canvas never covered by the bottom bar, header on one line, current step label does not wrap; small screens use the Tools / Edit dock (sheets close with Esc); header panel toggles collapse a side. Inspector shows only the selected item's controls with numeric X / Y / Width / Height / Rotation; Align, Shift-click multi-select, Distribute, Group / Ungroup (Ctrl+G), group move / hide / lock / duplicate, layer rename, drag snapping with guides (Alt = free, Snap toggle) | `editor.browser`, `js/arrange.test.mjs` |
 | 12 | Colourways | Colourways tab: New colourway keeps the current look as Colourway 1 and adds a branch; rename; section colour / fabric strength / library material with supplier and note; shape slider change reaches every colourway; stripe colour differs per colourway; branch keeps lineage and does not touch its parent; Undo reverts a switch; reload restores colourways, material notes and the showing colourway; Compare dialog shows previews + differences table; sheet PNG, per-colourway PNGs and materials CSV download; delete with confirm; 390 px dialog fits | `colourways.browser`, `js/colourway-model.test.mjs` |
+| 12 | AI generation + intelligent editing (mock OpenAI) | Generate garment with AI sends garment type, cut, sleeves, stripes, no-cuffs and fabric; Redraw one view (Back / Side / Detail) uses the front as the reference and previews before replacing, Accept / Reject / Undo edit; Redo one garment section (sleeves, collar, body, hem, stripes) makes three mask-composited options; artwork layers stay byte-identical through every AI action; baked-in logos and lettering stay out of the edit mask unless the request names them; rate limit / upstream / timeout / not configured each show a card that names what failed with Retry (when it can help) and Use built-in engine; with AI failing, options fall back to the built-in engine with the reason | `ai.browser`, `js/aigen.test.mjs`, `server.ai.test.mjs` |
 
 Also run before a release (kept outside the repo-wide scripts, they use fixed ports 8123/8124): the accessibility/contrast QA
 (`qa.js`), the long studio walkthrough (`e2e.js`) and the Club Élite sample check (`club-test.js`).

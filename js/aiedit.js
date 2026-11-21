@@ -13,6 +13,7 @@ import { parsePrompt } from './prompt.js';
 import { localVariations } from './variations.js';
 import { aiEdit, aiUnderstand, AiError, useAi } from './ai.js';
 import { compositeThroughMask, clampFeather, DEFAULT_FEATHER, MAX_FEATHER } from './composite.js';
+import { artworkProtection, describeArtwork, shapeForAi } from './aigen.js';
 
 export { compositeThroughMask, clampFeather, DEFAULT_FEATHER, MAX_FEATHER };
 
@@ -93,7 +94,7 @@ function regionAlpha(seg, names, garmentA, n) {
  * Everything before the model is called: the instruction, the constraints and the edit mask.
  * @returns {Promise<object>} plan (passed to editOneLevel)
  */
-export async function prepareEdit({ prompt, view = 'front', mask = null, src, seg = null, refs = [], feather = DEFAULT_FEATHER, signal = null } = {}) {
+export async function prepareEdit({ prompt, view = 'front', mask = null, src, seg = null, refs = [], feather = DEFAULT_FEATHER, signal = null, garment = null, section = '' } = {}) {
   const text = String(prompt || '').trim();
   if (!src) throw userError('Load or generate a garment first.');
   const w = src.width, h = src.height, n = w * h;
@@ -144,6 +145,14 @@ export async function prepareEdit({ prompt, view = 'front', mask = null, src, se
     alpha = garmentA ? Uint8Array.from(garmentA) : (() => { const f = new Uint8Array(n); f.fill(255); return f; })();
   }
   alpha = subtractKeep(alpha);
+  // Baked-in logos and lettering are protected unless the request names artwork. Never at the price of an empty mask.
+  let protectedArt = [];
+  const auto = artworkProtection(text, ops).filter(r => !keep.includes(r) && seg && seg.regions && seg.regions[r]);
+  if (auto.length && countAbove(alpha) > 0) {
+    const trial = Uint8Array.from(alpha);
+    for (const r of auto) { const k = alphaOfSized(seg.regions[r], w, h); for (let i = 0; i < n; i++) if (k[i]) trial[i] = Math.round(trial[i] * (255 - k[i]) / 255); }
+    if (countAbove(trial) > 0) { alpha = trial; protectedArt = auto; }
+  }
   if (countAbove(alpha) === 0) {
     if (source === 'selection') throw userError('Everything you selected is also marked to stay unchanged, so there is nothing to change. Adjust the selection or the words.');
     // the named parts were all "keep" parts: change the rest of the garment instead
@@ -153,8 +162,9 @@ export async function prepareEdit({ prompt, view = 'front', mask = null, src, se
   }
 
   const plan = {
-    text, prompt: augmented, ops, keep, constraints: { keep: keepText, avoid },
+    text, prompt: augmented, ops, keep, constraints: { keep: uniq([...keepText, ...protectedArt.map(r => (r === 'logos' ? 'existing logos and emblems' : 'existing lettering and text'))]).slice(0, 14), avoid },
     src, seg, view, refs, feather: clampFeather(feather), understood, understandError,
+    garment, section, protectedArt, artwork: describeArtwork(state.elements, view), shape: shapeForAi(state.views[view] && state.views[view].params),
     hasSelection: hasSel, maskSource: source, alpha,
     editMaskCanvas: canvasFromAlpha(alpha, w, h),
     // the built-in engine keeps its own region rules; it only gets the user's selection and the keep list
@@ -202,7 +212,7 @@ export async function editOneLevel({ plan, index, signal = null } = {}) {
   try {
     const r = await aiEdit({
       image: plan.src, mask: plan.editMaskCanvas, prompt: plan.prompt, constraints: plan.constraints,
-      refs: plan.refs, view: plan.view, level: L.level, signal
+      refs: plan.refs, view: plan.view, level: L.level, garment: plan.garment, shape: plan.shape, artwork: plan.artwork, section: plan.section, signal
     });
     const canvas = compositeOn(plan.src, r.canvas, plan.editMaskCanvas, plan.feather);
     return {
@@ -221,12 +231,12 @@ export async function editOneLevel({ plan, index, signal = null } = {}) {
  * The whole pipeline in one call: understand, plan, then the three levels in parallel.
  * `onOption(index, option)` is called as each option arrives. Resolves { plan, options }.
  */
-export async function runAiEdit({ prompt, view = state.activeView, mask, signal = null, src, seg, refs = state.references || [], feather = DEFAULT_FEATHER, onOption = null } = {}) {
+export async function runAiEdit({ prompt, view = state.activeView, mask, signal = null, src, seg, refs = state.references || [], feather = DEFAULT_FEATHER, onOption = null, garment = null, section = '' } = {}) {
   const V = activeView();
   if (src === undefined) src = V.current;
   if (seg === undefined) seg = V.seg;
   if (mask === undefined) mask = hasMask(V) ? V.mask : null;
-  const plan = await prepareEdit({ prompt, view, mask, src, seg, refs, feather, signal });
+  const plan = await prepareEdit({ prompt, view, mask, src, seg, refs, feather, signal, garment, section });
   const settled = await Promise.allSettled(LEVELS.map((_, i) => editOneLevel({ plan, index: i, signal }).then(o => { if (onOption) onOption(i, o); return o; })));
   if (signal && signal.aborted) throw new AiError('aborted');
   const bad = settled.find(s => s.status === 'rejected');

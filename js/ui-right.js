@@ -139,7 +139,7 @@ export function initRight(root) {
     const v = S.variations;
     if (!v) { cards.replaceChildren(h('div', { class: 'muted small empty-cards' }, 'Your three options will appear here.')); return; }
     cards.replaceChildren(...v.map((o, i) => {
-      const name = ['Light', 'Medium', 'Strong'][i] || (o && o.label) || '';
+      const name = (o && o.regen) ? o.label : (['Light', 'Medium', 'Strong'][i] || (o && o.label) || '');
       if (!o || !o.canvas) {   // still working (AI), cancelled or did not finish: no picture yet
         const msg = !o ? '' : o.cancelled ? 'Cancelled' : o.failed ? 'Did not finish. Create the options again to retry.' : 'Working on it…';
         return h('div', { class: 'vcard pending', 'data-state': o && o.cancelled ? 'cancelled' : o && o.failed ? 'failed' : 'working' },

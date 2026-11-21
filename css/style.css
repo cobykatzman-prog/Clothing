@@ -187,6 +187,8 @@ summary:focus-visible,a:focus-visible,[tabindex]:focus-visible,.tab:focus-visibl
 .card>summary .num{display:none}   /* section numbers did not match the order once panels became tabs and modes */
 
 /* AI engine badge, toggle and task card (js/ai-ui.js) */
+.regen-block{display:flex;flex-direction:column;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line,#e4e2dc)}
+.regen-block .lbl{font-weight:600;font-size:12px}
 .engine-row{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:2px 0}
 .engine-badge{cursor:help}
 .engine-badge:focus-visible,.ai-task button:focus-visible,.engine-toggle input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}

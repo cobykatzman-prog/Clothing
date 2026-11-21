@@ -1,5 +1,5 @@
 // Left panel: upload, generate, select areas, text, graphics, references.
-import { state, activeView, subscribe, notify, snapshot, markFlow } from './state.js';
+import { state, activeView, subscribe, notify, snapshot, markFlow, VIEWS, VIEW_LABELS } from './state.js';
 import { h, icon, thumbOf, toast, setDisabled } from './util.js';
 import * as A from './ui-actions.js';
 import { selectionSection } from './ui-select.js';
@@ -7,6 +7,7 @@ import { createElement, GRAPHIC_LIBRARY, FONTS } from './elements.js';
 import { createLayers, addLogo } from './manual.js';
 import { SAMPLE_KINDS } from './samples.js';
 import { normalizeBrandKit, brandStylePatch } from './brand-kit.js';
+import { SECTIONS } from './aigen.js';
 
 const pretty = s => s.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
 const KIND_LABEL = { tee: 'T-shirt', longSleeve: 'Long sleeve', polo: 'Polo', hoodie: 'Hoodie' };
@@ -17,6 +18,18 @@ export function section(num, title, tip, body, open = true, id) {
   return d;
 }
 export function field(label, input, tip) { return h('label', { class: 'field', tip }, h('span', { class: 'lbl' }, label), input); }
+
+/** Redo one view or one garment section with AI. Nothing is replaced until the preview is accepted. */
+function regenBlock() {
+  const views = VIEWS.map(v => h('button', { type: 'button', class: 'btn ghost sm', 'data-regen-view': v, tip: v === 'front' ? 'Redraw the front from the Generate garment description (you can accept or reject it)' : `Redraw the ${v} from the front view, so it is the same garment (you can accept or reject it)`, onclick: () => A.regenerateView(v) }, VIEW_LABELS[v]));
+  const secs = SECTIONS.map(x => h('button', { type: 'button', class: 'btn ghost sm', 'data-regen-section': x.id, tip: `Select the ${x.label.toLowerCase()} and make three fresh versions of just that part. Everything else, including logos and text, stays exactly as it is.`, onclick: () => A.regenerateSection(x.id) }, x.label));
+  return h('div', { class: 'regen-block', id: 'regen-block' },
+    h('div', { class: 'lbl' }, 'Redraw one view with AI'),
+    h('div', { class: 'row gap wrap' }, views),
+    h('div', { class: 'lbl' }, 'Redo one garment section'),
+    h('div', { class: 'row gap wrap' }, secs),
+    h('div', { class: 'muted small' }, 'Your logos, text and other artwork layers are never changed. You see a preview first; Accept or Reject it. If AI fails, you can retry or use the built-in engine.'));
+}
 
 export function initLeft(root) {
   const S = state;
@@ -72,6 +85,7 @@ export function initLeft(root) {
     h('div', { class: 'row gap wrap' },
       genBtn,
       h('button', { class: 'btn ghost sm', tip: 'Draw the chosen sample shape in the chosen colour', onclick: () => A.loadSample(kind, { color: colorIn.value, stripe: stripeIn.checked }, S.views[S.activeView].base ? S.activeView : null) }, 'Use sample')),
+    regenBlock(),
   ], true, 'sec-generate');
 
   // ---- 3 Select (tools, modes, modify, refine, history, overlay, saved selections: ui-select.js) ----
