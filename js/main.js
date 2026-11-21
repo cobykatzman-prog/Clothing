@@ -7,6 +7,7 @@ import { initStage } from './ui-stage.js';
 import { initRight, revealSection } from './ui-right.js';
 import { initMode, initGuide, maybeStartTour, getMode } from './ui-guide.js';
 import { initBottom } from './ui-bottom.js';
+import { initDock } from './ui-dock.js';
 import { busy } from './ui-actions.js';
 import { state, subscribe, serializeDesign, hydrateDesign, notify, VIEWS } from './state.js';
 import * as store from './storage.js';
@@ -27,6 +28,7 @@ initLeft($('left'));
 initStage($('centre'));
 initRight($('right'));
 initBottom($('bottom'));
+initDock($('bottom'));
 initGuide($('header'));   // Basic / Advanced toggle, "?" help, tour, keyboard shortcuts
 /** Shows a section wherever it lives, reopening its panel when the user navigates to it. */
 const panelButtons = {};

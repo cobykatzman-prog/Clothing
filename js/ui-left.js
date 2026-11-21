@@ -216,7 +216,7 @@ export function initLeft(root) {
   function sync(reason) {
     const V = activeView();
     const has = !!V.base;
-    if (reason === 'loaded') { document.getElementById('sec-upload').open = false; document.getElementById('sec-select').open = true; }
+    if (reason === 'loaded') { document.getElementById('sec-upload').open = false; document.getElementById('sec-generate').open = false; document.getElementById('sec-select').open = true; }
     viewHint.textContent = has ? `Editing the ${state.activeView} view. Use the tabs above the canvas for other views.` : `Uploading to the ${state.activeView} view.`;
     setDisabled(root.querySelector('#btn-removebg'), !has, 'Load a garment first, then you can cut it out of its background again.');
     refGrid.replaceChildren(...S.references.map((c, i) => h('div', { class: 'ref' }, thumbOf(c, 64, '#f3f2ef'), h('button', { class: 'x', 'aria-label': 'Remove reference', onclick: () => A.removeReference(i) }, icon('x', 12)))));

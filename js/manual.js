@@ -379,7 +379,7 @@ export function createLayers() {
   }
   function row(e, items, inGroup) {
     const pos = items.indexOf(e), picked = selectedSet().includes(e);
-    const nameBtn = h('button', { type: 'button', class: 'ename', tip: 'Click to select (Shift + click adds more). Double-click to rename. Drag the row to reorder.', 'aria-label': `${TYPE_LABEL[e.type] || e.type}: ${layerLabel(e)}`, onclick: ev => { if (ev.shiftKey || ev.ctrlKey || ev.metaKey) toggleInSelection(e.id); else selectElement(e.id); }, ondblclick: ev => { ev.stopPropagation(); if (!e.locked) rename(e, nameBtn); } }, layerLabel(e));
+    const nameBtn = h('button', { type: 'button', class: 'ename', tip: 'Click to select (Shift + click adds more). Double-click to rename. Drag the row to reorder.', 'aria-label': `${TYPE_LABEL[e.type] || e.type}: ${layerLabel(e)}`, onclick: ev => { if (ev.shiftKey || ev.ctrlKey || ev.metaKey) toggleInSelection(e.id); else if (e.id !== state.selectedId || selectedSet().length > 1) selectElement(e.id); }, ondblclick: ev => { ev.stopPropagation(); if (!e.locked) rename(e, nameBtn); } }, layerLabel(e));
     const r = h('div', {
       class: 'erow' + (picked ? ' on' : '') + (e.id === state.selectedId ? ' primary' : '') + (e.locked ? ' locked' : '') + (e.visible === false ? ' hidden' : '') + (inGroup ? ' ingroup' : ''),
       role: 'listitem', draggable: 'true', 'data-id': e.id, 'aria-current': e.id === state.selectedId ? 'true' : null,
@@ -649,8 +649,8 @@ export function createInspector() {
       h('div', { class: 'btns' },
         own([icon('up', 14), 'Forward'], 'Draw over the layer above (Ctrl+])', x => reorder(x, 'up')),
         own([icon('down', 14), 'Backward'], 'Draw under the layer below (Ctrl+[)', x => reorder(x, 'down')),
-        own('To front', 'Draw over everything on this view (Ctrl+Shift+])', x => reorder(x, 'front')),
-        own('To back', 'Draw under everything on this view (Ctrl+Shift+[)', x => reorder(x, 'back'))),
+        own('Front of all', 'Draw over everything on this view (Ctrl+Shift+])', x => reorder(x, 'front')),
+        own('Behind all', 'Draw under everything on this view (Ctrl+Shift+[)', x => reorder(x, 'back'))),
       h('div', { class: 'muted small' }, 'Copy to other views (same place and look):'),
       h('div', { class: 'copyrow' },
         others.map(v => own('To ' + VIEW_LABELS[v], `Put a copy of this element on the ${VIEW_LABELS[v].toLowerCase()} view`, x => duplicateToViews(x, [v]))),

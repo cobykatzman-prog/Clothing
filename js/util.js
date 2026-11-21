@@ -185,6 +185,8 @@ const ICONS = {
   flipH: 'M12 3v18M8 7L3 12l5 5zM16 7l5 5-5 5z',
   flipV: 'M3 12h18M7 8l5-5 5 5zM7 16l5 5 5-5z',
   panel: 'M4 5h16v14H4zM15 5v14',
+  'panel-left': 'M4 5h16v14H4zM9 5v14',
+  'panel-right': 'M4 5h16v14H4zM15 5v14',
   tools: 'M4 5h16M4 12h16M4 19h16',
   scissors: 'M6 3a3 3 0 100 6 3 3 0 000-6zM6 15a3 3 0 100 6 3 3 0 000-6zM8.5 8L20 19M8.5 16L20 5',
 };

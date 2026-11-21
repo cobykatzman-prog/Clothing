@@ -98,6 +98,10 @@ The blue *Next* line under the view tabs always says what to do next. **Basic** 
 
 Press **?** (or the *?* button in the header) for the guided tour, the keyboard shortcuts and a one-page *How it works*. Useful shortcuts: Ctrl+Z / Ctrl+Shift+Z undo and redo, Delete removes the selected item, Ctrl+D duplicates it, arrow keys nudge it, + / - / 0 zoom, hold Space to pan, Esc deselects or closes a dialog. Anything you reset or delete can be undone from the message that appears.
 
+### Arranging items
+
+Select a text, graphic or logo (click it, or its row in the *Items* tab) and the inspector shows only the controls that item has: for example text and font for lettering, a tint for a logo, stripe count for stripes. *Position & size* holds exact X, Y, Width, Height, Rotation and Size % fields (type a number and press Enter) next to the handles on the canvas, plus *Align* buttons that line it up with the garment. **Shift + click** more items (on the canvas or in Layers) to align them to each other, space three or more evenly, or **Group** them (Ctrl+G; Ctrl+Shift+G ungroups): a group moves, hides, locks and duplicates as one. In Layers, double-click a name to rename it, use the eye and lock icons, and the up / down arrows (or Alt + arrow keys, Ctrl+[ and Ctrl+]) to reorder. While you drag, items snap to the garment edges and centre, the canvas centre and other items, with pink guides; hold **Alt** to move freely or turn *Snap* off in the toolbar. On tablets and phones the Tools and Edit panels open from the bottom bar so the canvas keeps the screen.
+
 ### Selecting parts of a garment
 
 Mark the area you want to change before you describe it; only the selected pixels are edited, everything else stays exactly as it was. The tools sit in the bar above the canvas (and, in Advanced, in the left *Select garment areas* section):

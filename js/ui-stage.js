@@ -37,6 +37,7 @@ export function initStage(root) {
     act('zoomOut', 'Zoom out', () => stage.zoomBy(1 / 1.2)), zoomLbl, act('zoomIn', 'Zoom in', () => stage.zoomBy(1.2)),
     act('fit', 'Fit to screen', () => stage.fit(), 'Fit to screen (0)'),
     act('zoomSel', 'Zoom to selection', () => stage.zoomToSelection(), 'Zoom in on the selected area (Z)'),
+    h('button', { class: 'tool-i', 'data-snap': '1', id: 'btn-snap', 'aria-label': 'Snap to guides', 'aria-pressed': 'true', tip: 'Snap: items click to the garment edges and centre, the canvas centre and other items while you drag. Hold Alt to drag freely.', onclick: () => { S.ui.snap = !S.ui.snap; notify('tool'); } }, icon('magnet', 18)),
     act('rotate', 'Rotate view', () => stage.rotateBy(15), 'Rotate the view 15° (does not change the design)'),
     h('button', { class: 'tool-i txt', 'aria-label': 'Reset the view rotation', tip: 'Reset the view rotation', onclick: () => stage.resetRotation() }, '0°'),
     h('span', { class: 'sep' }),
@@ -73,6 +74,7 @@ export function initStage(root) {
     const V = activeView();
     empty.hidden = !!V.current;
     tabs.querySelectorAll('.tab').forEach(t => { t.classList.toggle('on', t.dataset.v === S.activeView); t.classList.toggle('has', !!S.views[t.dataset.v].current); t.setAttribute('aria-selected', t.dataset.v === S.activeView); t.tabIndex = t.dataset.v === S.activeView ? 0 : -1; });
+    { const sb = tools.querySelector('#btn-snap'); sb.setAttribute('aria-pressed', String(!!S.ui.snap)); sb.classList.toggle('on', !!S.ui.snap); }
     tools.querySelectorAll('[data-tool]').forEach(b => { b.classList.toggle('on', S.ui.tool === b.dataset.tool); });
     busyEl.hidden = !S.ui.busy; busyEl.querySelector('span').textContent = S.ui.busyMsg || '';
     procEl.hidden = !S.ui.processing;

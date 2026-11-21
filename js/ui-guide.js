@@ -42,6 +42,8 @@ const KEYS = [
   ['Enter', 'Accept the previewed option (it is kept in Edit history)'], ['H (hold)', 'Hold to see the garment before the edit, release to see the result'],
   ['Delete  or  Backspace', 'Delete the selected text or graphic'], ['Ctrl + D', 'Duplicate the selected text or graphic'],
   ['Arrow keys', 'Nudge the selected item by 1 px (hold Shift for 10 px)'],
+  ['Shift + click', 'Add an item to the selection (canvas or Layers), to align, group or move several at once'], ['Ctrl + G  /  Ctrl + Shift + G', 'Group / ungroup the selected items'],
+  ['Ctrl + ]  /  Ctrl + [', 'Bring forward / send backward (add Shift for front / back of all)'], ['Alt + drag', 'Move an item without snapping to the guides'],
   ['+  /  -', 'Zoom in / out (or use the mouse wheel over the canvas)'], ['0', 'Fit the garment to the screen'],
   ['Hold Space and drag', 'Move around the canvas (or drag with the middle mouse button, or two fingers on a touch screen)'], ['Esc', 'Reject the previewed option, deselect, cancel a selection in progress, or close a dialog or menu'], ['?', 'Open this help'],
   ['Mouse wheel', 'Zoom towards the pointer (up to 1000%)'], ['Z', 'Zoom to the selection'],
