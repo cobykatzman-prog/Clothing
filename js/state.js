@@ -5,6 +5,7 @@ import { segmentGarment } from './segment.js';
 import { ElementLayer } from './elements.js';
 import { defaultMeasureState, normalizeMeasureState } from './measure.js';
 import { defaultSpecState, normalizeSpecState } from './spec.js';
+import { emptyColourways, normalizeColourways, colourwaysDoc, appearanceOfView, captureElementColours } from './colourway-model.js';
 
 export const VIEWS = ['front', 'back', 'side', 'detail'];
 export const VIEW_LABELS = { front: 'Front', back: 'Back', side: 'Side', detail: 'Detail' };
@@ -37,6 +38,7 @@ export const state = {
   name: 'Untitled design',
   spec: defaultSpecState(),         // per-size manual values, grading increments, tolerances (spec.js, saved with the design)
   measure: defaultMeasureState(),   // size / unit / calibration / show-dimensions of this design (measure.js, saved with the design)
+  colourways: emptyColourways(),   // {list, activeId}: colours / fabrics / material notes per colourway; the shape is shared (colourways.js)
   tags: [],              // home-page tags of this design (saved in the design document, see serializeDesign)
   views: Object.fromEntries(VIEWS.map(v => [v, newView()])),
   activeView: 'front',
@@ -94,7 +96,7 @@ export function capture() {
       regionSel: [...v.regionSel], sample: v.sample, parts: { ...v.parts }, saved: [...(v.saved || [])],
     };
   }
-  return { views, elements: state.elements.map(cloneElement), activeView: state.activeView, name: state.name, measure: { ...state.measure }, spec: normalizeSpecState(state.spec) };
+  return { views, elements: state.elements.map(cloneElement), activeView: state.activeView, name: state.name, measure: { ...state.measure }, spec: normalizeSpecState(state.spec), cwActive: state.colourways.activeId };
 }
 function apply(s) {
   const keepSel = state.selectedId;   // undo / redo keeps the selected layer when it still exists
@@ -111,6 +113,7 @@ function apply(s) {
   state.name = s.name;
   if (s.measure) state.measure = { ...s.measure };
   state.spec = normalizeSpecState(s.spec);
+  if ('cwActive' in s && (s.cwActive == null || state.colourways.list.some(c => c.id === s.cwActive))) state.colourways.activeId = s.cwActive;
   state.selectedId = state.elements.some(e => e.id === keepSel && (!e.view || e.view === s.activeView)) ? keepSel : null;
 }
 /** Call BEFORE a mutation: records the current state as an undo step. */
@@ -213,15 +216,28 @@ function remapRaw(raw, R) {
   return s;
 }
 
+/** Writes what the studio shows now back into the active colourway (colours, fabrics, layer colours; never the shape). */
+export function syncActiveColourway() {
+  const cw = state.colourways, c = cw.list.find(x => x.id === cw.activeId);
+  if (!c) return null;
+  for (const n of VIEWS) if (state.views[n].base) c.views[n] = appearanceOfView(state.views[n]);
+  const now = captureElementColours(state.elements);
+  c.elements = now;
+  // a layer added after the other colourways were made starts with the same colours in all of them
+  for (const o of cw.list) if (o !== c) for (const [id, col] of Object.entries(now)) if (!o.elements[id]) o.elements[id] = { ...col };
+  return c;
+}
+
 /** Whole design -> { doc, assets }. assets: { key: Blob|dataURL }. Safe to call while editing. */
 export async function serializeDesign() {
+  syncActiveColourway();
   const R = makeRefs();
   const doc = {
     v: 1, name: state.name, activeView: state.activeView, tags: [...(state.tags || [])], measure: { ...state.measure }, spec: normalizeSpecState(state.spec),
     views: Object.fromEntries(VIEWS.map(n => [n, viewDoc(state.views[n], R.canvas)])),
     elements: state.elements.map(elDoc),
     references: state.references.filter(Boolean).map(R.canvas),
-    flow: { ...state.flow },
+    flow: { ...state.flow }, colourways: colourwaysDoc(state.colourways),
     edits: state.edits.map(e => editDoc(e, R)), editHead: state.editHead, editSeq: state.editSeq,
     versions: state.versions.map(ver => ({
       id: ver.id, label: ver.label, thumb: ver.thumb, time: ver.time, view: ver.view,
@@ -307,6 +323,7 @@ export async function hydrateDesign(doc = {}, assets = {}) {
   state.activeView = VIEWS.includes(doc.activeView) ? doc.activeView : 'front';
   state.measure = normalizeMeasureState(doc.measure);
   state.spec = normalizeSpecState(doc.spec);
+  state.colourways = normalizeColourways(doc.colourways);
   state.selectedId = null;
   state.elements = (doc.elements || []).map(o => ElementLayer.fromJSON(o));
   state.references = (await Promise.all((doc.references || []).map(k => load(k)))).filter(Boolean);
