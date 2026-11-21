@@ -9,7 +9,7 @@ npm start                                   # open, no login (development only)
 SITE_PASSWORD='a-long-password' npm start   # with the login screen, http://localhost:8080/
 ```
 
-Tests: `npm test` (login gate, shared library routes and prompt parser). Any static server (`python3 -m http.server 8123`) also works for development, without a login.
+Tests: `npm test` (fast) and `npm run test:e2e` (browser journeys); see TESTING.md. Any static server (`python3 -m http.server 8123`) also works for development, without a login.
 
 ## Password login
 
@@ -90,7 +90,7 @@ Honest note: this backend was verified end to end against a local mock of the Op
 ## Using Threadform
 
 1. **Start a garment.** On the home page press *New design*, then pick a sample, upload a photo (the background is removed for you) or describe one, e.g. "navy hoodie with white stripes".
-2. **Describe a change** in the *Look* tab, e.g. "make the sleeves flared", and press *Create 3 options*. Press *Use this* on the light, medium or strong version you like; *Compare before / after* shows the difference.
+2. **Describe a change** in the *Look* tab, e.g. "make the sleeves flared", and press *Create 3 options*. Press *Use this* (or *Preview*, then Accept) on the light, medium or strong version you like; *Compare before / after* shows the difference.
 3. **Refine.** Click a part of the garment to recolour it, add text and graphics from the left panel (they open in the *Items* tab), and check sizes in the *Measure* tab.
 4. **Export** a PNG, an editable SVG, the measurements (CSV) or a full design sheet.
 

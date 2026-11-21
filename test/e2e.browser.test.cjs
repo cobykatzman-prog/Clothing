@@ -333,6 +333,19 @@ const { ok } = R;
   await shot(page, 'j7-export-dialog'); await page.keyboard.press('Escape');
   noErrors('J7 export');
 
+  /* ================= J8: Basic mode + phone layout ================= */
+  R.section('J8 basic mode / phone');
+  const ph = await L.newPage(browser, { mode: 'basic', width: 390, height: 800 }); L.watch(ph.page, errs);
+  await ph.page.goto(url + '#/'); await ph.page.waitForSelector('#home:not([hidden])');
+  const noH = p => p.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1);
+  ok(await noH(ph.page), 'phone home has no horizontal scroll');
+  await ph.page.click('#home >> text=Try a sample shirt'); await ph.page.waitForFunction(() => window.__threadform.state.views.front.current); await settle(ph.page);
+  ok(await noH(ph.page), 'phone studio has no horizontal scroll');
+  await shot(ph.page, 'j8-phone');
+  ok(await ph.page.isVisible('#btn-export') && await ph.page.isVisible('#btn-undo'), 'phone studio shows export and undo');
+  noErrors('J8 phone');
+  await ph.ctx.close();
+
   await browser.close(); srv.close();
   const good = R.done(); process.exit(good ? 0 : 1);
 })().catch(e => { console.error(e); process.exit(2); });

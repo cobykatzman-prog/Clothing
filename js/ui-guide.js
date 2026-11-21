@@ -167,7 +167,7 @@ export function nextStepText() {
   if (state.review) return state.review.startShown
     ? 'Starting point set: describe the next change in Describe and press "Create 3 options". Nothing is accepted yet.'
     : 'Next: Accept (Enter) keeps the previewed option. Reject (Esc) puts the garment back. Regenerate gives new options.';
-  if (state.variations && !state.applied) return 'Next: look at the three options in the Look tab, press "Preview" on the one you like, then Accept or Reject it.';
+  if (state.variations && !state.applied) return 'Next: look at the three options in the Look tab, press "Use this" on the one you like (or "Preview" it first, then Accept or Reject).';
   const sel = hasMask(V);
   if (!(f.refined || f.compared || state.applied)) {
     if (sel) { const st = selectionStats(V); return `Selected${st.pct != null ? ' ' + Math.round(st.pct) + '% of the garment' : ''}. Next: describe what to change in the selected area (Look tab) and press "Create 3 options".`; }
