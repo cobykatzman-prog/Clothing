@@ -13,6 +13,7 @@ import { isSelTool, selToolHint } from './selection.js';
 import { applyColor } from './fabric.js';
 import { FONTS, WEIGHTS, GRAPHIC_LIBRARY, getGraphic, fitElement, updateElement, resetElement, copyToView, createElement, onElementAssetsLoaded } from './elements.js';
 import * as A from './ui-actions.js';
+import { selectedSet, toggleInSelection, groupSelection, ungroupSelection, canGroup, canUngroup, nudgeSet, deleteSet, duplicateSet, alignSelection, distributeSelection, alignTarget, setSize, setLockedSet, setVisibleSet } from './arrange-ops.js';
 
 /* ------------------------------------------------------------------ small helpers */
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -291,9 +292,9 @@ export function fontInstalled(family) {
 }
 
 /* ------------------------------------------------------------------ structural edits (one undo step each) */
-function change(fn) { closeGate(); snapshot(); fn(); notify('elements'); }
+export function change(fn) { closeGate(); snapshot(); fn(); notify('elements'); }
 export function selectedElement() { return state.elements.find(e => e.id === state.selectedId) || null; }
-export function selectElement(id) { closeGate(); state.selectedId = id; state.ui.tool = 'move'; notify('selection'); }
+export function selectElement(id) { closeGate(); state.selectedId = id; state.ui.multi = []; state.ui.multiFor = id; state.ui.tool = 'move'; notify('selection'); }
 export function duplicateElement(el) {
   if (!el) return;
   change(() => {
@@ -333,38 +334,59 @@ export function reorder(el, mode) {
 /** Keyboard: Delete/Backspace removes, arrows nudge (Shift = 10 px), Ctrl/Cmd+D duplicates, Esc deselects. Returns true if handled. */
 export function handleElementKey(e) {
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '')) return false;
-  if (e.key === 'Escape' && state.selectedId) { closeGate(); state.selectedId = null; notify('selection'); return true; }
+  if (e.key === 'Escape' && state.selectedId) { closeGate(); state.selectedId = null; state.ui.multi = []; notify('selection'); return true; }
   const el = selectedElement(); if (!el) return false;
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateElement(el); return true; }
-  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteElement(el); return true; }
+  const mod = e.ctrlKey || e.metaKey, key = e.key.toLowerCase();
+  if (mod && key === 'd') { e.preventDefault(); duplicateSet(); return true; }
+  if (mod && key === 'g') { e.preventDefault(); if (e.shiftKey) ungroupSelection(); else groupSelection(); return true; }
+  if (mod && (e.key === ']' || e.key === '[')) { e.preventDefault(); reorder(el, e.key === ']' ? (e.shiftKey ? 'front' : 'up') : (e.shiftKey ? 'back' : 'down')); return true; }
+  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSet(); return true; }
   const s = e.shiftKey ? 10 : 1;
   const d = { ArrowLeft: [-s, 0], ArrowRight: [s, 0], ArrowUp: [0, -s], ArrowDown: [0, s] }[e.key];
   if (!d) return false;
   e.preventDefault();
-  if (el.locked) return true;
-  editGate(); el.x += d[0]; el.y += d[1]; notify('elements-live');
+  nudgeSet(d[0], d[1]);   // locked items stay where they are
   return true;
 }
 // logo images decode asynchronously: redraw the stage when one arrives (no autosave: 'render' is not content)
 onElementAssetsLoaded(() => notify('render'));
 
-/* ------------------------------------------------------------------ layers list (left panel) */
+/* ------------------------------------------------------------------ layers list */
+const DEFAULT_NAMES = new Set([...Object.values(TYPE_LABEL), ...Object.keys(TYPE_LABEL)]);
+/** What a layer is called in the list: its own name when the person renamed it, otherwise its text or design name. */
+export function layerLabel(e) {
+  const custom = e.name && !DEFAULT_NAMES.has(e.name) && !/ copy$/.test(e.name);
+  if (custom) return e.name;
+  const t = e.props?.text;
+  if (t != null && !e.props.graphicId) return String(t).replace(/\s+/g, ' ').slice(0, 24) || e.name;
+  const lib = getGraphic(e.props?.graphicId); return lib ? lib.name : (e.name || e.type);
+}
 export function createLayers() {
   ensureCss();
-  const list = h('div', { class: 'elist' });
-  let dragId = null;
-  const label = e => {
-    const t = e.props?.text;
-    if (t != null && !e.props.graphicId) return String(t).replace(/\s+/g, ' ').slice(0, 22) || e.name;
-    const lib = getGraphic(e.props?.graphicId); return lib ? lib.name : (e.name || e.type);
-  };
-  const mini = (txt, tip, fn, disabled) => h('button', { class: 'mini', tip, disabled: !!disabled, 'aria-label': tip, onclick: ev => { ev.stopPropagation(); fn(); } }, txt);
-  function row(e, items) {
-    const pos = items.indexOf(e);
+  const list = h('div', { class: 'elist', role: 'list', 'aria-label': 'Layers on this view, top of the stack first' });
+  const collapsed = new Set();   // group ids folded in the list (not saved)
+  let dragId = null, renaming = null;
+  const ibtn = (ic, label, tip, fn, o = {}) => h('button', { type: 'button', class: 'icon-btn lbtn' + (o.cls ? ' ' + o.cls : ''), tip, 'aria-label': label, disabled: !!o.disabled, 'aria-pressed': o.pressed == null ? null : String(!!o.pressed), onclick: ev => { ev.stopPropagation(); fn(ev); } }, icon(ic, 15));
+  function rename(e, nameEl) {
+    renaming = e.id;
+    const inp = h('input', { type: 'text', class: 'rename', value: layerLabel(e), 'aria-label': 'Layer name', maxlength: 40 });
+    const done = save => { if (renaming !== e.id) return; renaming = null; const v = inp.value.trim(); if (save && v && v !== layerLabel(e)) { change(() => { e.name = v; }); } else sync(); };
+    inp.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') done(true); else if (ev.key === 'Escape') done(false); });
+    inp.addEventListener('blur', () => done(true));
+    inp.addEventListener('click', ev => ev.stopPropagation());
+    nameEl.replaceWith(inp); inp.focus(); inp.select();
+  }
+  function row(e, items, inGroup) {
+    const pos = items.indexOf(e), picked = selectedSet().includes(e);
+    const nameBtn = h('button', { type: 'button', class: 'ename', tip: 'Click to select (Shift + click adds more). Double-click to rename. Drag the row to reorder.', 'aria-label': `${TYPE_LABEL[e.type] || e.type}: ${layerLabel(e)}`, onclick: ev => { if (ev.shiftKey || ev.ctrlKey || ev.metaKey) toggleInSelection(e.id); else selectElement(e.id); }, ondblclick: ev => { ev.stopPropagation(); if (!e.locked) rename(e, nameBtn); } }, layerLabel(e));
     const r = h('div', {
-      class: 'erow' + (e.id === state.selectedId ? ' on' : '') + (e.locked ? ' locked' : '') + (e.visible === false ? ' hidden' : ''),
-      draggable: 'true', 'data-id': e.id, tip: 'Click to select. Drag to change the layer order.',
-      onclick: () => selectElement(e.id),
+      class: 'erow' + (picked ? ' on' : '') + (e.id === state.selectedId ? ' primary' : '') + (e.locked ? ' locked' : '') + (e.visible === false ? ' hidden' : '') + (inGroup ? ' ingroup' : ''),
+      role: 'listitem', draggable: 'true', 'data-id': e.id, 'aria-current': e.id === state.selectedId ? 'true' : null,
+      onkeydown: ev => {
+        if (ev.target !== nameBtn) return;
+        if (ev.altKey && (ev.key === 'ArrowUp' || ev.key === 'ArrowDown')) { ev.preventDefault(); reorder(e, ev.key === 'ArrowUp' ? 'up' : 'down'); setTimeout(() => list.querySelector(`.erow[data-id="${e.id}"] .ename`)?.focus(), 0); }
+        else if (ev.key === 'F2') { ev.preventDefault(); if (!e.locked) rename(e, nameBtn); }
+      },
       ondragstart: ev => { dragId = e.id; ev.dataTransfer && ev.dataTransfer.setData('text/plain', e.id); },
       ondragend: () => { dragId = null; list.querySelectorAll('.dropabove,.dropbelow').forEach(x => x.classList.remove('dropabove', 'dropbelow')); },
       ondragover: ev => { if (!dragId) return; ev.preventDefault(); const b = r.getBoundingClientRect(); const above = ev.clientY < b.top + b.height / 2; r.classList.toggle('dropabove', above); r.classList.toggle('dropbelow', !above); },
@@ -378,24 +400,49 @@ export function createLayers() {
       },
     },
       h('span', { class: 'etype' }, TYPE_LABEL[e.type] || e.type),
-      h('span', { class: 'ename' }, label(e)),
-      mini('▲', 'Bring forward (drawn over more things)', () => reorder(e, 'up'), pos === 0),
-      mini('▼', 'Send backward (drawn under more things)', () => reorder(e, 'down'), pos === items.length - 1),
-      mini(e.locked ? 'Unlock' : 'Lock', e.locked ? 'Unlock so it can be moved' : 'Lock so it cannot be moved or deleted', () => toggleLock(e)),
-      h('button', { class: 'icon-btn', 'aria-label': e.visible === false ? 'Show layer' : 'Hide layer', tip: e.visible === false ? 'Show on the design' : 'Hide on the design', onclick: ev => { ev.stopPropagation(); toggleVisible(e); } }, icon(e.visible === false ? 'eyeoff' : 'eye', 15)),
-      h('button', { class: 'icon-btn', 'aria-label': 'Delete layer', tip: 'Delete this element', disabled: !!e.locked, onclick: ev => { ev.stopPropagation(); deleteElement(e); } }, icon('trash', 15)));
+      nameBtn,
+      h('span', { class: 'eacts' },
+        ibtn('up', 'Bring forward (drawn over more things)', 'Bring forward (drawn over more things)', () => reorder(e, 'up'), { disabled: pos === 0, cls: 'more' }),
+        ibtn('down', 'Send backward (drawn under more things)', 'Send backward (drawn under more things)', () => reorder(e, 'down'), { disabled: pos === items.length - 1, cls: 'more' }),
+        ibtn('trash', 'Delete layer', 'Delete this element', () => deleteElement(e), { disabled: !!e.locked, cls: 'more' })),
+      ibtn(e.locked ? 'lock' : 'unlock', e.locked ? 'Unlock layer' : 'Lock layer', e.locked ? 'Unlock so it can be moved' : 'Lock so it cannot be moved or deleted', () => toggleLock(e), { pressed: e.locked }),
+      ibtn(e.visible === false ? 'eyeoff' : 'eye', e.visible === false ? 'Show layer' : 'Hide layer', e.visible === false ? 'Show on the design' : 'Hide on the design', () => toggleVisible(e)));
     return r;
   }
+  function groupRow(g, members) {
+    const open = !collapsed.has(g), allHidden = members.every(m => m.visible === false), allLocked = members.every(m => m.locked);
+    return h('div', { class: 'erow grp' + (members.some(m => m.id === state.selectedId) ? ' on' : ''), role: 'listitem', 'data-group': g },
+      h('button', { type: 'button', class: 'icon-btn lbtn', 'aria-expanded': String(open), 'aria-label': open ? 'Collapse group' : 'Expand group', onclick: () => { open ? collapsed.add(g) : collapsed.delete(g); sync(); } }, icon('chevron', 14)),
+      h('button', { type: 'button', class: 'ename', tip: 'Select the whole group', 'aria-label': `Group of ${members.length} items`, onclick: () => selectElement(members[0].id) }, `Group (${members.length})`),
+      h('span', { class: 'eacts' }, ibtn('ungroup', 'Ungroup', 'Split the group back into separate layers', () => { selectElement(members[0].id); ungroupSelection(); }, { cls: 'more' })),
+      ibtn(allLocked ? 'lock' : 'unlock', allLocked ? 'Unlock group' : 'Lock group', 'Lock or unlock every layer in the group', () => change(() => { for (const m of members) m.locked = !allLocked; }), { pressed: allLocked }),
+      ibtn(allHidden ? 'eyeoff' : 'eye', allHidden ? 'Show group' : 'Hide group', 'Show or hide every layer in the group', () => change(() => { for (const m of members) m.visible = allHidden; })));
+  }
+  // group / ungroup the current selection
+  const gBtn = h('button', { type: 'button', class: 'btn ghost sm', id: 'btn-group', tip: 'Group the selected items so they move, hide, lock and copy together (Ctrl+G). Select several with Shift + click.', onclick: () => groupSelection() }, icon('group', 15), 'Group');
+  const uBtn = h('button', { type: 'button', class: 'btn ghost sm', id: 'btn-ungroup', tip: 'Split the group back into separate items (Ctrl+Shift+G)', onclick: () => ungroupSelection() }, icon('ungroup', 15), 'Ungroup');
   function sync(reason) {
     if (['render', 'zoom', 'processing', 'busy', 'elements-live', 'part'].includes(reason)) return;
+    if (renaming && document.activeElement?.classList?.contains('rename')) return;
     const items = state.elements.filter(e => e.view === state.activeView);
     const top = items.slice().reverse();   // top of the stack first
-    list.replaceChildren(...(top.length ? top.map(e => row(e, top)) : [h('div', { class: 'muted small' }, 'Nothing added yet. Use sections 4 and 5 to add text, crests or stripes.')]));
+    const rows = [], seen = new Set();
+    for (const e of top) {
+      if (e.group) {
+        if (seen.has(e.group)) continue; seen.add(e.group);
+        const mem = top.filter(m => m.group === e.group);
+        rows.push(groupRow(e.group, mem));
+        if (!collapsed.has(e.group)) for (const m of mem) rows.push(row(m, top, true));
+      } else rows.push(row(e, top, false));
+    }
+    list.replaceChildren(...(rows.length ? rows : [h('div', { class: 'muted small empty-note', role: 'listitem' }, 'Nothing added yet. Use Add text and Add graphics on the left.')]));
+    gBtn.disabled = !canGroup(); uBtn.disabled = !canUngroup();
+    gBtn.hidden = !canGroup(); uBtn.hidden = !canUngroup();
   }
   // upload a picture as a new logo on this view
   const logoIn = h('input', { type: 'file', accept: 'image/*', hidden: true, 'aria-label': 'Logo file', onchange: e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) addLogo(f); } });
-  const addBtn = h('button', { class: 'btn ghost sm', tip: 'Upload a logo or picture to place on the garment (then recolour it in the Selected item section)', onclick: () => logoIn.click() }, icon('plus', 15), 'Add logo…');
-  const wrap = h('div', { class: 'lwrap' }, h('div', { class: 'row gap center' }, addBtn, logoIn), list);
+  const addBtn = h('button', { class: 'btn ghost sm', tip: 'Upload a logo or picture to place on the garment', onclick: () => logoIn.click() }, icon('plus', 15), 'Add logo…');
+  const wrap = h('div', { class: 'lwrap' }, h('div', { class: 'row gap center wrap' }, addBtn, gBtn, uBtn, logoIn), list);
   subscribe(sync); sync();
   return { el: wrap, sync };
 }
@@ -450,7 +497,7 @@ function setShadow(el, patch) {
 export function createInspector() {
   ensureCss();
   const body = h('div', { class: 'insp' });
-  const empty = h('div', { class: 'muted small' }, 'Nothing selected. Click a design element on the canvas or in the layers list to edit it. Add elements from sections 4 and 5.');
+  const empty = h('div', { class: 'muted small empty-note' }, 'Nothing selected. Click an item on the garment or in Layers to edit it. Shift + click selects several to align or group them.');
   let key = null, sig = null, binders = [], inputs = [], writing = null;
   const cur = () => state.elements.find(e => e.id === key) || null;
 
@@ -483,26 +530,52 @@ export function createInspector() {
   const group = (title, kids, open = true) => h('details', { class: 'igrp', open: open || null }, h('summary', {}, title), h('div', { class: 'igrp-body' }, kids));
   const fileIn = h('input', { type: 'file', accept: 'image/*', hidden: true, 'aria-label': 'Replace logo image', onchange: e => { const f = e.target.files?.[0]; e.target.value = ''; const c = cur(); if (c && f) replaceLogo(c, f); } });
 
+  // numeric field that applies when the value is committed (Enter or leaving the field), so half-typed numbers never resize anything
+  const commitIn = (label, get, set, o = {}) => {
+    const input = h('input', { type: 'number', min: o.min, max: o.max, step: o.step || 1, 'aria-label': label });
+    inputs.push(input);
+    binders.push(c => { input.disabled = !!c.locked; if (document.activeElement === input) return; input.value = get(c) ?? ''; });
+    input.addEventListener('change', () => { const c = cur(); if (!c || c.locked) return; const n = parseFloat(input.value); if (Number.isFinite(n)) { closeGate(); snapshot(); set(c, n); notify('elements'); } else input.value = get(c) ?? ''; });
+    return row(label, input, o.tip);
+  };
+  let keepRatio = true;
+  const iconBtn = (ic, label, tip, fn, o = {}) => h('button', { type: 'button', class: 'icon-btn ibtn' + (o.cls ? ' ' + o.cls : ''), tip, 'aria-label': label, 'aria-pressed': o.pressed == null ? null : String(!!o.pressed), disabled: !!o.disabled, onclick: () => fn() }, icon(ic, 16));
+  const ALIGNS = [['left', 'alignLeft', 'Align left'], ['hcenter', 'alignHCenter', 'Align centre horizontally'], ['right', 'alignRight', 'Align right'], ['top', 'alignTop', 'Align top'], ['vmiddle', 'alignVMiddle', 'Align middle vertically'], ['bottom', 'alignBottom', 'Align bottom']];
+  const alignBar = (multi) => h('div', { class: 'alignbar', role: 'group', 'aria-label': 'Align' },
+    ALIGNS.map(([m, ic, label]) => iconBtn(ic, label, label + (multi ? ' (to each other)' : ' (to the garment)'), () => alignSelection(m))),
+    multi ? [iconBtn('distH', 'Distribute horizontally', 'Space the items evenly left to right (three or more)', () => distributeSelection('x')), iconBtn('distV', 'Distribute vertically', 'Space the items evenly top to bottom (three or more)', () => distributeSelection('y'))] : null);
+
   function build(c) {
     binders = []; inputs = [];
     const p = c.props, parts = [], lib = getGraphic(p.graphicId);
+    const own = (txt, tip, fn, cls = 'btn ghost sm') => h('button', { type: 'button', class: cls, tip, onclick: () => { const x = cur(); if (x) fn(x); } }, txt);
     parts.push(h('div', { class: 'ptitle' }, (TYPE_LABEL[c.type] || c.type) + (lib ? ' · ' + lib.name : '')));
     parts.push(textIn('Name', x => x.name, (x, v) => { x.name = v; }, 'A name for this item in the layers list'));
+    parts.push(h('div', { class: 'iacts' },
+      own([icon('copy', 14), 'Duplicate'], 'Make another copy of this item (Ctrl/Cmd+D)', x => duplicateElement(x)),
+      own([icon('trash', 14), 'Delete'], 'Remove this item (Delete key)', x => deleteElement(x), 'btn ghost sm danger'),
+      iconBtn(c.locked ? 'lock' : 'unlock', c.locked ? 'Unlock item' : 'Lock item', c.locked ? 'Unlock so it can be moved' : 'Lock so it cannot be moved, resized or deleted', () => toggleLock(cur()), { pressed: c.locked }),
+      iconBtn(c.visible === false ? 'eyeoff' : 'eye', c.visible === false ? 'Show item' : 'Hide item', c.visible === false ? 'Show on the design' : 'Hide on the design', () => toggleVisible(cur()))));
 
-    // Beginner-friendly controls first: the common actions are visible before the detailed controls.
-    parts.push(group('Quick edit', [
-      h('div', { class: 'num2' },
-        numIn('Size %', x => Math.round(scalePct(x)), (x, v) => setScalePct(x, clamp(v, 2, 800)), { min: 2, max: 800, tip: 'Resize the selected item without changing its proportions' }),
-        numIn('Rotation °', x => Math.round(x.rotation), (x, v) => { x.rotation = ((v % 360) + 360) % 360; }, { min: 0, max: 359, tip: 'Turn the selected item' })),
-      h('div', { class: 'btns' },
-        btn('Centre on garment', 'Place this item in the middle of the garment', x => {
-          const b = activeView().seg?.bbox;
-          if (b) change(() => { x.x = b.x + b.w / 2; x.y = b.y + b.h * 0.4; });
-        }),
-        btn('Duplicate', 'Make another copy of this item', x => duplicateElement(x)),
-        btn('Delete', 'Remove this item', x => deleteElement(x), 'btn ghost sm danger')),
-      h('div', { class: 'muted small' }, 'You can also drag the item on the shirt, pull a corner to resize, or use the round handle to rotate it.')
+    // ---- exact position, size and rotation (the canvas handles do the same by hand)
+    parts.push(group('Position & size', [
+      h('div', { class: 'num3' },
+        numIn('X', x => Math.round(x.x), (x, v) => { x.x = v; }, { tip: 'Left-right position of the centre (0 = left edge of the canvas, 1024 = right edge)' }),
+        numIn('Y', x => Math.round(x.y), (x, v) => { x.y = v; }, { tip: 'Up-down position of the centre (0 = top, 1024 = bottom)' }),
+        numIn('Rotation °', x => Math.round(x.rotation), (x, v) => { x.rotation = ((v % 360) + 360) % 360; }, { min: 0, max: 359, tip: 'Turn the item (degrees)' }),
+        commitIn('Width', x => Math.round(x.w), (x, v) => setSize(x, { w: clamp(v, 6, 2048) }, keepRatio), { min: 6, max: 2048, tip: 'Width in canvas px. Press Enter to apply.' }),
+        commitIn('Height', x => Math.round(x.h), (x, v) => setSize(x, { h: clamp(v, 4, 2048) }, keepRatio), { min: 4, max: 2048, tip: 'Height in canvas px. Press Enter to apply.' }),
+        numIn('Size %', x => Math.round(scalePct(x)), (x, v) => setScalePct(x, clamp(v, 2, 800)), { min: 2, max: 800, tip: 'Resize relative to when it was added, keeping proportions' })),
+      h('div', { class: 'row gap center wrap' },
+        h('label', { class: 'check', tip: 'Keep the proportions when you change the width or height (text always does)' }, h('input', { type: 'checkbox', checked: keepRatio ? true : null, 'aria-label': 'Keep proportions', onchange: e => { keepRatio = e.target.checked; } }), 'Keep proportions'),
+        check('Flip H', x => !!x.flipX, (x, v) => { x.flipX = v; }, 'Mirror left to right'),
+        check('Flip V', x => !!x.flipY, (x, v) => { x.flipY = v; }, 'Mirror top to bottom')),
+      rangeIn('Opacity %', x => Math.round((x.opacity ?? 1) * 100), (x, v) => { x.opacity = clamp(v, 0, 100) / 100; }, 0, 100, 'See-through amount'),
+      alignBar(false),
+      h('div', { class: 'muted small' }, 'Drag on the canvas, or type exact numbers. Align lines it up with the garment.'),
     ]));
+    // flip checkboxes need a readable name for screen readers
+    parts[parts.length - 1].querySelectorAll('input[type=checkbox]').forEach((i, k) => { if (!i.getAttribute('aria-label')) i.setAttribute('aria-label', ['Flip horizontally', 'Flip vertically'][k - 1] || 'Option'); });
 
     // ---- content: what the item says or shows
     const content = [];
@@ -521,8 +594,7 @@ export function createInspector() {
       if (opts.length) content.push(select('Design', opts.map(g => h('option', { value: g.id }, g.name)), x => x.props.graphicId, (x, v) => updateElement(x, { graphicId: v }), 'Swap for another design from the same group'));
     }
     if (c.type === 'logo') {
-      content.push(h('div', { class: 'btns' },
-        btn('Replace image…', 'Upload a picture to use instead of this logo', () => fileIn.click()), fileIn));
+      content.push(h('div', { class: 'btns' }, own('Replace image…', 'Upload a picture to use instead of this logo', () => fileIn.click()), fileIn));
       content.push(colorIn('Tint colour', x => (HEX.test(x.props.tint || '') ? x.props.tint : '#c0392b'), (x, v) => { x.props.tint = v; if (!(x.props.tintAmount > 0)) x.props.tintAmount = 1; }, 'Recolour the logo with this colour'));
       content.push(rangeIn('Tint strength %', x => Math.round((x.props.tintAmount || 0) * 100), (x, v) => { x.props.tintAmount = v / 100; }, 0, 100, '0 = the logo keeps its own colours'));
     }
@@ -553,63 +625,68 @@ export function createInspector() {
     for (const s of slots) typo.push(colorIn(s.label, x => slotHex(x, s), (x, v) => updateElement(x, { [s.key]: v }), s.label + ' (click to pick)'));
     if (typo.length) parts.push(group(TEXTY(c) ? 'Type & colour' : 'Colours', typo));
 
-    // ---- outline and shadow
+    // ---- outline and shadow (collapsed until used)
     if (c.type === 'text' || c.type === 'embroidery') {
-      const edge = [
-        h('div', { class: 'num2' },
-          numIn('Outline width', x => x.props.outline || 0, (x, v) => updateElement(x, { outline: clamp(v, 0, 20) }), { min: 0, max: 20, step: 0.5, tip: '0 = no outline' }),
-          colorIn('Outline colour', x => hexOr(x.props.outlineColor, '#ffffff'), (x, v) => updateElement(x, { outlineColor: v }), 'Colour of the outline')),
-      ];
-      parts.push(group('Outline', edge, !!p.outline));
+      parts.push(group('Outline', [h('div', { class: 'num2' },
+        numIn('Outline width', x => x.props.outline || 0, (x, v) => updateElement(x, { outline: clamp(v, 0, 20) }), { min: 0, max: 20, step: 0.5, tip: '0 = no outline' }),
+        colorIn('Outline colour', x => hexOr(x.props.outlineColor, '#ffffff'), (x, v) => updateElement(x, { outlineColor: v }), 'Colour of the outline'))], !!p.outline));
     }
-    const shadowRows = [
+    parts.push(group('Shadow', [
       check('Drop shadow', x => !!(x.props.shadow && x.props.shadow.on), (x, v) => setShadow(x, { on: v }), 'Add a shadow behind the item'),
       h('div', { class: 'num2' },
         colorIn('Shadow colour', x => hexOr(x.props.shadow?.color, '#000000'), (x, v) => setShadow(x, { color: v }), 'Shadow colour'),
         rangeIn('Shadow strength %', x => Math.round((x.props.shadow?.alpha ?? 0.45) * 100), (x, v) => setShadow(x, { alpha: v / 100 }), 0, 100, 'How dark the shadow is')),
-      h('div', { class: 'num2' },
+      h('div', { class: 'num3' },
         numIn('Blur', x => x.props.shadow?.blur ?? 8, (x, v) => setShadow(x, { blur: clamp(v, 0, 80) }), { min: 0, max: 80, tip: 'Softness of the shadow (px on the 1024 canvas)' }),
-        numIn('Shadow X', x => x.props.shadow?.x ?? 4, (x, v) => setShadow(x, { x: clamp(v, -120, 120) }), { min: -120, max: 120, tip: 'Shadow offset to the right (negative = left), px' })),
-      numIn('Shadow Y', x => x.props.shadow?.y ?? 4, (x, v) => setShadow(x, { y: clamp(v, -120, 120) }), { min: -120, max: 120, tip: 'Shadow offset down (negative = up), px' }),
-    ];
-    parts.push(group('Shadow', shadowRows, !!(p.shadow && p.shadow.on)));
+        numIn('Shadow X', x => x.props.shadow?.x ?? 4, (x, v) => setShadow(x, { x: clamp(v, -120, 120) }), { min: -120, max: 120, tip: 'Shadow offset to the right (negative = left), px' }),
+        numIn('Shadow Y', x => x.props.shadow?.y ?? 4, (x, v) => setShadow(x, { y: clamp(v, -120, 120) }), { min: -120, max: 120, tip: 'Shadow offset down (negative = up), px' })),
+    ], !!(p.shadow && p.shadow.on)));
 
-    // ---- position, size, appearance
-    parts.push(group('Fine position & appearance', [
-      h('div', { class: 'num2' },
-        numIn('X', x => Math.round(x.x), (x, v) => { x.x = v; }, { tip: 'Left-right position on the canvas (0 = left edge, 1024 = right edge)' }),
-        numIn('Y', x => Math.round(x.y), (x, v) => { x.y = v; }, { tip: 'Up-down position on the canvas (0 = top, 1024 = bottom)' })),
-      rangeIn('Opacity %', x => Math.round((x.opacity ?? 1) * 100), (x, v) => { x.opacity = clamp(v, 0, 100) / 100; }, 0, 100, 'See-through amount'),
-      h('div', { class: 'row gap' },
-        check('Flip horizontally', x => !!x.flipX, (x, v) => { x.flipX = v; }, 'Mirror left to right'),
-        check('Flip vertically', x => !!x.flipY, (x, v) => { x.flipY = v; }, 'Mirror top to bottom')),
-    ]));
-
-    // ---- layer and copies
+    // ---- stacking order and copies
     const others = VIEWS.filter(v => v !== c.view);
-    parts.push(group('Copy & layers', [
+    parts.push(group('Order & copies', [
       h('div', { class: 'btns' },
-        btn(c.locked ? 'Unlock' : 'Lock', c.locked ? 'Allow moving and deleting' : 'Stop it being moved, resized or deleted', x => toggleLock(x)),
-        btn(c.visible === false ? 'Show' : 'Hide', c.visible === false ? 'Show on the design' : 'Hide on the design', x => toggleVisible(x)),
-        btn('Forward', 'Draw over the layer below', x => reorder(x, 'up')),
-        btn('Backward', 'Draw under the layer above', x => reorder(x, 'down')),
-        btn('Duplicate', 'Copy this element (Ctrl/Cmd+D)', x => duplicateElement(x)),
-        btn('Delete', 'Remove this element (Delete key)', x => deleteElement(x), 'btn ghost sm danger')),
-      h('div', { class: 'muted small' }, 'Duplicate to other views (same place and look):'),
+        own([icon('up', 14), 'Forward'], 'Draw over the layer above (Ctrl+])', x => reorder(x, 'up')),
+        own([icon('down', 14), 'Backward'], 'Draw under the layer below (Ctrl+[)', x => reorder(x, 'down')),
+        own('To front', 'Draw over everything on this view (Ctrl+Shift+])', x => reorder(x, 'front')),
+        own('To back', 'Draw under everything on this view (Ctrl+Shift+[)', x => reorder(x, 'back'))),
+      h('div', { class: 'muted small' }, 'Copy to other views (same place and look):'),
       h('div', { class: 'copyrow' },
-        others.map(v => btn('To ' + VIEW_LABELS[v], `Put a copy of this element on the ${VIEW_LABELS[v].toLowerCase()} view`, x => duplicateToViews(x, [v]))),
-        others.length > 1 ? btn('To all other views', 'Put a copy on every other view', x => duplicateToViews(x, others)) : null),
-      h('div', { class: 'btns' }, btn('Reset this item', 'Back to the default look for this type. Keeps its text, graphic and logo, and its position.', x => resetItem(x), 'btn ghost sm danger')),
+        others.map(v => own('To ' + VIEW_LABELS[v], `Put a copy of this element on the ${VIEW_LABELS[v].toLowerCase()} view`, x => duplicateToViews(x, [v]))),
+        others.length > 1 ? own('To all other views', 'Put a copy on every other view', x => duplicateToViews(x, others)) : null),
+      h('div', { class: 'btns' }, own('Reset this item', 'Back to the default look for this type. Keeps its text, graphic and logo, and its position.', x => resetItem(x), 'btn ghost sm danger')),
     ], false));
-    parts.push(h('div', { class: 'muted small' }, 'Drag on the canvas to move. Corner squares resize, the round handle rotates. Arrow keys nudge (Shift = 10 px).'));
     body.replaceChildren(...parts);
+  }
+
+  /** Several items at once: only what applies to all of them (group, align, distribute, lock, hide, copy, delete). */
+  function buildMulti(set) {
+    binders = []; inputs = [];
+    const grouped = set.every(e => e.group && e.group === set[0].group);
+    const allLocked = set.every(e => e.locked), allHidden = set.every(e => e.visible === false);
+    const b = (txt, tip, fn, cls = 'btn ghost sm') => h('button', { type: 'button', class: cls, tip, onclick: () => fn() }, txt);
+    body.replaceChildren(
+      h('div', { class: 'ptitle' }, grouped ? `Group · ${set.length} items` : `${set.length} items selected`),
+      h('div', { class: 'iacts' },
+        grouped ? b([icon('ungroup', 14), 'Ungroup'], 'Split the group back into separate items (Ctrl+Shift+G)', () => ungroupSelection()) : b([icon('group', 14), 'Group'], 'Move, hide, lock and copy these items together (Ctrl+G)', () => groupSelection()),
+        b([icon('copy', 14), 'Duplicate'], 'Copy every selected item (Ctrl/Cmd+D)', () => duplicateSet()),
+        b([icon('trash', 14), 'Delete'], 'Remove every selected item (Delete key)', () => deleteSet(), 'btn ghost sm danger'),
+        iconBtn(allLocked ? 'lock' : 'unlock', allLocked ? 'Unlock items' : 'Lock items', 'Lock or unlock every selected item', () => setLockedSet(!allLocked), { pressed: allLocked }),
+        iconBtn(allHidden ? 'eyeoff' : 'eye', allHidden ? 'Show items' : 'Hide items', 'Show or hide every selected item', () => setVisibleSet(allHidden))),
+      group('Align', [alignBar(true), h('div', { class: 'muted small' }, 'Lines the items up with each other. Distribute needs three or more.')]),
+      h('div', { class: 'muted small' }, 'Drag any selected item to move them all. Arrow keys nudge (Shift = 10 px). Shift + click adds or removes an item; Esc clears.'));
   }
 
   function sync(reason) {
     if (['render', 'zoom', 'processing', 'busy'].includes(reason)) return;
-    const c = selectedElement();
-    const visible = c && c.view === state.activeView ? c : null;
-    if (!visible) { if (key !== null) { key = null; sig = null; closeGate(); } body.replaceChildren(empty); return; }
+    const set = selectedSet();
+    if (!set.length) { if (key !== null || sig !== null) { key = null; sig = null; closeGate(); } if (body.firstChild !== empty || body.childNodes.length !== 1) body.replaceChildren(empty); return; }
+    if (set.length > 1) {
+      const s = 'm|' + set.map(e => e.id + (e.locked ? 'L' : '') + (e.visible === false ? 'H' : '') + (e.group || '')).join(',');
+      if (s !== sig) { key = set[0].id; sig = s; closeGate(); buildMulti(set); }
+      return;
+    }
+    const visible = set[0];
     const s = sigOf(visible);
     if (s !== sig || visible.id !== key) { key = visible.id; sig = s; closeGate(); build(visible); }
     binders.forEach(f => f(visible));

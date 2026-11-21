@@ -2,7 +2,8 @@
 import { state, activeView, snapshot, notify, subscribe } from './state.js';
 import { SIZE, makeCanvas, clamp } from './util.js';
 import { regionAt } from './segment.js';
-import { drawElements, hitTest, beginDrag, dragTo } from './elements.js';
+import { drawElements, hitTest, beginDrag, dragTo, handlesFor } from './elements.js';
+import { selectedSet, toggleInSelection, snapContext, snapBox, unionBounds } from './arrange-ops.js';
 import { closeGate, setActivePart, handleElementKey } from './manual.js';
 import { designMeasure, drawDimensionLines } from './measure.js';
 import { isSelTool, selectionBounds, hint } from './selection.js';
@@ -40,7 +41,7 @@ export function createStage(el, wrap) {
   const ctx = el.getContext('2d');
   const T = { zoom: 0.7, rot: 0, px: 0, py: 0 };   // px,py = pan offset of image centre from stage centre (css px)
   let W = 0, H = 0, dpr = 1, raf = 0, animT = 0;
-  let hover = null, hoverRegion = null, drag = null, spaceDown = false, lastPt = null, moveCursor = '', pinch = null;
+  let guides = [], hover = null, hoverRegion = null, drag = null, spaceDown = false, lastPt = null, moveCursor = '', pinch = null;
   const ptrs = new Map();   // active touch pointers (two fingers = pan + pinch zoom)
 
   let lastBox = null;
@@ -102,7 +103,10 @@ export function createStage(el, wrap) {
       ctx.drawImage(stageCanvas(V), 0, 0);   // the previewed option while a review is open (review.js)
       ctx.imageSmoothingEnabled = true;
       if (state.ui.tool === 'region' && hoverRegion && V.seg?.regions?.[hoverRegion]) ctx.drawImage(tinted(V.seg.regions[hoverRegion], 0.35), 0, 0);
-      drawElements(ctx, state.elements, state.activeView, { selectedId: state.selectedId, handles: state.ui.tool === 'move', handleScale: 1 / T.zoom });
+      const sset = state.ui.tool === 'move' ? selectedSet() : [];
+      drawElements(ctx, state.elements, state.activeView, { selectedId: state.selectedId, handles: state.ui.tool === 'move' && sset.length < 2, handleScale: 1 / T.zoom });
+      if (sset.length > 1) drawMultiSelection(ctx, sset, 1 / T.zoom);
+      if (guides.length) drawGuides(ctx, guides, 1 / T.zoom);
       if (state.measure && state.measure.show) {   // dimension lines: overlay only, never part of the garment bitmap
         const dm = designMeasure(state, state.activeView);
         if (dm) drawDimensionLines(ctx, dm.seg, dm.rows, { unit: dm.unit, fontPx: clamp(13 / T.zoom, 15, 30), lineW: clamp(1.4 / T.zoom, 1.4, 3) });
@@ -154,8 +158,32 @@ export function createStage(el, wrap) {
     if (el.style.cursor !== c) el.style.cursor = c;
   }
 
-  const hitOpts = () => ({ selectedId: state.selectedId, handleScale: 1 / T.zoom, handleSize: 14 / T.zoom });
+  const hitOpts = () => ({ selectedId: selectedSet().length > 1 ? null : state.selectedId, handleScale: 1 / T.zoom, handleSize: 14 / T.zoom });
   const panFrom = (d, sx, sy) => { T.px = d.px + sx - d.sx; T.py = d.py + sy - d.sy; };
+
+
+  /** Moves the dragged item's mates along, then snaps the whole moving set to garment / canvas / item lines (hold Alt to skip). */
+  function moveWithSnap(e) {
+    const el0 = drag.el, set = [el0, ...drag.mates.map(m => m.el)];
+    const dx = el0.x - drag.d.ox, dy = el0.y - drag.d.oy;
+    for (const m of drag.mates) { m.el.x = m.ox + dx; m.el.y = m.oy + dy; }
+    guides = [];
+    if (!state.ui.snap || e.altKey) return;
+    const r = snapBox(unionBounds(set), snapContext(set), 6 / T.zoom);
+    if (r.dx || r.dy) for (const m of set) { m.x += r.dx; m.y += r.dy; }
+    guides = r.guides;
+  }
+  function drawMultiSelection(c, set, k) {
+    c.save(); c.lineWidth = 1.5 * k; c.strokeStyle = '#2d7ff9'; c.setLineDash([6 * k, 4 * k]);
+    for (const m of set) { const hs = handlesFor(m, k); c.beginPath(); ['scale-nw', 'scale-ne', 'scale-se', 'scale-sw'].forEach((n, i) => (i ? c.lineTo(hs[n].x, hs[n].y) : c.moveTo(hs[n].x, hs[n].y))); c.closePath(); c.stroke(); }
+    const b = unionBounds(set); c.strokeStyle = 'rgba(45,127,249,.55)'; c.strokeRect(b.x0, b.y0, b.w, b.h);
+    c.restore();
+  }
+  function drawGuides(c, gs, k) {
+    c.save(); c.lineWidth = 1.2 * k; c.strokeStyle = '#e11d89'; c.setLineDash([5 * k, 3 * k]);
+    for (const g of gs) { c.beginPath(); if (g.axis === 'x') { c.moveTo(g.pos, 0); c.lineTo(g.pos, SIZE); } else { c.moveTo(0, g.pos); c.lineTo(SIZE, g.pos); } c.stroke(); }
+    c.restore();
+  }
 
   // ---- pointer handling ----
   el.addEventListener('pointerdown', e => {
@@ -189,11 +217,13 @@ export function createStage(el, wrap) {
     const hit = hitTest(state.elements, state.activeView, p.x, p.y, hitOpts());
     if (hit && hit.element) {
       const el0 = hit.element;
-      state.selectedId = el0.id;
+      if (e.shiftKey || e.ctrlKey || e.metaKey) { toggleInSelection(el0.id); request(); drag = { type: 'none' }; return; }   // add to / remove from the selection
+      if (!selectedSet().includes(el0)) { state.selectedId = el0.id; state.ui.multi = []; state.ui.multiFor = el0.id; }   // a click inside the current selection keeps it (and drags all of it)
       notify('selection'); request();
       // locked elements can be selected but not moved; otherwise the undo snapshot is taken on the first real move
       if (el0.locked) { drag = { type: 'none' }; return; }
-      drag = { type: hit.handle || 'move', el: el0, snapped: false, d: beginDrag(el0, hit.handle || 'move', p.x, p.y) };
+      const kind = hit.handle || 'move', mates = kind === 'move' ? selectedSet().filter(m => m !== el0 && !m.locked).map(m => ({ el: m, ox: m.x, oy: m.y })) : [];
+      drag = { type: kind, el: el0, mates, snapped: false, d: beginDrag(el0, kind, p.x, p.y) };
       return;
     }
     // no element here: a click on the garment picks that part for the colour panel (dragging still pans)
@@ -238,7 +268,9 @@ export function createStage(el, wrap) {
       }
     } else if (drag.el) {
       if (!drag.snapped) { snapshot(); drag.snapped = true; }   // one undo step per drag, taken before the first move
-      dragTo(drag.d, p.x, p.y); notify('elements-live');
+      dragTo(drag.d, p.x, p.y);
+      if (drag.type === 'move') moveWithSnap(e);
+      notify('elements-live');
     }
     request();
   });
@@ -252,6 +284,7 @@ export function createStage(el, wrap) {
       const { sx, sy } = pt(e);
       if (e.type === 'pointercancel') tools.cancel(); else tools.up(e, toImage(sx, sy));
     } else if (drag.el) notify('elements');
+    guides = [];
     drag = null; request();
   };
   el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);

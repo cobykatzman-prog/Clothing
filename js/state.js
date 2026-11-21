@@ -52,7 +52,7 @@ export const state = {
   editSeq: 0,
   flow: { described: false, generated: false, compared: false, refined: false, exported: false, skippedSelect: false },
   ui: {
-    tool: 'move', brushSize: 48, brushHardness: 1, showMask: true, compare: false, comparePos: 0.5, compareMode: 'slider', flipShow: 'after', peek: false, limitToSelection: false, busy: 0, prompt: '', notes: '',
+    tool: 'move', snap: true, multi: [], multiFor: null, brushSize: 48, brushHardness: 1, showMask: true, compare: false, comparePos: 0.5, compareMode: 'slider', flipShow: 'after', peek: false, limitToSelection: false, busy: 0, prompt: '', notes: '',
     // selection tools (selection.js / ui-select.js); none of this is saved with the design
     selMode: 'add',                                   // add | subtract | intersect | replace
     wandTol: 20, wandContig: true, colorTol: 20, texTol: 30, pickColor: '#8a6a4a',

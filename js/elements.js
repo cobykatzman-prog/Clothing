@@ -41,20 +41,21 @@ export class ElementLayer {
     this.opacity = 1;   // 0..1, applied when drawn
     this.base = null;   // size when added ({w,h,size}); Scale % is relative to it
     this.name = type;
+    this.group = null;   // id shared by the layers of one group (moved, hidden, locked and duplicated together)
     this.flipX = false; this.flipY = false;   // mirror horizontally / vertically (drawn about the element centre)
   }
   clone() {
     const e = new ElementLayer(this.type, { ...this.props });
-    Object.assign(e, { x: this.x, y: this.y, w: this.w, h: this.h, rotation: this.rotation, view: this.view, visible: this.visible, locked: this.locked, name: this.name, opacity: this.opacity, base: this.base ? { ...this.base } : null, flipX: !!this.flipX, flipY: !!this.flipY });
+    Object.assign(e, { x: this.x, y: this.y, w: this.w, h: this.h, rotation: this.rotation, view: this.view, visible: this.visible, locked: this.locked, name: this.name, opacity: this.opacity, base: this.base ? { ...this.base } : null, flipX: !!this.flipX, flipY: !!this.flipY, group: this.group || null });
     return e;
   }
   toJSON() {
     const p = { ...this.props }; if (p.image) { p.image = imageToDataURL(p.image); }
-    return { id: this.id, type: this.type, x: this.x, y: this.y, w: this.w, h: this.h, rotation: this.rotation, props: p, view: this.view, visible: this.visible, locked: this.locked, name: this.name, opacity: this.opacity, base: this.base, flipX: !!this.flipX, flipY: !!this.flipY };
+    return { id: this.id, type: this.type, x: this.x, y: this.y, w: this.w, h: this.h, rotation: this.rotation, props: p, view: this.view, visible: this.visible, locked: this.locked, name: this.name, opacity: this.opacity, base: this.base, flipX: !!this.flipX, flipY: !!this.flipY, group: this.group || null };
   }
   static fromJSON(o) {
     const e = new ElementLayer(o.type, { ...o.props });
-    Object.assign(e, { id: o.id || e.id, x: o.x, y: o.y, w: o.w, h: o.h, rotation: o.rotation || 0, view: o.view || 'front', visible: o.visible !== false, locked: !!o.locked, name: o.name || o.type, opacity: o.opacity ?? 1, base: o.base || null, flipX: !!o.flipX, flipY: !!o.flipY });
+    Object.assign(e, { id: o.id || e.id, x: o.x, y: o.y, w: o.w, h: o.h, rotation: o.rotation || 0, view: o.view || 'front', visible: o.visible !== false, locked: !!o.locked, name: o.name || o.type, opacity: o.opacity ?? 1, base: o.base || null, flipX: !!o.flipX, flipY: !!o.flipY, group: o.group || null });
     return e;
   }
 }
