@@ -46,9 +46,13 @@ export const state = {
   undoStack: [], redoStack: [],
   variations: null,      // [{label, canvas, seg, source, ops}]
   lastOps: null,
+  review: null,          // the option being previewed (review.js); not saved
+  edits: [],             // accepted edits, oldest first, max 50 (review.js): {id, n, time, prompt, summary, level, source, view, thumbs, before, after}
+  editHead: null,        // id of the edit whose result is on the garment now (null = before the first kept edit)
+  editSeq: 0,
   flow: { described: false, generated: false, compared: false, refined: false, exported: false, skippedSelect: false },
   ui: {
-    tool: 'move', brushSize: 48, brushHardness: 1, showMask: true, compare: false, comparePos: 0.5, limitToSelection: false, busy: 0, prompt: '', notes: '',
+    tool: 'move', brushSize: 48, brushHardness: 1, showMask: true, compare: false, comparePos: 0.5, compareMode: 'slider', flipShow: 'after', peek: false, limitToSelection: false, busy: 0, prompt: '', notes: '',
     // selection tools (selection.js / ui-select.js); none of this is saved with the design
     selMode: 'add',                                   // add | subtract | intersect | replace
     wandTol: 20, wandContig: true, colorTol: 20, texTol: 30, pickColor: '#8a6a4a',
@@ -212,6 +216,7 @@ export async function serializeDesign() {
     elements: state.elements.map(elDoc),
     references: state.references.filter(Boolean).map(R.canvas),
     flow: { ...state.flow },
+    edits: state.edits.map(e => editDoc(e, R)), editHead: state.editHead, editSeq: state.editSeq,
     versions: state.versions.map(ver => ({
       id: ver.id, label: ver.label, thumb: ver.thumb, time: ver.time, view: ver.view,
       snapshot: ver.snapshot ? snapDoc(ver.snapshot, R.canvas) : remapRaw(ver._raw, R),
@@ -296,7 +301,46 @@ export async function hydrateDesign(doc = {}, assets = {}) {
   state.references = (await Promise.all((doc.references || []).map(k => load(k)))).filter(Boolean);
   state.flow = { described: false, generated: false, compared: false, refined: false, exported: false, skippedSelect: false, ...(doc.flow || {}) };
   state.undoStack.length = 0; state.redoStack.length = 0;
-  state.variations = null; state.lastOps = null; state.applied = null;
+  state.variations = null; state.lastOps = null; state.applied = null; state.review = null;
   state.versions = (doc.versions || []).map(v => lazyVersion(v, assets));
+  state.edits = (doc.edits || []).map(d => lazyEdit(d, assets));
+  state.editHead = state.edits.some(e => e.id === doc.editHead) ? doc.editHead : null;
+  state.editSeq = Math.max(0, Number(doc.editSeq) || 0, ...state.edits.map(e => e.n || 0));
   notify('loaded');
+}
+
+// ---- edit history (review.js): every accepted edit keeps a full 'before' and 'after' snapshot, decoded on demand ----
+const EMPTY_MASK = makeCanvas();   // shared empty selection for snapshots; never painted on
+/** Like capture(), but empty selections share one canvas so an edit does not copy four empty masks. */
+export function captureEdit() {
+  const s = capture();
+  for (const n of VIEWS) if (maskIsEmpty(s.views[n].mask)) s.views[n].mask = EMPTY_MASK;
+  return s;
+}
+/** Puts a snapshot from captureEdit()/decodeEdit() on the garment (the caller records the undo step). */
+export function applySnapshot(s) { apply(s); notify('restore'); }
+function editSide(e, which, R) {
+  if (e[which]) return snapDoc(e[which], R.canvas);
+  return e._raw?.[which] ? remapRaw({ snapshot: e._raw[which], assets: e._raw.assets }, R) : null;
+}
+export function editDoc(e, R) {
+  return {
+    id: e.id, n: e.n, time: e.time, prompt: e.prompt, summary: e.summary, level: e.level, source: e.source, view: e.view,
+    selThumb: e.selThumb, beforeThumb: e.beforeThumb, afterThumb: e.afterThumb,
+    before: editSide(e, 'before', R), after: editSide(e, 'after', R),
+  };
+}
+export function lazyEdit(d, assets) {
+  return { id: String(d.id), n: Number(d.n) || 0, time: d.time || 0, prompt: String(d.prompt || ''), summary: String(d.summary || ''), level: String(d.level || ''),
+    source: d.source === 'ai' ? 'ai' : d.source === 'revert' ? 'revert' : 'local', view: VIEWS.includes(d.view) ? d.view : 'front',
+    selThumb: d.selThumb || '', beforeThumb: d.beforeThumb || '', afterThumb: d.afterThumb || '',
+    before: null, after: null, _raw: { assets, before: d.before || null, after: d.after || null } };
+}
+/** Decodes (and caches) the 'before' or 'after' snapshot of an edit. Resolves null when the edit has no such picture. */
+export function decodeEdit(e, which) {
+  if (e[which]) return Promise.resolve(e[which]);
+  if (!e._raw?.[which]) return Promise.resolve(null);
+  const key = '_p' + which;
+  if (!e[key]) e[key] = hydrateSnapshot(e._raw[which], assetLoader(e._raw.assets)).then(s => { e[which] = s; return s; }, err => { e[key] = null; throw err; });
+  return e[key];
 }

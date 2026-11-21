@@ -8,6 +8,7 @@ import { designMeasure, drawDimensionLines } from './measure.js';
 import { isSelTool, selectionBounds, hint } from './selection.js';
 import { createOverlay } from './sel-overlay.js';
 import { createSelTools } from './sel-tools.js';
+import { stageCanvas, paintCompare } from './review.js';
 
 export const MAX_ZOOM = 10, MIN_ZOOM = 0.15;   // 1000 % ... 15 %
 
@@ -98,7 +99,7 @@ export function createStage(el, wrap) {
     ctx.imageSmoothingQuality = 'high';
     ctx.imageSmoothingEnabled = T.zoom < 2.5;     // zoomed right in, show true pixels so small details can be selected exactly
     if (V.current) {
-      ctx.drawImage(V.current, 0, 0);
+      ctx.drawImage(stageCanvas(V), 0, 0);   // the previewed option while a review is open (review.js)
       ctx.imageSmoothingEnabled = true;
       if (state.ui.tool === 'region' && hoverRegion && V.seg?.regions?.[hoverRegion]) ctx.drawImage(tinted(V.seg.regions[hoverRegion], 0.35), 0, 0);
       drawElements(ctx, state.elements, state.activeView, { selectedId: state.selectedId, handles: state.ui.tool === 'move', handleScale: 1 / T.zoom });
@@ -113,27 +114,13 @@ export function createStage(el, wrap) {
     ctx.lineWidth = 1 / T.zoom; ctx.strokeStyle = 'rgba(0,0,0,.08)'; ctx.strokeRect(0, 0, SIZE, SIZE);
     ctx.restore();
 
-    // before/after compare
-    if (state.ui.compare && V.current) {
-      const sx = state.ui.comparePos * W;
-      ctx.save();
-      ctx.beginPath(); ctx.rect(0, 0, sx, H); ctx.clip();
-      applyT(ctx);
-      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, SIZE, SIZE); ctx.fillStyle = checkerPattern(ctx); ctx.fillRect(0, 0, SIZE, SIZE);
-      const before = V.original || V.base;
-      if (before) ctx.drawImage(before, 0, 0);
-      ctx.restore();
-      ctx.save();
-      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-      ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 6;
-      ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, H); ctx.stroke();
-      ctx.beginPath(); ctx.arc(sx, H / 2, 16, 0, 7); ctx.fill(); ctx.shadowColor = 'transparent';
-      ctx.strokeStyle = `rgb(${ACCENT})`; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(sx - 5, H / 2 - 5); ctx.lineTo(sx - 9, H / 2); ctx.lineTo(sx - 5, H / 2 + 5);
-      ctx.moveTo(sx + 5, H / 2 - 5); ctx.lineTo(sx + 9, H / 2); ctx.lineTo(sx + 5, H / 2 + 5); ctx.stroke();
-      const pill = (txt, x) => { ctx.font = '600 12px system-ui,sans-serif'; const w = ctx.measureText(txt).width + 16; ctx.fillStyle = 'rgba(20,20,30,.72)'; ctx.beginPath(); ctx.roundRect(x - (x < sx ? 0 : w), 12, w, 24, 12); ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillText(txt, x - (x < sx ? 0 : w) + 8, 28); };
-      pill('Before', 12); pill('After', W - 12);
-      ctx.restore();
+    // before / after compare: slider, side by side, flip, hold to peek (review.js)
+    if ((state.ui.compare || state.ui.peek) && V.current) {
+      paintCompare(ctx, {
+        W, H, SIZE, pattern: checkerPattern(ctx),
+        applyT: (c, dx = 0) => { c.translate(dx, 0); applyT(c); },
+        extras: c => drawElements(c, state.elements, state.activeView, { selectedId: null, handles: false, handleScale: 1 / T.zoom }),
+      });
     }
     // brush / eraser cursor: a circle in real image size, so it grows with the zoom
     const tool = state.ui.tool;
@@ -160,7 +147,7 @@ export function createStage(el, wrap) {
     if (pinch) c = 'grabbing';
     else if (drag && (drag.type === 'pan' || drag.type === 'selpan')) c = 'grabbing';
     else if (spaceDown) c = 'grab';
-    else if (state.ui.compare && hover && Math.abs(hover.sx - state.ui.comparePos * W) < 20) c = 'ew-resize';
+    else if (state.ui.compare && state.ui.compareMode === 'slider' && hover && Math.abs(hover.sx - state.ui.comparePos * W) < 20) c = 'ew-resize';
     else if (state.ui.tool === 'brush' || state.ui.tool === 'eraser') c = 'none';
     else if (isSelTool(state.ui.tool)) c = state.ui.tool === 'region' && hoverRegion ? 'pointer' : 'crosshair';
     else c = moveCursor;
@@ -186,7 +173,7 @@ export function createStage(el, wrap) {
       }
       if (ptrs.size > 2) return;
     }
-    if (state.ui.compare) {
+    if (state.ui.compare && state.ui.compareMode === 'slider') {
       const split = state.ui.comparePos * W;
       if (Math.abs(sx - split) < 20) { drag = { type: 'compare' }; return; }
     }

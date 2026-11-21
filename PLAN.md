@@ -67,3 +67,17 @@ Rate limiting: per-IP + daily (reuse the pattern from `git show 6227f55^:api/_li
 8. Workflow: upload/generate -> select any area -> refine -> describe -> AI edits only that area -> compare -> accept/reject -> continue -> export.
 9. Acceptance test (cream long-sleeve Club Élite shirt, brown shoulder stripes, chest crest, back typography + tennis graphic): highlight both sleeves; subtle flare; open ends/no cuffs; keep brown stripes; keep boxy body; collar unchanged; chest logo unchanged; back text/graphics unchanged; front/back proportions stay matched; extract back text + tennis graphic to separate editable layers; move the text independently; export.
 10. Priorities: AI integration, selection/masking, localised preserving edits, text/logo extraction, linked geometry, flexible selection, history/compare, export.
+
+---
+# ROADMAP v2 (owner's PDF brief "Threadform Product Design & Development Brief") — supersedes the phase numbering above
+Earlier work (AI backend, selection, AI edit pipeline, compare/history, lift) is the base and maps mostly to v2 Phase 6.
+Run in order; push to `main` after each phase passes its tests; next phase starts automatically. Exit criteria are in the brief.
+1. Audit & reliability: audit every control; fix broken buttons/sleeve+shape controls; front/back/side/detail sync; layer select/edit/transform/undo/redo on existing logos/text/graphics; saving/opening/shared links/loading/white-screen/JS errors; documented repeatable functional test checklist (TESTING.md + automated). Also finish & stabilise the unfinished compare/accept/reject/history UI (js/review.js, js/ui-review.js) and the option cards "Use this" regression.
+2. Editor redesign: compact consistent layout, contextual properties inspector, layer mgmt (hide/lock/duplicate/reorder/group), numeric position/size/rotation, alignment/snapping/guides, desktop/tablet/small screens.
+3. Shared workspace & cloud sync: brand kit (assets, palettes, type, materials, collections) in shared storage; user identities + permissions; sync status/offline/retry/conflicts; last-edited-by + version history/restore; images in asset storage not base64 in metadata.
+4. Measurements & size grading: consistent measurement points; calibration to real scale; manual entry per size + grading increments; geometry follows shape changes; label calibrated/manual/estimated; tolerances, validation, exportable tables.
+5. Tech pack builder: technical front/back/side/detail drawings, callouts, graded size chart, materials/colours/trims/stitching/notes, artwork placement dims, revision info, PDF + spreadsheet export.
+6. AI generation & editing: garment-aware prompts, consistent views, selective regeneration, preserve artwork, editable results, clear errors/retries/fallbacks.
+7. Colourways, variations & materials: colourways from one base, branching with shared structure, per-section colour/fabric, supplier notes, compare + export.
+8. Testing, security, performance: e2e + regression, two-session shared tests, API error handling, auth review, perf, responsive, verify live Render deploy.
+Known limits to keep honest: no real Supabase/OpenAI/Render access from sandbox (mocks only); estimated measurements must stay labelled estimates.

@@ -7,6 +7,7 @@ import { stageHint } from './manual.js';
 import { viewTools } from './ui-look.js';
 import { nextStepHint } from './ui-guide.js';
 import { selectionBar, initSelectionKeys } from './ui-select.js';
+import { initReview } from './ui-review.js';
 
 export function initStage(root) {
   const S = state;
@@ -49,6 +50,7 @@ export function initStage(root) {
   root.append(h('div', { class: 'stage-top' }, tabs, tools), nextStepHint(), selectionBar(), h('div', { class: 'stage-look', 'data-level': 'advanced', style: { padding: '0 16px 6px' } }, viewTools()), wrap);
   stage = createStage(cv, wrap);
   window.__stage = stage;
+  initReview(wrap);   // review bar (Accept / Reject / Regenerate), compare bar and before / after divider over the canvas
 
   // drag & drop on whole window
   window.addEventListener('dragover', e => e.preventDefault());

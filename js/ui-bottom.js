@@ -5,6 +5,7 @@ import * as A from './ui-actions.js';
 import { exportPNG, exportSVG, exportDesignSheet, download } from './export.js';
 import { exportMeasureData, measurementsCSV } from './measure.js';
 import { openExportDialog } from './export-dialog.js';
+import { editControls, editHistoryPanel } from './ui-review.js';
 
 const slug = () => (state.name || 'design').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'design';
 const ago = t => { const s = (Date.now() - t) / 1000; return s < 60 ? 'just now' : s < 3600 ? Math.floor(s / 60) + ' min ago' : Math.floor(s / 3600) + ' h ago'; };
@@ -14,7 +15,7 @@ export function initBottom(root) {
   const undoB = h('button', { class: 'btn ghost', id: 'btn-undo', tip: 'Undo (Ctrl+Z)', onclick: () => A.undo() }, icon('undo'), 'Undo');
   const redoB = h('button', { class: 'btn ghost', id: 'btn-redo', tip: 'Redo (Ctrl+Shift+Z)', onclick: () => A.redo() }, icon('redo'), 'Redo');
   const histB = h('button', { class: 'btn ghost', 'data-level': 'advanced', 'aria-expanded': 'false', 'aria-controls': 'drawer', tip: 'See every saved version and go back to any of them', onclick: () => toggleDrawer() }, icon('history'), 'Version history');
-  const cmpB = h('button', { class: 'btn ghost', id: 'btn-compare', tip: 'Drag the slider to compare the original (left) with your edit (right)', onclick: () => { S.ui.compare = !S.ui.compare; if (S.ui.compare) markFlow('compared'); notify('compare'); } }, icon('compare'), 'Compare before / after');
+  const cmpB = h('button', { class: 'btn ghost', id: 'btn-compare', tip: 'Compare the garment before and after: a slider, side by side, flip, or hold to see the before', onclick: () => { S.ui.compare = !S.ui.compare; if (S.ui.compare) markFlow('compared'); notify('compare'); } }, icon('compare'), 'Compare before / after');
   const saveB = h('button', { class: 'btn ghost', 'data-level': 'advanced', tip: 'Save a named checkpoint you can return to', onclick: () => { const n = prompt('Name this version', 'My checkpoint'); if (n) { pushVersion(n); toast('Version saved.', 'ok'); } } }, icon('save'), 'Save version');
 
   // export menu
@@ -72,11 +73,25 @@ export function initBottom(root) {
   });
   const expWrap = h('div', { class: 'menu-wrap' }, expB, menu);
 
-  // history drawer
+  // history drawer: two tabs, Versions (uploads, accepted options, saved checkpoints) and Edit history (review.js / ui-review.js)
   const list = h('div', { class: 'vlist' });
-  const drawer = h('aside', { class: 'drawer', id: 'drawer', 'aria-label': 'Version history' },
-    h('div', { class: 'drawer-head' }, h('b', {}, 'Version history'), h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => toggleDrawer(false) }, icon('x'))),
-    h('div', { class: 'muted small' }, 'Every upload and accepted option is saved. Click one to restore it (you can undo that too).'), list);
+  const edits = editHistoryPanel();
+  edits.el.hidden = true;
+  const tabVers = h('button', { type: 'button', class: 'dtab on', role: 'tab', id: 'dtab-versions', 'aria-selected': 'true', 'aria-controls': 'drawer-body', tip: 'Every upload, accepted option and saved checkpoint. Click one to go back to it.', onclick: () => showDrawerTab('versions') }, 'Versions');
+  const tabEdits = h('button', { type: 'button', class: 'dtab', role: 'tab', id: 'dtab-edits', 'aria-selected': 'false', 'aria-controls': 'drawer-body', tip: 'Every accepted edit, with its before and after. Revert to any stage without losing anything.', onclick: () => showDrawerTab('edits') }, 'Edit history');
+  const versNote = h('div', { class: 'muted small', id: 'drawer-note' }, 'Every upload and accepted option is saved. Click one to restore it (you can undo that too).');
+  function showDrawerTab(k) {
+    const v = k === 'versions';
+    tabVers.classList.toggle('on', v); tabVers.setAttribute('aria-selected', String(v));
+    tabEdits.classList.toggle('on', !v); tabEdits.setAttribute('aria-selected', String(!v));
+    list.hidden = !v; edits.el.hidden = v;
+    versNote.hidden = !v;
+    if (v) renderVersions();
+  }
+  const drawer = h('aside', { class: 'drawer', id: 'drawer', 'aria-label': 'Version history and edit history' },
+    h('div', { class: 'drawer-head' }, h('b', {}, 'History'), h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => toggleDrawer(false) }, icon('x'))),
+    h('div', { class: 'dtabs', role: 'tablist', 'aria-label': 'History' }, tabVers, tabEdits),
+    versNote, list, edits.el);
   function toggleDrawer(on) {
     const open = on ?? !drawer.classList.contains('open');
     drawer.classList.toggle('open', open); histB.setAttribute('aria-expanded', String(open)); renderVersions();
@@ -89,7 +104,8 @@ export function initBottom(root) {
   }
   document.body.append(drawer);
 
-  root.append(h('div', { class: 'bar-left' }, undoB, redoB, h('span', { class: 'sep' }), histB, saveB), h('div', { class: 'bar-mid' }, cmpB), h('div', { class: 'bar-right' }, expWrap));
+  const [undoEB, redoEB] = editControls();
+  root.append(h('div', { class: 'bar-left' }, undoB, redoB, h('span', { class: 'sep' }), undoEB, redoEB, h('span', { class: 'sep' }), histB, saveB), h('div', { class: 'bar-mid' }, cmpB), h('div', { class: 'bar-right' }, expWrap));
   function sync() {
     setDisabled(undoB, !S.undoStack.length, 'Nothing to undo yet');
     setDisabled(redoB, !S.redoStack.length, 'Nothing to redo: redo brings back a step you undid');
@@ -102,6 +118,7 @@ export function initBottom(root) {
   subscribe(r => { if (!['render', 'zoom', 'processing', 'busy', 'elements-live'].includes(r)) sync(); }); sync();
   window.addEventListener('keydown', e => {
     if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '') && document.activeElement.type !== 'range') return;
+    if (e.altKey) return;   // Ctrl+Alt+Z is undo / redo of the last accepted edit (ui-review.js)
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? A.redo() : A.undo(); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); A.redo(); }
   });

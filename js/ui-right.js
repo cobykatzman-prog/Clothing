@@ -8,6 +8,7 @@ import { createPartPanel, createInspector } from './manual.js';
 import { presetBlock, shapeBlock, wholeColourBlock, fabricBlock } from './ui-look.js';
 import { measureSection } from './ui-measure.js';
 import { engineRow } from './ai-ui.js';
+import { previewOption, combine as combineOption } from './ui-review.js';
 
 const EXAMPLES = ['make the sleeves flared', 'boxy oversized fit', 'remove the cuffs', 'cropped hem', 'heavyweight cotton', 'red piping on the collar', 'vintage Greek island style'];
 
@@ -132,14 +133,24 @@ export function initRight(root) {
     const v = S.variations;
     if (!v) { cards.replaceChildren(h('div', { class: 'muted small empty-cards' }, 'Your three options will appear here.')); return; }
     cards.replaceChildren(...v.map((o, i) => {
+      const name = ['Light', 'Medium', 'Strong'][i] || (o && o.label) || '';
+      if (!o || !o.canvas) {   // still working (AI), cancelled or did not finish: no picture yet
+        const msg = !o ? '' : o.cancelled ? 'Cancelled' : o.failed ? 'Did not finish. Create the options again to retry.' : 'Working on it…';
+        return h('div', { class: 'vcard pending', 'data-state': o && o.cancelled ? 'cancelled' : o && o.failed ? 'failed' : 'working' },
+          h('div', { class: 'vmeta' }, h('b', {}, name), h('span', { class: 'muted small' }, msg)));
+      }
       const th = thumbOf(o.canvas, 200, '#f3f2ef');
       const applied = S.applied && S.applied.index === i;
+      const fromAi = o.source === 'ai';
       return h('div', { class: 'vcard' + (applied ? ' applied' : '') },
         h('div', { class: 'vthumb' }, th),
-        h('div', { class: 'vmeta' }, h('b', {}, ['Light', 'Medium', 'Strong'][i] || o.label), h('span', { class: 'muted small', tip: sumOf(o, i) }, shorten(sumOf(o, i)))),
+        h('div', { class: 'vmeta' },
+          h('b', {}, name, h('span', { class: 'vtag ' + (fromAi ? 'ai' : 'builtin') }, fromAi ? 'AI' : 'Built-in')),
+          h('span', { class: 'muted small', tip: sumOf(o, i) }, shorten(sumOf(o, i))),
+          o.note ? h('span', { class: 'vnote small' }, 'AI was not used for this option: ' + o.note) : null),
         h('div', { class: 'row gap' },
-          h('button', { class: 'btn primary sm', onclick: () => A.acceptVariation(i) }, applied ? icon('check', 14) : null, applied ? 'Applied' : 'Use this'),
-          h('button', { class: 'btn ghost sm', disabled: !S.applied, tip: S.applied ? 'Apply this option on top of the one you picked' : 'Pick an option first, then add another on top', onclick: () => A.combineVariation(i) }, 'Combine')));
+          h('button', { class: 'btn primary sm', tip: applied ? 'This option is on the garment now' : 'Show this option on the garment. Accept or reject it below the canvas', onclick: () => previewOption(i) }, applied ? icon('check', 14) : null, applied ? 'Applied' : 'Preview'),
+          h('button', { class: 'btn ghost sm', disabled: !S.applied, tip: S.applied ? 'Apply this option on top of the one you picked' : 'Pick an option first, then add another on top', onclick: () => combineOption(i) }, 'Combine')));
     }));
   }
   function sync(reason) {

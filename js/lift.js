@@ -61,7 +61,7 @@ function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>>
  * (with a colour offset so the patch sits on the surrounding tone), and continue inward.
  */
 function patchFill(d, w, h, hole, opts = {}) {
-  const r = opts.radius || 4, P = 2 * r + 1, samples = opts.samples || 260, seed = opts.seed || 7;
+  const r = opts.radius || 6, P = 2 * r + 1, samples = opts.samples || 600, seed = opts.seed || 5;
   const known = new Uint8Array(w * h);
   let holeList = [];
   for (let i = 0; i < w * h; i++) { if (hole[i]) holeList.push(i); else known[i] = 1; }
@@ -149,6 +149,57 @@ function patchFill(d, w, h, hole, opts = {}) {
 }
 const clamp = v => (v < 0 ? 0 : v > 255 ? 255 : Math.round(v));
 
+// Low-frequency tone of the repaired area comes from the real fabric around it (normalised convolution over the
+// known pixels), and only the fine weave grain comes from the copied patches. This removes the faint ghost of the
+// artwork that a plain patch copy can leave when the source patches carry a different local tone.
+function prefixSums(a, cw, ch) {
+  const P = new Float64Array((cw + 1) * (ch + 1)), W = cw + 1;
+  for (let y = 0; y < ch; y++) { let row = 0; for (let x = 0; x < cw; x++) { row += a[y * cw + x]; P[(y + 1) * W + x + 1] = P[y * W + x + 1] + row; } }
+  return P;
+}
+function rectSum(P, cw, ch, x0, y0, x1, y1) {
+  x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(cw - 1, x1); y1 = Math.min(ch - 1, y1);
+  if (x1 < x0 || y1 < y0) return 0;
+  const W = cw + 1;
+  return P[(y1 + 1) * W + x1 + 1] - P[y0 * W + x1 + 1] - P[(y1 + 1) * W + x0] + P[y0 * W + x0];
+}
+function lowFreqTone(d, w, h, hole) {
+  const hb = boundsOf(hole, w, h);
+  if (!hb) return;
+  const M = 96, x0 = Math.max(0, hb.x - M), y0 = Math.max(0, hb.y - M);
+  const x1 = Math.min(w - 1, hb.x + hb.w - 1 + M), y1 = Math.min(h - 1, hb.y + hb.h - 1 + M);
+  const cw = x1 - x0 + 1, ch = y1 - y0 + 1, n = cw * ch;
+  const K = new Float64Array(n), VR = new Float64Array(n), VG = new Float64Array(n), VB = new Float64Array(n);
+  const FR = new Float64Array(n), FG = new Float64Array(n), FB = new Float64Array(n), H = new Uint8Array(n);
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+    const i = y * cw + x, g = (y + y0) * w + (x + x0), q = g * 4;
+    FR[i] = d[q]; FG[i] = d[q + 1]; FB[i] = d[q + 2];
+    if (hole[g]) H[i] = 1; else { K[i] = 1; VR[i] = d[q]; VG[i] = d[q + 1]; VB[i] = d[q + 2]; }
+  }
+  const PK = prefixSums(K, cw, ch), PR = prefixSums(VR, cw, ch), PG = prefixSums(VG, cw, ch), PB = prefixSums(VB, cw, ch);
+  const PFR = prefixSums(FR, cw, ch), PFG = prefixSums(FG, cw, ch), PFB = prefixSums(FB, cw, ch);
+  const grain = 6, area = (2 * grain + 1) * (2 * grain + 1);
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+    const i = y * cw + x;
+    if (!H[i]) continue;
+    let cnt = 0, rad = 12, sr = 0, sg = 0, sb = 0;
+    for (; rad <= 192; rad *= 2) {
+      cnt = rectSum(PK, cw, ch, x - rad, y - rad, x + rad, y + rad);
+      if (cnt >= 8) break;
+    }
+    if (cnt > 0) {
+      sr = rectSum(PR, cw, ch, x - rad, y - rad, x + rad, y + rad) / cnt;
+      sg = rectSum(PG, cw, ch, x - rad, y - rad, x + rad, y + rad) / cnt;
+      sb = rectSum(PB, cw, ch, x - rad, y - rad, x + rad, y + rad) / cnt;
+    } else { sr = FR[i]; sg = FG[i]; sb = FB[i]; }
+    const br = rectSum(PFR, cw, ch, x - grain, y - grain, x + grain, y + grain) / area;
+    const bg = rectSum(PFG, cw, ch, x - grain, y - grain, x + grain, y + grain) / area;
+    const bb = rectSum(PFB, cw, ch, x - grain, y - grain, x + grain, y + grain) / area;
+    const g = (y + y0) * w + (x + x0), q = g * 4;
+    d[q] = clamp(sr + (FR[i] - br)); d[q + 1] = clamp(sg + (FG[i] - bg)); d[q + 2] = clamp(sb + (FB[i] - bb));
+  }
+}
+
 /**
  * Removes the masked pixels of `canvas` by filling them from the surrounding fabric.
  * Returns a NEW canvas. Pixels outside `mask` keep their values (checked in the tests).
@@ -166,6 +217,7 @@ export function inpaintMask(canvas, mask, opts = {}) {
   for (let i = 0; i < n; i++) if (m[i] > 8) { hole[i] = 1; any = true; }
   if (!any) return out;
   patchFill(img.data, w, h, hole, opts);
+  if (opts.lowFreq !== false) lowFreqTone(img.data, w, h, hole);
   ctx.putImageData(img, 0, 0);
   return out;
 }
@@ -175,7 +227,8 @@ export function inpaintMask(canvas, mask, opts = {}) {
 /**
  * Lifts the masked artwork into its own transparent layer and repairs the garment underneath.
  * -> { layerCanvas: transparent crop of exactly the masked pixels with a 1 px soft edge (PNG-ready),
- *      bbox: {x,y,w,h} in canvas px, repaired: the garment canvas with the artwork filled in, name }
+ *      bbox: {x,y,w,h} of the lifted pixels, origin: {x,y} where the layer crop starts on the canvas,
+ *      repaired: the garment canvas with the artwork filled in, name }
  * Use: createElement('logo', { image: layerCanvas, x: bbox.x + bbox.w/2, y: ... }) to make it an editable layer.
  */
 export function liftToLayer(canvas, mask, { name = 'Logo', opts = {} } = {}) {
@@ -213,7 +266,7 @@ export function liftToLayer(canvas, mask, { name = 'Logo', opts = {} } = {}) {
   }
   lctx.putImageData(li, 0, 0);
   const repaired = inpaintMask(canvas, grown, opts);
-  return { layerCanvas, bbox: { x: bb.x, y: bb.y, w: bb.w, h: bb.h }, repaired, name };
+  return { layerCanvas, bbox: { x: bb.x, y: bb.y, w: bb.w, h: bb.h }, origin: { x: x0, y: y0 }, repaired, name };
 }
 
 /* ------------------------------------------------------------------ selection */

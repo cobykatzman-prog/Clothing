@@ -8,6 +8,7 @@ import { applyColor, applyFabric, mergeChanged, commitPixels } from './fabric.js
 // Medium and Subtle are clearly smaller so the three options look different.
 const LEVELS = [['Subtle', 0.4], ['Medium', 0.75], ['Bold', 1]];
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const uniq = a => [...new Set(a)];
 
 function regionAlpha(seg, name) { const c = seg && seg.regions && seg.regions[name]; return c ? alphaOf(c) : null; }
 
@@ -94,7 +95,10 @@ function buildParams(ops, s) {
   // made Medium and Bold identical whenever a preset and a prompt delta stacked past 100.
   const p = { ...DEFAULT_PARAMS };
   const add = obj => { if (obj) for (const k of Object.keys(DEFAULT_PARAMS)) if (obj[k]) p[k] += obj[k]; };
-  add(FIT_PRESETS[ops.fitPreset]);
+  // a body-only boxy change (length locked) does not move the shoulders or sleeve length
+  const lockLen = (Array.isArray(ops.lock) ? ops.lock : []).includes('bodyLength');
+  const fitP = ops.fitPreset === 'boxy' && lockLen ? { ...FIT_PRESETS.boxy, shoulderWidth: 0, sleeveLength: 0 } : FIT_PRESETS[ops.fitPreset];
+  add(fitP);
   add(SLEEVE_PRESETS[sleevePresetFor(ops)]);
   add(ops.paramDeltas);
   if (ops.garmentKind === 'longSleeve' && !(ops.paramDeltas && ops.paramDeltas.sleeveLength > 0)) p.sleeveLength += 100;
@@ -102,6 +106,14 @@ function buildParams(ops, s) {
   for (const k of (Array.isArray(ops.lock) ? ops.lock : [])) if (k in p) p[k] = 0;
   for (const k of Object.keys(p)) p[k] = clamp(clamp(p[k], -100, 100) * s, -100, 100);
   return p;
+}
+
+// Grows an alpha plane by r px (square) so the warp's soft margin around the target is allowed to change.
+function growAlpha(a, w, h, r) {
+  const tmp = new Uint8Array(w * h), out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { let v = 0; for (let k = Math.max(0, x - r); k <= Math.min(w - 1, x + r); k++) if (a[y * w + k] > v) v = a[y * w + k]; tmp[y * w + x] = v; }
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { let v = 0; for (let k = Math.max(0, y - r); k <= Math.min(h - 1, y + r); k++) if (tmp[k * w + x] > v) v = tmp[k * w + x]; out[y * w + x] = v; }
+  return out;
 }
 
 // Regions that must come back exactly as they were: ops.keep, plus logos/text/stripes the user said not to touch.
@@ -146,6 +158,9 @@ export async function localVariations(canvas, seg, mask, ops = {}) {
   const hasFabric = ops.fabric && ops.fabric !== 'none';
   const col = ops.color || null;
   const keepA = seg ? keepAlphaFor(seg, ops, w * h) : null;
+  // pixels outside the edited region (and its warp margin) are restored from the original: unselected stays identical
+  let outsideA = null;
+  if (geom) { const g = growAlpha(geom, w, h, 6), o = new Uint8Array(w * h); for (let i = 0; i < o.length; i++) o[i] = g[i] ? 0 : 255; outsideA = o; }
   const results = [];
   for (const [label, s] of LEVELS) {
     let cur = canvas, cseg = seg;
@@ -168,6 +183,7 @@ export async function localVariations(canvas, seg, mask, ops = {}) {
       cur = applyColor(cur, pm, { hue: clamp((col.hue || 0) * s, -180, 180), sat: clamp((col.sat || 0) * s, -100, 100), light: clamp((col.light || 0) * s, -100, 100), tint: col.tint || null, tintAmount: clamp((col.tintAmount == null ? 1 : col.tintAmount) * s, 0, 1) });
     }
     const out = cur === canvas ? (() => { const c = mkCanvas(w, h); c.getContext('2d').drawImage(canvas, 0, 0); return c; })() : mergeChanged(canvas, cur);
+    if (outsideA) compositeKeep(out, canvas, outsideA);
     if (keepA) compositeKeep(out, canvas, keepA);
     results.push({ label, canvas: out, seg: cseg });
   }

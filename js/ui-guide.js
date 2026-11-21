@@ -32,16 +32,18 @@ const HOW = [
   ['Select', 'Optional: mark the part to change with the tools above the canvas (Brush, Lasso, Click a part, Smart select). To change both sleeves, click each sleeve, then describe the change. With nothing selected the whole garment can change.'],
   ['Describe', 'Write what you want in plain words, for example "make the sleeves flared".'],
   ['Generate', 'Press "Create 3 options" to get a light, a medium and a strong version.'],
-  ['Compare', 'Look at the three options, press "Use this" on your favourite, and use "Compare before / after" to check it.'],
+  ['Compare', 'Look at the three options and press "Preview" on your favourite. It appears on the garment without changing the design. Accept it (Enter) or Reject it (Esc). Use "Compare before / after" to check the change.'],
   ['Refine', 'Recolour any part, add text and graphics, and check the measurements. Advanced adds shape sliders and fabric.'],
   ['Export', 'Download a picture, an editable SVG, the measurements or a full design sheet.'],
 ];
 const KEYS = [
   ['Ctrl + Z', 'Undo'], ['Ctrl + Shift + Z  or  Ctrl + Y', 'Redo'],
+  ['Ctrl + Alt + Z  /  Ctrl + Alt + Shift + Z', 'Undo edit / redo edit: the last accepted AI or local edit (garment, shape, colour and elements). Not the same as Undo.'],
+  ['Enter', 'Accept the previewed option (it is kept in Edit history)'], ['H (hold)', 'Hold to see the garment before the edit, release to see the result'],
   ['Delete  or  Backspace', 'Delete the selected text or graphic'], ['Ctrl + D', 'Duplicate the selected text or graphic'],
   ['Arrow keys', 'Nudge the selected item by 1 px (hold Shift for 10 px)'],
   ['+  /  -', 'Zoom in / out (or use the mouse wheel over the canvas)'], ['0', 'Fit the garment to the screen'],
-  ['Hold Space and drag', 'Move around the canvas (or drag with the middle mouse button, or two fingers on a touch screen)'], ['Esc', 'Deselect, cancel a selection in progress, or close a dialog or menu'], ['?', 'Open this help'],
+  ['Hold Space and drag', 'Move around the canvas (or drag with the middle mouse button, or two fingers on a touch screen)'], ['Esc', 'Reject the previewed option, deselect, cancel a selection in progress, or close a dialog or menu'], ['?', 'Open this help'],
   ['Mouse wheel', 'Zoom towards the pointer (up to 1000%)'], ['Z', 'Zoom to the selection'],
   ['B  E  L  P  M', 'Selection tools: Brush, Eraser, Lasso, Polygon, Rectangle'], ['R  C  S  W  K  T', 'Selection tools: Click a part, Whole part, Smart select, Magic wand, By colour, By material'], ['V', 'Back to the Move tool'],
   ['[  and  ]', 'Make the brush or eraser smaller / bigger'],
@@ -79,7 +81,7 @@ const TOUR = [
   { sel: '#sec-upload', title: 'Start with a garment', text: 'Pick a sample, upload a photo, or describe a garment under "Generate garment". The background is removed for you.' },
   { sel: '#selbar', title: 'Select the part to change', text: 'Pick a tool above the canvas: Click a part, Brush, Lasso or Smart select. To change both sleeves, click each sleeve (or press "Both sleeves"), then describe the change. Nothing selected means the whole garment can change.' },
   { sel: '#sec-describe', show: () => reveal('sec-describe'), title: 'Describe a change', text: 'Write what you want in plain words, like "make the sleeves flared". Then press "Create 3 options".' },
-  { sel: '#variation-cards', show: () => reveal('sec-describe'), title: 'Pick the one you like', text: 'You get a light, a medium and a strong version. Press "Use this" on your favourite. You can always undo.' },
+  { sel: '#variation-cards', show: () => reveal('sec-describe'), title: 'Pick the one you like', text: 'You get a light, a medium and a strong version. Press "Preview" on your favourite to see it on the garment, then Accept it or Reject it. Nothing changes until you accept.' },
   { sel: '#right-tabs', title: 'Colour, items and measurements', text: 'These tabs hold the colour of each part, your text and graphics, and the garment\'s measurements. The right tab opens by itself when you need it.' },
   { sel: '#btn-undo', title: 'Nothing is permanent', text: 'Undo and redo any step. Your design saves itself ' + (document.querySelector('meta[name="threadform-shared"][content="1"]') ? 'to the shared library' : 'in this browser') + ' as you work.' },
   { sel: '#btn-export', title: 'Export when you are happy', text: 'Download a picture, an editable SVG, the measurements or a full design sheet. Press "?" in the header any time to see this tour again.' },
@@ -162,7 +164,10 @@ export function nextStepText() {
   const f = state.flow, V = activeView(), basic = getMode() === 'basic';
   if (!VIEWS.some(n => state.views[n].base)) return 'Next: pick a sample or upload a photo of a garment (left panel), or describe one under Generate garment.';
   if (!V.base) return 'This view is still empty. Switch to a view that has a garment, or upload a photo for this one.';
-  if (state.variations && !state.applied) return 'Next: look at the three options in the Look tab and press "Use this" on the one you like.';
+  if (state.review) return state.review.startShown
+    ? 'Starting point set: describe the next change in Describe and press "Create 3 options". Nothing is accepted yet.'
+    : 'Next: Accept (Enter) keeps the previewed option. Reject (Esc) puts the garment back. Regenerate gives new options.';
+  if (state.variations && !state.applied) return 'Next: look at the three options in the Look tab, press "Preview" on the one you like, then Accept or Reject it.';
   const sel = hasMask(V);
   if (!(f.refined || f.compared || state.applied)) {
     if (sel) { const st = selectionStats(V); return `Selected${st.pct != null ? ' ' + Math.round(st.pct) + '% of the garment' : ''}. Next: describe what to change in the selected area (Look tab) and press "Create 3 options".`; }

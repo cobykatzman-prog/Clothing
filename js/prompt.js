@@ -535,7 +535,9 @@ function parseClause(s, raw, o, { setP, reg, note }) {
     else preset = 'cropped';
     const fd = degree(s, preset === 'oversized' ? 0.85 : 0.65);
     if (preset !== 'cropped' || o.params.cropLength === undefined) {
-      for (const [k, v] of Object.entries(FIT_DEFS[preset])) setP(k, v * fd);
+      // a body-only change ("boxy without changing the length") leaves the shoulders alone
+      const bodyOnly = preset === 'boxy' && o.lock.includes('bodyLength');
+      for (const [k, v] of Object.entries(FIT_DEFS[preset])) if (!(bodyOnly && k === 'shoulderWidth')) setP(k, v * fd);
       o.fitPreset = o.fitPreset || preset;
       reg('body');
       if (preset === 'oversized') reg('shoulders', SLEEVES);

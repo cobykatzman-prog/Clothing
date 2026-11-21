@@ -1,18 +1,19 @@
 // Pipeline + actions shared by all UI panels (owner: shell).
 import { state, VIEWS, activeView, snapshot, notify, pushVersion, markFlow, touchMask, hasMask, newColor, undo as sUndo, redo as sRedo } from './state.js';
-import { SIZE, makeCanvas, cloneCanvas, loadImageToCanvas, debounce, hasTransparentBorder, cropToContent, toast, friendly } from './util.js';
+import { SIZE, cloneCanvas, loadImageToCanvas, debounce, hasTransparentBorder, cropToContent, toast, friendly } from './util.js';
 import { segmentGarment, removeBackground, REGION_NAMES } from './segment.js';
 import { applyShape, DEFAULT_PARAMS, FIT_PRESETS, SLEEVE_PRESETS } from './warp.js';
 import { applyColor, applyFabric } from './fabric.js';
 import { applyParts, partsActive } from './manual.js';
 import { localVariations } from './variations.js';
-import { parsePrompt } from './prompt.js';
+import { prepareEdit, editOneLevel, runAiEdit, compositeCanvases } from './aiedit.js';
 import { sampleGarment } from './samples.js';
 import { clubEliteViews } from './samples-club.js';
 import { parseGarmentText, makeGarmentViews, GEN_VIEWS } from './generate.js';
 import { aiGenerate, AiError, useAi } from './ai.js';
 import { startTask } from './ai-ui.js';
 import * as SEL from './selection.js';
+import { takeStartingPoint } from './review.js';
 
 // ---------- busy overlay ----------
 export function busy(msg = 'Working…') {
@@ -286,32 +287,98 @@ export function effectiveMask(V = activeView()) {
 }
 
 // ---------- variations ----------
-function enforceMask(original, result, mask) {
-  const out = cloneCanvas(original), ox = out.getContext('2d');
-  ox.globalCompositeOperation = 'destination-out'; ox.drawImage(mask, 0, 0);
-  const inside = makeCanvas(), ix = inside.getContext('2d');
-  ix.drawImage(result, 0, 0); ix.globalCompositeOperation = 'destination-in'; ix.drawImage(mask, 0, 0);
-  ox.globalCompositeOperation = 'source-over'; ox.drawImage(inside, 0, 0);
-  return out;
-}
+// Three options (Subtle / Medium / Bold). AI when on (progressive cards + a progress card); otherwise the built-in engine.
+// Both paths go through aiedit.js, which composites every result through the edit mask, so pixels outside it never change.
+const OPTION_LABELS = ['Subtle', 'Medium', 'Bold'];
+const OPTION_TOAST = 'No area selected: changes may touch any matching part of the garment.';
 export async function generateVariations(promptText) {
   const V = activeView(); if (!V.current) { toast('Load or generate a garment first.', 'info'); return; }
   if (!promptText.trim()) { toast('Describe what you would like to change, e.g. "make the sleeves flared".', 'info'); return; }
+  markFlow('described');
+  const start = takeStartingPoint();   // a previewed option the person chose to edit further: the next options start from it (review.js)
+  const req = { prompt: promptText, view: state.activeView, mask: effectiveMask(V), src: start ? start.canvas : V.current, seg: start ? (start.seg || await segmentGarment(start.canvas)) : V.seg, refs: state.references };
+  if (useAi()) return aiOptions(req);
   const done = busy('Creating three options…');
   try {
     await tick();
-    markFlow('described');
-    const ops = parsePrompt(promptText);
-    state.lastOps = ops;
-    const mask = effectiveMask(V);
-    const src = V.current, seg = V.seg;
-    const local = await localVariations(src, seg, mask, ops);
-    const out = local.slice(0, 3).map(l => ({ label: l.label, canvas: mask ? enforceMask(src, l.canvas, mask) : l.canvas, seg: mask ? null : (l.seg || null) }));
-    state.variations = out.map(o => ({ ...o, ops }));
+    const { plan, options } = await runAiEdit(req);
+    state.lastOps = plan.ops;
+    state.variations = options;
     state.applied = null;
     markFlow('generated'); notify('variations');
-    if (!mask) toast('No area selected: changes may touch any matching part of the garment.', 'info', 3800);
-  } catch (e) { console.error(e); toast('The options could not be created. Try different words, for example "make the sleeves longer".', 'error', 5000); } finally { done(); }
+    if (!req.mask) toast(OPTION_TOAST, 'info', 3800);
+  } catch (e) { console.error(e); toast(friendly(e, 'The options could not be created. Try different words, for example "make the sleeves longer".'), 'error', 5000); } finally { done(); }
+}
+// AI path: options land in the cards as each one finishes; the progress card shows a row per option, Cancel and countdowns.
+async function aiOptions(req) {
+  const task = startTask({
+    title: 'Creating three options with AI', rows: OPTION_LABELS, hint: 'Reading your instruction…',
+    onCancel: () => { stopCountdowns(); settlePending('cancelled'); },
+    onRetryRow: i => retryRow(i)
+  });
+  let current = OPTION_LABELS.map(label => ({ label, pending: true }));
+  state.variations = current; state.applied = null; notify('variations');
+  const timers = new Map();
+  const stopCountdowns = () => { timers.forEach(id => clearInterval(id)); timers.clear(); };
+  const settlePending = mark => {
+    if (state.variations !== current) return;
+    current = current.map(o => (o && o.pending ? { label: o.label, [mark]: true } : o));
+    state.variations = current; notify('variations');
+  };
+  const put = (i, o) => { if (state.variations !== current || task.signal.aborted) return; current[i] = o; notify('variations'); };
+  let plan = null, fallbacks = 0, firstReason = '';
+  const countdown = (i, secs) => {
+    clearInterval(timers.get(i));
+    let left = Math.max(1, Math.round(secs));
+    const paint = () => task.row(i, 'failed', `Built-in instead. AI is busy: retry in ${left} s`);
+    paint();
+    const id = setInterval(() => {
+      left -= 1;
+      if (left <= 0) { clearInterval(id); timers.delete(i); task.row(i, 'failed', 'Built-in instead. You can retry AI'); return; }
+      paint();
+    }, 1000);
+    timers.set(i, id);
+  };
+  const landed = (i, o) => {
+    if (o.source !== 'local-fallback') { task.row(i, 'done', 'Done'); return; }
+    fallbacks++; if (!firstReason && o.note) firstReason = o.note;
+    if (o.reason === 'ratelimit') countdown(i, o.retryAfter || 30);
+    else task.row(i, 'failed', 'Built-in instead');
+  };
+  const runLevel = async i => { const o = await editOneLevel({ plan, index: i, signal: task.signal }); put(i, o); landed(i, o); return o; };
+  const retryRow = async i => {
+    if (!plan || task.closed || task.signal.aborted || state.variations !== current) return;
+    clearInterval(timers.get(i)); timers.delete(i);
+    current[i] = { label: OPTION_LABELS[i], pending: true }; notify('variations');
+    task.row(i, 'working', 'Trying AI again…');
+    try { await runLevel(i); }
+    catch (e) { if (!task.signal.aborted && state.variations === current) { current[i] = { label: OPTION_LABELS[i], failed: true }; notify('variations'); task.row(i, 'failed', 'Did not finish'); } }
+  };
+  try {
+    plan = await prepareEdit({ ...req, signal: task.signal });
+    if (task.signal.aborted) return;
+    state.lastOps = plan.ops;
+    task.setStatus(plan.understandError ? 'The AI could not read the instruction, so the built-in reading is used. Making three edits…' : 'Making three edits. Each option appears when it is ready.');
+    const results = await Promise.allSettled(OPTION_LABELS.map((_, i) => runLevel(i)));
+    if (task.signal.aborted) return;
+    const bad = results.find(r => r.status === 'rejected');
+    if (bad) throw bad.reason;
+    if (!fallbacks) task.succeed('Three options ready. Pick one to use it.');
+    else {
+      const why = firstReason || 'The AI service did not answer.';
+      const text = `${fallbacks} of 3 options used the built-in engine. ${why}`;
+      task.succeed(text, { autoClose: 0 });
+      toast(text, 'info', 6000);
+    }
+    if (!req.mask) toast(OPTION_TOAST, 'info', 3800);
+    markFlow('generated');
+  } catch (e) {
+    if (task.signal.aborted || (e && e.kind === 'aborted')) return;
+    if (!(e && e.user)) console.error(e);
+    stopCountdowns(); settlePending('failed');
+    if (e && e.user) task.fail(new AiError('bad', { message: e.message }), {});
+    else task.fail(e instanceof AiError ? e : new AiError('upstream'), { actions: [{ label: 'Try again', retry: true, primary: true, fn: () => generateVariations(req.prompt) }] });
+  }
 }
 async function bake(canvas, seg, label) {
   const V = activeView();
@@ -322,20 +389,25 @@ async function bake(canvas, seg, label) {
   pushVersion(label);
 }
 export async function acceptVariation(i) {
-  const o = state.variations?.[i]; if (!o) return;
+  const o = state.variations?.[i]; if (!o || !o.canvas) return;   // placeholders (still working / cancelled) have no picture yet
   const done = busy('Applying…');
   try { snapshot(); await bake(o.canvas, o.seg, `${o.label}: ${o.ops?.summary || 'option'}`); state.applied = { index: i }; markFlow('compared'); notify('applied'); toast(`${o.label} option applied. Sliders now refine from this result.`, 'ok'); }
   finally { done(); }
 }
 export async function combineVariation(i) {
-  const o = state.variations?.[i]; const V = activeView(); if (!o || !V.current) return;
+  const o = state.variations?.[i]; const V = activeView(); if (!o || !o.canvas || !V.current) return;
   const done = busy('Combining…');
   try {
     snapshot();
-    const mask = effectiveMask(V);
-    const lv = await localVariations(V.current, V.seg, mask, o.ops);
-    const r = lv[i];
-    await bake(mask ? enforceMask(V.current, r.canvas, mask) : r.canvas, mask ? null : r.seg, `Combined + ${o.label}`);
+    if (o.source === 'ai' && o.mask) {
+      // an AI option already holds its edit inside its own mask: place that area on top of the current result
+      await bake(compositeCanvases(V.current, o.canvas, o.mask, { feather: o.feather }), null, `Combined + ${o.label}`);
+    } else {
+      const mask = effectiveMask(V);
+      const lv = await localVariations(V.current, V.seg, mask, o.ops);
+      const r = lv[i];
+      await bake(mask ? compositeCanvases(V.current, r.canvas, mask, { feather: 0 }) : r.canvas, mask ? null : r.seg, `Combined + ${o.label}`);
+    }
     markFlow('compared'); notify('applied'); toast(`Added the ${o.label} option on top.`, 'ok');
   } catch (e) { console.error(e); toast('Those options could not be combined. Use one option on its own, then describe the next change.', 'error', 5000); } finally { done(); }
 }

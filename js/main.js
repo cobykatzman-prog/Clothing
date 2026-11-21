@@ -55,7 +55,7 @@ let queue = Promise.resolve(), lastStatus = '';
 let saving = false, conflict = null;   // conflict: null | 'changed' | 'deleted' (shared mode: waiting for the user's choice)
 const unsynced = new Map();            // id -> record that could not reach the shared library yet (retried with backoff)
 let retryTimer = 0, retryN = 0;
-const NON_CONTENT = new Set(['render', 'zoom', 'processing', 'busy', 'compare', 'tool', 'view', 'selection', 'history', 'mode', 'tab', 'part', 'refine']);
+const NON_CONTENT = new Set(['render', 'zoom', 'processing', 'busy', 'compare', 'review', 'tool', 'view', 'selection', 'history', 'mode', 'tab', 'part', 'refine']);
 
 function setStatus(kind, t) {
   lastStatus = kind;
