@@ -5,6 +5,7 @@ import { segmentGarment, removeBackground, REGION_NAMES } from './segment.js';
 import { applyShape, DEFAULT_PARAMS, FIT_PRESETS, SLEEVE_PRESETS } from './warp.js';
 import { applyColor, applyFabric } from './fabric.js';
 import { applyParts, partsActive } from './manual.js';
+import { applySectionFabrics, sectionFabricsActive } from './colourway-render.js';
 import { localVariations } from './variations.js';
 import { prepareEdit, editOneLevel, runAiEdit, compositeCanvases } from './aiedit.js';
 import { sampleGarment } from './samples.js';
@@ -57,6 +58,10 @@ export async function recompute(name = state.activeView) {
     }
     if (partsActive(V.parts)) {   // per-part colours (manual), after the whole-garment colour
       canvas = applyParts(canvas === V.base ? cloneCanvas(canvas) : canvas, seg, V.parts);
+      if (tok !== V.job) return;
+    }
+    if (sectionFabricsActive(V.parts)) {   // per-section fabric appearance (colourways panel), after the colours
+      canvas = applySectionFabrics(canvas === V.base ? cloneCanvas(canvas) : canvas, seg, V.parts);
       if (tok !== V.job) return;
     }
     V.current = canvas; V.seg = seg;
