@@ -3,7 +3,7 @@ import { state, VIEWS, activeView, subscribe, notify, markFlow, pushVersion, res
 import { h, icon, toast, makeCanvas, SIZE, canvasToBlob, friendly, userError, setDisabled } from './util.js';
 import * as A from './ui-actions.js';
 import { exportPNG, exportSVG, exportDesignSheet, download } from './export.js';
-import { exportMeasureData, measurementsCSV } from './measure.js';
+import { exportMeasureData, measurementsCSV, manufacturerSpecCSV } from './measure.js';
 import { openExportDialog } from './export-dialog.js';
 import { editControls, editHistoryPanel } from './ui-review.js';
 
@@ -48,6 +48,11 @@ export function initBottom(root) {
     item('Measurements (CSV)', 'Approximate flat measurements: original, edited, change', async () => {
       const d = exportMeasureData(S, S.activeView); if (!d) throw userError('Nothing to measure yet. Load a garment first.');
       download(new Blob([measurementsCSV(d, { design: S.name, view: S.activeView })], { type: 'text/csv' }), `${slug()}-${S.activeView}-measurements.csv`);
+    }),
+    item('Manufacturer spec (cm CSV)', 'Point-of-measure codes, flat measurements and factory sign-off fields', async () => {
+      const view = S.views.front?.current ? 'front' : S.activeView;
+      const d = exportMeasureData(S, view, { unit: 'cm' }); if (!d) throw userError('Nothing to measure yet. Load or generate a garment first.');
+      download(new Blob([manufacturerSpecCSV(d, { design: S.name, view })], { type: 'text/csv;charset=utf-8' }), `${slug()}-manufacturer-spec-cm.csv`);
     }),
     item('Design sheet', 'Specs, swatches, all views', async () => {
       const views = {}; for (const n of VIEWS) if (S.views[n].current) views[n] = S.views[n].current;

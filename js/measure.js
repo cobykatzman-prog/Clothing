@@ -84,7 +84,7 @@ export function normalizeMeasureState(o) {
   const man = o.manual && typeof o.manual === 'object' && CALIBRATE_KEYS.includes(o.manual.key) && o.manual.cm > 0 && o.manual.cm < 400
     ? { key: o.manual.key, cm: +o.manual.cm } : null;
   return {
-    size: SIZES.includes(o.size) ? o.size : d.size, unit: o.unit === 'in' ? 'in' : 'cm',
+    size: SIZES.includes(o.size) ? o.size : d.size, unit: 'cm',
     kind: KINDS.includes(o.kind) ? o.kind : null, manual: man, show: !!o.show,
   };
 }
@@ -169,14 +169,19 @@ export function rawPixels(seg) {
   const run = bodyRun(seg, cy, L.centerX);
   const lmChest = hyp(L.armpitL, L.armpitR);
   const useRun = run && run.x1 - run.x0 > 0.6 * lmChest && run.x1 - run.x0 < 1.5 * lmChest;
+  // HPS-to-hem is the standard body-length POM. The topmost neck pixel is not HPS:
+  // using it overstates body length by the neck rise and makes front/back photos disagree.
+  const hpsY = (L.shoulderL.y + L.shoulderR.y) / 2;
+  const neckBottomY = L.neckBottom && Number.isFinite(L.neckBottom.y)
+    ? L.neckBottom.y : L.neckTop.y + (M.neckRy || 0);
   const raw = {
     chestLine: useRun ? { y: cy, x0: run.x0, x1: run.x1 } : { y: ay, x0: L.armpitR.x, x1: L.armpitL.x },
     chest: (useRun ? run.x1 - run.x0 : lmChest) / fs,
     hem: hyp(L.hemL, L.hemR) / fs,
     shoulder: hyp(L.shoulderL, L.shoulderR) / fs,
-    length: (hemY - L.neckTop.y) / fs,
+    length: Math.max(0, hemY - hpsY) / fs,
     neck: 2 * (M.neckRx || 0) * NECK_K / fs,
-    neckDrop: (M.neckRy || 0) / fs,
+    neckDrop: Math.max(0, neckBottomY - hpsY) / fs,
     sleeves: {},
   };
   for (const k of ['L', 'R']) {
@@ -184,7 +189,12 @@ export function rawPixels(seg) {
     if (!s || !s.has || !(s.L > 0)) continue;
     const n = s.n || { x: -s.a.y, y: s.a.x };
     const wpx = crossWidth(seg, cuff, n, 2 * (s.hw || 0) * 0.85);
-    raw.sleeves[k] = { len: s.L / fs, open: wpx / fs, n, a: s.a };
+    // Sleeve length is measured from the shoulder seam to the cuff, not from the
+    // sleeve's internal warp root (which sits part-way down the armhole).
+    const shoulderPoint = s.shoulder || s.root;
+    const cuffPoint = s.cuff || cuff;
+    const sleeveLen = shoulderPoint && cuffPoint ? hyp(shoulderPoint, cuffPoint) : s.L;
+    raw.sleeves[k] = { len: sleeveLen / fs, open: wpx / fs, n, a: s.a };
   }
   rawCache.set(seg, raw);
   return raw;
@@ -211,22 +221,45 @@ export function guessKind(seg, sampleKind) {
 export function makeCalibration(refSeg, { kind = 'tee', size = 'M', manual = null } = {}) {
   const raw = rawPixels(refSeg);
   const chart = Object.fromEntries(MEASURES.map(m => [m.key, chartValue(kind, size, m.key)]));
-  const cal = { s: 0, sy: 0, ss: 0, kind, size, manual: null, adjusted: [], chart, mode: 'chart' };
+  const cal = { s: 0, sy: 0, ss: 0, shoulderScale: 0, hemScale: 0, neckScale: 0, neckDropScale: 0, kind, size, manual: null, adjusted: [], chart, mode: 'chart' };
   if (!raw || !(raw.chest > 1)) return cal;
   const s = chart.chest / raw.chest;
   cal.s = s; cal.sy = s; cal.ss = s;
+  // Front and back are calibrated point-by-point to the same base spec. This corrects
+  // small differences in camera scale, cropping and segmentation between the two photos.
+  const widthScale = (rawValue, target) => rawValue > 1 && target > 0 ? target / rawValue : s;
+  cal.shoulderScale = widthScale(raw.shoulder * SHOULDER_SEAM, chart.shoulder);
+  cal.hemScale = widthScale(raw.hem, chart.hem);
+  cal.neckScale = widthScale(raw.neck, chart.neck);
+  cal.neckDropScale = widthScale(raw.neckDrop, chart.neckDrop);
+  // Calibrate each physical axis independently to the selected size chart. Do not use
+  // broad percentage thresholds here: that made the same selected size report different
+  // body and sleeve lengths depending on the proportions of the source image.
   if (raw.length > 1 && chart.length) {
-    const r = raw.length * s / chart.length;
-    if (r < 0.75 || r > 1.3) { cal.sy = chart.length / raw.length; cal.adjusted.push('length'); }
+    cal.sy = chart.length / raw.length;
+    if (Math.abs(raw.length * s / chart.length - 1) > 0.05) cal.adjusted.push('length');
   }
   const sl = Object.values(raw.sleeves);
   if (sl.length && chart.sleeve) {
-    const len = sl.reduce((a, q) => a + q.len, 0) / sl.length, r = len * s / chart.sleeve;
-    if (r < 0.7 || r > 1.4) { cal.ss = chart.sleeve / len; cal.adjusted.push('sleeve'); }
+    const len = sl.reduce((a, q) => a + q.len, 0) / sl.length;
+    if (len > 1) {
+      cal.ss = chart.sleeve / len;
+      if (Math.abs(len * s / chart.sleeve - 1) > 0.05) cal.adjusted.push('sleeve');
+    }
   }
+  // A manual measurement must only change its own axis. Multiplying all three scales
+  // caused entering a body length to silently change chest width and sleeve length too.
   if (manual && CALIBRATE_KEYS.includes(manual.key) && manual.cm > 0) {
     const v = measureGarment(refSeg, cal)[manual.key];
-    if (v > 0) { const f = manual.cm / v; cal.s *= f; cal.sy *= f; cal.ss *= f; cal.manual = { key: manual.key, cm: manual.cm }; cal.mode = 'manual'; }
+    if (v > 0) {
+      const f = manual.cm / v;
+      if (manual.key === 'length') cal.sy *= f;
+      else if (manual.key === 'shoulder') cal.shoulderScale *= f;
+      else if (manual.key === 'hem') cal.hemScale *= f;
+      else cal.s *= f;
+      cal.manual = { key: manual.key, cm: manual.cm };
+      cal.mode = 'manual';
+    }
   }
   return cal;
 }
@@ -241,12 +274,12 @@ export function measureGarment(seg, cal) {
   return {
     chest: raw.chest * cal.s,
     length: raw.length * cal.sy,
-    shoulder: raw.shoulder * SHOULDER_SEAM * cal.s,
+    shoulder: raw.shoulder * SHOULDER_SEAM * (cal.shoulderScale || cal.s),
     sleeve: avg(q => q.len * cal.ss),
     sleeveOpening: avg(q => Math.hypot(q.n.x * q.open * cal.s, q.n.y * q.open * cal.sy)),
-    hem: raw.hem * cal.s,
-    neck: raw.neck * cal.s,
-    neckDrop: raw.neckDrop * cal.s,
+    hem: raw.hem * (cal.hemScale || cal.s),
+    neck: raw.neck * (cal.neckScale || cal.s),
+    neckDrop: raw.neckDrop * (cal.neckDropScale || cal.sy),
     sleeveLeft: raw.sleeves.L ? raw.sleeves.L.len * cal.ss : null,
     sleeveRight: raw.sleeves.R ? raw.sleeves.R.len * cal.ss : null,
   };
@@ -275,9 +308,9 @@ export function visibleDelta(deltaCm, unit) { return deltaCm != null && roundVal
 /* ------------------------------------------------------------------ whole-design glue (state is passed in) */
 const calCache = new WeakMap();
 const VIEW_ORDER = ['front', 'back', 'side', 'detail'];
-/** The view whose ORIGINAL segmentation defines the scale: front first (all views of a design share it). */
+/** Only flat front/back views are valid POM references; side/detail photos are not comparable flat specs. */
 export function referenceSeg(state) {
-  for (const n of VIEW_ORDER) { const s = state.views[n] && state.views[n].baseSeg; if (s && rawPixels(s)) return s; }
+  for (const n of ['front', 'back']) { const s = state.views[n] && state.views[n].baseSeg; if (s && rawPixels(s)) return s; }
   return null;
 }
 export function designKind(state, ref) {
@@ -286,9 +319,16 @@ export function designKind(state, ref) {
   const sample = VIEW_ORDER.map(n => state.views[n] && state.views[n].sample).find(Boolean);
   return guessKind(ref, sample && sample.kind);
 }
-export function designCalibration(state) {
-  const ref = referenceSeg(state); if (!ref) return null;
-  const m = state.measure || defaultMeasureState(), kind = designKind(state, ref);
+export function designCalibration(state, viewName = state.activeView) {
+  // Side/detail photos are close-ups or oblique views, not reliable flat POM references.
+  if (!['front', 'back'].includes(viewName)) return null;
+  // Each front/back view is calibrated from its own untouched base image against the SAME
+  // selected size chart. This normalises photo scale/crop while keeping one shared spec.
+  const fallback = referenceSeg(state);
+  const viewBase = ['front', 'back'].includes(viewName) && state.views[viewName] && state.views[viewName].baseSeg;
+  const ref = viewBase && rawPixels(viewBase) ? viewBase : fallback;
+  if (!ref) return null;
+  const m = state.measure || defaultMeasureState(), kind = designKind(state, fallback || ref);
   const key = [kind, m.size, m.manual ? m.manual.key + ':' + m.manual.cm : ''].join('|');
   let per = calCache.get(ref); if (!per) { per = new Map(); calCache.set(ref, per); }
   let cal = per.get(key); if (!cal) { cal = makeCalibration(ref, { kind, size: m.size, manual: m.manual }); per.set(key, cal); }
@@ -296,8 +336,10 @@ export function designCalibration(state) {
 }
 /** Live measurements of one view: {rows, cal, kind, size, unit, seg} or null while there is nothing to measure. */
 export function designMeasure(state, viewName = state.activeView) {
+  // A side profile or detail crop cannot produce standard flat-garment measurements.
+  if (!['front', 'back'].includes(viewName)) return null;
   const V = state.views[viewName]; if (!V || !V.seg || !rawPixels(V.seg)) return null;
-  const cal = designCalibration(state); if (!cal) return null;
+  const cal = designCalibration(state, viewName); if (!cal) return null;
   const m = state.measure || defaultMeasureState();
   const rows = measurementRows(V.seg, V.baseSeg || V.seg, cal);
   return { rows, cal, kind: cal.kind, size: m.size, unit: m.unit, seg: V.seg, view: viewName };
@@ -305,7 +347,7 @@ export function designMeasure(state, viewName = state.activeView) {
 /** Same, shaped for the exporters: {seg, rows, unit, size, kind, basis, view}. */
 export function exportMeasureData(state, viewName = state.activeView, { unit } = {}) {
   const d = designMeasure(state, viewName); if (!d) return null;
-  return { ...d, unit: unit || d.unit, basis: calibrationText(d.cal, d.unit) };
+  return { ...d, unit: 'cm', basis: calibrationText(d.cal, 'cm') };
 }
 export function calibrationText(cal, unit = 'cm') {
   if (cal.manual) return `your ${SHORT[cal.manual.key].toLowerCase()} = ${formatMeasure(cal.manual.cm, unit)}`;
@@ -317,7 +359,7 @@ export const NOTE = 'Approximate flat-garment measurements estimated from the pi
 const csvCell = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
 /** Measurements as CSV text. data = exportMeasureData(...). Values are in data.unit; the change column carries a sign. */
 export function measurementsCSV(data, { design = 'design', view = 'front' } = {}) {
-  const u = data.unit, head = ['design', 'view', 'garment', 'size', 'measurement', 'unit', 'original', 'edited', 'change', 'basis'];
+  const u = 'cm', head = ['design', 'view', 'garment', 'size', 'measurement', 'unit', 'original_cm', 'edited_cm', 'change_cm', 'basis'];
   const lines = [head.join(',')];
   for (const r of data.rows) {
     lines.push([design, view, KIND_LABELS[data.kind] || data.kind, data.size, r.label, u,
@@ -327,6 +369,46 @@ export function measurementsCSV(data, { design = 'design', view = 'front' } = {}
   lines.push('');
   lines.push(csvCell('# ' + NOTE));
   return lines.join('\r\n') + '\r\n';
+}
+
+/** Manufacturer-facing measurement CSV. Values are centimetres and remain explicitly marked
+ * as estimates until the garment has been physically measured and approved.
+ */
+export function manufacturerSpecCSV(data, { design = 'Untitled design', view = 'front', toleranceCm = '' } = {}) {
+  if (!data || !Array.isArray(data.rows)) throw new TypeError('Measurement data is required');
+  const codes = { chest: 'POM-01', length: 'POM-02', shoulder: 'POM-03', sleeve: 'POM-04',
+    sleeveOpening: 'POM-05', hem: 'POM-06', neck: 'POM-07', neckDrop: 'POM-08' };
+  const definitions = {
+    chest: 'Half chest width, measured flat from 2.5 cm below armhole to armhole',
+    length: 'Body length from high point shoulder (HPS) to bottom hem',
+    shoulder: 'Shoulder width, seam to seam',
+    sleeve: 'Sleeve length from shoulder seam to sleeve opening',
+    sleeveOpening: 'Sleeve opening width, measured flat',
+    hem: 'Bottom hem width, measured flat',
+    neck: 'Neck opening width, seam to seam',
+    neckDrop: 'Front neck drop from HPS to neck seam',
+  };
+  const cell = csvCell;
+  const lines = [
+    ['THREADFORM MANUFACTURER MEASUREMENT SPEC'].map(cell).join(','),
+    ['Style', design].map(cell).join(','),
+    ['View used for measurements', view].map(cell).join(','),
+    ['Garment type', KIND_LABELS[data.kind] || data.kind].map(cell).join(','),
+    ['Base size', data.size].map(cell).join(','),
+    ['Units', 'cm'].map(cell).join(','),
+    ['Measurement status', 'ESTIMATE - verify against a physical sample before production'].map(cell).join(','),
+    ['Scale basis', data.basis || 'Selected size chart'].map(cell).join(','),
+    [],
+    ['POM code', 'Point of measure', 'How to measure', 'Target (cm)', 'Tolerance (cm)', 'Factory actual (cm)', 'Comments'].map(cell).join(','),
+  ];
+  for (const r of data.rows) {
+    lines.push([codes[r.key] || '', r.label, definitions[r.key] || r.label,
+      formatMeasure(r.cm, 'cm', { unitLabel: false }), toleranceCm, '', ''].map(cell).join(','));
+  }
+  lines.push([]);
+  lines.push(['Factory / sample comments', ''].map(cell).join(','));
+  lines.push(['IMPORTANT', 'These values are image-derived estimates, not verified pattern measurements. Measure a physical sample, confirm all points of measure, tolerances, grading, fabric shrinkage and construction before bulk production.'].map(cell).join(','));
+  return lines.map(line => Array.isArray(line) ? line.join(',') : line).join('\r\n') + '\r\n';
 }
 
 /* ------------------------------------------------------------------ dimension lines: layout */
@@ -372,10 +454,11 @@ export function dimensionLayout(seg, rows, opts = {}) {
     add('neck', { x: cx - e, y }, { x: cx + e, y }, { side: -1 });
     exts.push({ a: { x: cx - e, y: y + 4 }, b: { x: cx - e, y: top + 2 } }, { a: { x: cx + e, y: y + 4 }, b: { x: cx + e, y: top + 2 } });
   }
-  if (want('length')) {     // left of the garment
+  if (want('length')) {     // left of the garment: standard HPS-to-hem body length
+    const hpsY = (L.shoulderL.y + L.shoulderR.y) / 2;
     const x = lim(bb.x - fp * 2.2, fp * 1.5, 1e9);
-    add('length', { x, y: L.neckTop.y }, { x, y: hemY });
-    exts.push({ a: { x: x + 6, y: L.neckTop.y }, b: { x: cx - (M.neckRx || 40), y: L.neckTop.y } }, { a: { x: x + 6, y: hemY }, b: { x: L.hemR.x - 3, y: hemY } });
+    add('length', { x, y: hpsY }, { x, y: hemY });
+    exts.push({ a: { x: x + 6, y: hpsY }, b: { x: cx - (M.neckRx || 40), y: hpsY } }, { a: { x: x + 6, y: hemY }, b: { x: L.hemR.x - 3, y: hemY } });
   }
   if (want('hem')) {        // below the garment
     const y = lim(hemY + fp * 2.0, 0, (cs || 1e9) - fp * 1.3);
@@ -386,17 +469,25 @@ export function dimensionLayout(seg, rows, opts = {}) {
     const cl = raw.chestLine;
     add('chest', { x: cl.x0, y: cl.y }, { x: cl.x1, y: cl.y });
   }
-  if (want('sleeve')) {     // along the outside of one sleeve
+  if (want('sleeve')) {     // shoulder seam to cuff, matching the value shown in the measurement table
     const key = M.sleeves && M.sleeves.L && M.sleeves.L.has ? 'L' : (M.sleeves && M.sleeves.R && M.sleeves.R.has ? 'R' : null);
     if (key) {
-      const s = M.sleeves[key], a = s.a;
-      let n = { x: -a.y, y: a.x }; if (n.y > 0) n = { x: -n.x, y: -n.y };   // the side facing up
-      const d = (s.hw || 30) + fp * 1.7;
-      const A = { x: s.root.x + n.x * d, y: s.root.y + n.y * d }, B = { x: s.root.x + a.x * s.L + n.x * d, y: s.root.y + a.y * s.L + n.y * d };
-      add('sleeve', A, B, { side: -1 });
-      const e = (s.hw || 30) * 0.9;
-      exts.push({ a: { x: A.x - n.x * 6, y: A.y - n.y * 6 }, b: { x: s.root.x + n.x * e, y: s.root.y + n.y * e } },
-        { a: { x: B.x - n.x * 6, y: B.y - n.y * 6 }, b: { x: s.root.x + a.x * s.L + n.x * e, y: s.root.y + a.y * s.L + n.y * e } });
+      const s = M.sleeves[key], start = s.shoulder || s.root;
+      const end = s.cuff || (s.root && s.a ? { x: s.root.x + s.a.x * s.L, y: s.root.y + s.a.y * s.L } : null);
+      if (start && end) {
+        const dx = end.x - start.x, dy = end.y - start.y, len = Math.hypot(dx, dy);
+        if (len > 1) {
+          const a = { x: dx / len, y: dy / len };
+          let n = { x: -a.y, y: a.x }; if (n.y > 0) n = { x: -n.x, y: -n.y };
+          const d = (s.hw || 30) + fp * 1.7;
+          const A = { x: start.x + n.x * d, y: start.y + n.y * d };
+          const B = { x: end.x + n.x * d, y: end.y + n.y * d };
+          add('sleeve', A, B, { side: -1 });
+          const e = (s.hw || 30) * 0.9;
+          exts.push({ a: { x: A.x - n.x * 6, y: A.y - n.y * 6 }, b: { x: start.x + n.x * e, y: start.y + n.y * e } },
+            { a: { x: B.x - n.x * 6, y: B.y - n.y * 6 }, b: { x: end.x + n.x * e, y: end.y + n.y * e } });
+        }
+      }
     }
   }
   return { dims, exts, fp };

@@ -52,6 +52,12 @@ export function initStage(root) {
   window.__stage = stage;
   initReview(wrap);   // review bar (Accept / Reject / Regenerate), compare bar and before / after divider over the canvas
 
+  // Clicking away from the canvas deselects the active artwork so its purple handles/highlight disappear.
+  root.addEventListener('pointerdown', e => {
+    if (wrap.contains(e.target)) return;
+    if (S.selectedId) { S.selectedId = null; notify('selection'); stage.draw(); }
+  });
+
   // drag & drop on whole window
   window.addEventListener('dragover', e => e.preventDefault());
   window.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer?.files?.[0]; if (f && f.type.startsWith('image/')) A.loadFile(f); });

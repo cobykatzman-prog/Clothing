@@ -7,9 +7,10 @@ import * as R from './remote.js';
 import * as A from './ui-actions.js';
 
 const MAX_TAGS = 12, MAX_TAG_LEN = 24;
-let root, api, qEl, sortEl, countEl, listEl, emptyEl, noteEl, chipsEl;
+let root, api, qEl, sortEl, countEl, listEl, emptyEl, noteEl, chipsEl, collectionEl;
 let metas = [];
 let activeTags = new Set();   // tag filter, lower-case keys (a design must have every selected tag)
+let activeCollection = '';
 const SORT_KEY = 'threadform.home.sort';   // remembered in this browser only (a convenience, not design data)
 let dragId = null;
 let sharedEl, badgeEl, badgeTxt, moveEl, movable = [], refreshing = false, tick = 0;   // shared-library mode only
@@ -27,6 +28,7 @@ export function initHome(el, actions) {
   try { const saved = localStorage.getItem(SORT_KEY); if (saved && [...sortEl.options].some(o => o.value === saved)) sortEl.value = saved; } catch { }
   countEl = h('span', { class: 'muted small' });
   chipsEl = h('div', { class: 'tag-filters', role: 'group', 'aria-label': 'Filter by tag' });
+  collectionEl = h('div', { class: 'collection-strip', role: 'group', 'aria-label': 'Design collections' });
   listEl = h('div', { class: 'home-grid', role: 'list' });
   noteEl = h('p', { class: 'home-note small muted' });
   emptyEl = h('div', { class: 'home-empty', hidden: true },
@@ -40,12 +42,12 @@ export function initHome(el, actions) {
   root.replaceChildren(
     h('div', { class: 'home-top' },
       h('div', { class: 'brand' }, h('span', { class: 'logo' }, icon('layers', 18)), h('b', {}, 'Threadform')),
-      h('div', { class: 'home-actions' }, h('button', { class: 'btn primary', id: 'home-new', onclick: () => chooser() }, icon('plus', 16), 'New design'), logoutForm())),
+      h('div', { class: 'home-actions' }, h('button', { class: 'btn ghost sm', onclick: () => editBrandKit() }, 'Brand kit'), h('button', { class: 'btn ghost sm', onclick: () => editMaterialsLibrary() }, 'Materials'), h('button', { class: 'btn ghost sm', onclick: () => createCollection() }, 'New collection'), h('button', { class: 'btn primary', id: 'home-new', onclick: () => chooser() }, icon('plus', 16), 'New design'), logoutForm())),
     h('div', { class: 'home-body' },
       h('div', { class: 'home-tools' },
         h('div', {}, h('h1', {}, SHARED() ? 'Shared designs' : 'Your designs'), countEl),
         h('div', { class: 'home-filters' }, qEl, sortEl)),
-      sharedEl || null, chipsEl, listEl, emptyEl, noteEl));
+      sharedEl || null, collectionEl, chipsEl, listEl, emptyEl, noteEl));
   if (SHARED()) startSharedRefresh();
 }
 
@@ -77,6 +79,7 @@ const ago = t => {
 };
 
 const tagsOf = m => (Array.isArray(m.tags) ? m.tags : []);
+const collectionOf = m => String(m.collection || '').trim();
 const byName = (a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
 /** Custom order: designs with an order first (lowest first), then the rest, newest first. */
 function customSorted(list) {
@@ -114,6 +117,12 @@ function renderChips() {
     onclick: () => { activeTags.has(key) ? activeTags.delete(key) : activeTags.add(key); render(); },
   }, name, h('span', { class: 'tcount' }, String(n)))));
   if (activeTags.size) chipsEl.append(h('button', { class: 'tchip clear', onclick: () => { activeTags.clear(); render(); } }, 'Clear tags'));
+  let savedCollections = [];
+  try { savedCollections = JSON.parse(localStorage.getItem('threadform.collections.v1') || '[]'); } catch { savedCollections = []; }
+  const collections = [...new Set([...savedCollections, ...metas.map(collectionOf).filter(Boolean)])].sort((a,b) => a.localeCompare(b));
+  collectionEl.hidden = !collections.length;
+  collectionEl.replaceChildren(h('button', { class: 'collection-chip' + (!activeCollection ? ' active' : ''), 'aria-pressed': String(!activeCollection), onclick: () => { activeCollection = ''; render(); } }, 'All designs'));
+  for (const name of collections) collectionEl.append(h('button', { class: 'collection-chip' + (activeCollection === name ? ' active' : ''), 'aria-pressed': String(activeCollection === name), onclick: () => { activeCollection = name; render(); } }, name));
 }
 
 function render() {
@@ -123,7 +132,7 @@ function render() {
   try { localStorage.setItem(SORT_KEY, sortKey); } catch { }
   const base = sortKey === 'custom' ? customSorted(metas) : metas.slice().sort(sorters[sortKey] || sorters.edited);
   const list = base.filter(m => (!q || (m.name || '').toLowerCase().includes(q) || tagsOf(m).some(t => t.toLowerCase().includes(q)))
-    && [...activeTags].every(k => hasTag(m, k)));
+    && [...activeTags].every(k => hasTag(m, k)) && (!activeCollection || collectionOf(m) === activeCollection));
   countEl.textContent = metas.length ? `${metas.length} design${metas.length === 1 ? '' : 's'}` : '';
   emptyEl.hidden = metas.length > 0;
   listEl.hidden = metas.length === 0;
@@ -162,12 +171,15 @@ function card(m, orderList, canDrag) {
       h('div', { class: 'dinfo' },
         h('div', { class: 'dname' }, m.name || 'Untitled design'),
         h('div', { class: 'dmeta' }, `Edited ${ago(m.updatedAt)} · ${views} ${views === 1 ? 'view' : 'views'}${m.kind ? ' · ' + m.kind : ''}`),
+        m.material?.name ? h('div', { class: 'design-material' }, h('i', { style: `background:${m.material.color || '#d6d3d1'}` }), m.material.name) : null,
         tags.length ? h('div', { class: 'dtags' }, tags.map(t => h('span', { class: 'dtag' }, t))) : null)),
     h('div', { class: 'dactions' },
       h('button', { class: 'btn ghost sm mv', 'aria-label': `Move ${m.name} up`, tip: 'Move up', disabled: pos <= 0, onclick: () => move(m, -1) }, '▲'),
       h('button', { class: 'btn ghost sm mv', 'aria-label': `Move ${m.name} down`, tip: 'Move down', disabled: pos < 0 || pos >= orderList.length - 1, onclick: () => move(m, 1) }, '▼'),
       h('button', { class: 'btn ghost sm', onclick: () => rename(m) }, 'Rename'),
       h('button', { class: 'btn ghost sm', onclick: () => editTags(m) }, 'Tags'),
+      h('button', { class: 'btn ghost sm', onclick: () => assignCollection(m) }, collectionOf(m) ? 'Collection' : 'Add to collection'),
+      h('button', { class: 'btn ghost sm', onclick: () => assignMaterial(m) }, 'Material'),
       h('button', { class: 'btn ghost sm', onclick: () => duplicate(m) }, 'Duplicate'),
       h('button', { class: 'btn ghost sm danger-txt', onclick: () => remove(m) }, icon('trash', 14), 'Delete')));
   return art;
@@ -209,6 +221,145 @@ function moveTo(fromId, toId, after) {
     sortEl.value = 'custom';
     await persistOrder(rest);
   });
+}
+
+
+
+/* ---------------------------------------------------------------- materials library */
+const MATERIALS_KEY = 'threadform.materials.v1';
+function readMaterials() {
+  try { const v = JSON.parse(localStorage.getItem(MATERIALS_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+function writeMaterials(items) {
+  try { localStorage.setItem(MATERIALS_KEY, JSON.stringify(items)); return true; } catch { toast('Could not save the materials library on this device.', 'error'); return false; }
+}
+function editMaterialsLibrary() {
+  const dlg = makeDialog('materials-dialog');
+  const name = h('input', { type: 'text', maxlength: 50, placeholder: 'e.g. Heavyweight cotton' });
+  const type = h('select', {}, ...['Cotton','Polyester','Fleece','Nylon','Wool','Linen','Mesh','Rib knit','Other'].map(v => h('option', { value: v }, v)));
+  const colour = h('input', { type: 'color', value: '#d6d3d1', 'aria-label': 'Material colour' });
+  const notes = h('input', { type: 'text', maxlength: 120, placeholder: 'Weight, finish, supplier...' });
+  const list = h('div', { class: 'materials-list' });
+  const draw = () => {
+    const items = readMaterials();
+    list.replaceChildren(...items.map(item => h('div', { class: 'material-row' },
+      h('i', { class: 'material-swatch', style: `background:${item.color}` }),
+      h('div', { class: 'material-row-copy' }, h('b', {}, item.name), h('span', {}, [item.type, item.notes].filter(Boolean).join(' · '))),
+      h('button', { type: 'button', class: 'btn ghost sm danger-txt', onclick: () => {
+        const next = readMaterials().filter(x => x.id !== item.id);
+        if (writeMaterials(next)) draw();
+      } }, 'Remove'))));
+    if (!items.length) list.append(h('p', { class: 'muted small' }, 'No saved materials yet. Add your first fabric below.'));
+  };
+  const form = h('form', { class: 'materials-form', onsubmit: e => {
+    e.preventDefault();
+    const clean = name.value.trim();
+    if (!clean) { name.focus(); return; }
+    const items = readMaterials();
+    items.push({ id: 'mat-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6), name: clean, type: type.value, color: colour.value, notes: notes.value.trim() });
+    if (writeMaterials(items)) { name.value = ''; notes.value = ''; draw(); }
+  } },
+    h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Material name'), name),
+    h('div', { class: 'materials-fields' },
+      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Fabric'), type),
+      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Colour'), colour)),
+    h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Notes'), notes),
+    h('div', { class: 'dlg-actions' }, h('button', { class: 'btn primary', type: 'submit' }, 'Add material')));
+  dlg.append(h('div', { class: 'dlg-head' }, h('h2', {}, 'Materials library'), h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => dlg.close() }, icon('x', 18))),
+    h('p', { class: 'muted small materials-intro' }, 'Save fabric references and attach them to designs. Material definitions are stored in this browser; each design keeps its selected material details.'),
+    list, form);
+  draw(); name.focus();
+}
+function assignMaterial(m) {
+  const items = readMaterials();
+  if (!items.length) { toast('Add a material to your library first.', 'error'); editMaterialsLibrary(); return; }
+  const dlg = makeDialog('assign-material-dialog');
+  const select = h('select', { class: 'material-select' },
+    h('option', { value: '' }, 'No material'),
+    ...items.map(item => h('option', { value: item.id }, item.name + ' · ' + item.type)));
+  if (m.material?.id) select.value = m.material.id;
+  const form = h('form', { class: 'dlg-body', onsubmit: async e => {
+    e.preventDefault();
+    const item = items.find(x => x.id === select.value);
+    const material = item ? { ...item } : null;
+    try {
+      await store.patchDesign(m.id, { meta: { material } });
+      dlg.close(); toast(material ? 'Material attached to design.' : 'Material removed.', 'ok');
+      await refreshHome();
+    } catch (err) { toast(friendly(err, 'Could not update the design material.'), 'error', 5000); }
+  } },
+    h('h2', {}, 'Design material'),
+    h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Choose a saved material'), select),
+    h('div', { class: 'dlg-actions' }, h('button', { type: 'button', class: 'btn ghost', onclick: () => dlg.close() }, 'Cancel'), h('button', { type: 'submit', class: 'btn primary' }, 'Save')));
+  dlg.append(form);
+  select.focus();
+}
+
+/* ---------------------------------------------------------------- collections + brand kit */
+async function createCollection() {
+  const name = await ask({ title: 'New collection', label: 'Collection name', value: '', ok: 'Create' });
+  if (!name) return;
+  const clean = name.trim().slice(0, 40);
+  if (!clean) return;
+  try {
+    const existing = JSON.parse(localStorage.getItem('threadform.collections.v1') || '[]');
+    const names = Array.isArray(existing) ? existing : [];
+    if (!names.some(x => String(x).toLowerCase() === clean.toLowerCase())) names.push(clean);
+    localStorage.setItem('threadform.collections.v1', JSON.stringify(names));
+  } catch { toast('Could not save the collection on this device.', 'error'); return; }
+  activeCollection = clean;
+  toast('Collection created. Add designs using “Add to collection”.', 'ok');
+  render();
+}
+function assignCollection(m) {
+  return guarded(async () => {
+    const name = await ask({ title: 'Organise design', text: 'Enter a collection name, or leave it empty to remove this design from its collection.', label: 'Collection', value: collectionOf(m), ok: 'Save', allowEmpty: true, hint: 'Examples: Summer 2027, Teamwear, Client projects' });
+    if (name === null) return;
+    const collection = name.trim().slice(0, 40);
+    await store.patchDesign(m.id, { meta: { collection } });
+    activeCollection = collection;
+    toast(collection ? 'Added to ' + collection + '.' : 'Removed from its collection.', 'ok');
+  });
+}
+const BRAND_KEY = 'threadform.brand-kit.v1';
+function readBrandKit() {
+  try { return JSON.parse(localStorage.getItem(BRAND_KEY) || '{}') || {}; } catch { return {}; }
+}
+function editBrandKit() {
+  const saved = readBrandKit();
+  const dlg = makeDialog('brand-kit-dialog');
+  const brandName = h('input', { type: 'text', maxlength: 60, value: saved.name || '', placeholder: 'Your clothing label' });
+  const primary = h('input', { type: 'color', value: saved.primary || '#292820', 'aria-label': 'Primary brand colour' });
+  const secondary = h('input', { type: 'color', value: saved.secondary || '#e9e5dc', 'aria-label': 'Secondary brand colour' });
+  const accent = h('input', { type: 'color', value: saved.accent || '#a18a68', 'aria-label': 'Accent brand colour' });
+  const logoInput = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/svg+xml' });
+  const preview = h('div', { class: 'brand-kit-preview' }, saved.logo ? h('img', { src: saved.logo, alt: 'Saved brand logo' }) : h('span', {}, 'No logo added'));
+  logoInput.addEventListener('change', () => {
+    const file = logoInput.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { toast('Please choose a logo under 2 MB.', 'error'); logoInput.value = ''; return; }
+    const reader = new FileReader();
+    reader.onload = () => { saved.logo = String(reader.result || ''); preview.replaceChildren(h('img', { src: saved.logo, alt: 'Brand logo preview' })); };
+    reader.readAsDataURL(file);
+  });
+  const form = h('form', { class: 'brand-kit-form', onsubmit: e => {
+    e.preventDefault();
+    try {
+      localStorage.setItem(BRAND_KEY, JSON.stringify({ name: brandName.value.trim(), primary: primary.value, secondary: secondary.value, accent: accent.value, logo: saved.logo || '' }));
+      dlg.close(); toast('Brand kit saved on this device.', 'ok');
+    } catch { toast('Could not save the brand kit. The logo may be too large.', 'error', 5000); }
+  } },
+    h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Brand name'), brandName),
+    h('div', { class: 'brand-kit-colours' },
+      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Primary'), primary),
+      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Secondary'), secondary),
+      h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Accent'), accent)),
+    h('label', { class: 'dlg-field' }, h('span', { class: 'lbl' }, 'Logo'), logoInput),
+    preview,
+    h('p', { class: 'muted small' }, 'Your brand kit is currently saved in this browser only. Shared team brand kits will come in a later stage.'),
+    h('div', { class: 'dlg-actions' }, h('button', { type: 'button', class: 'btn ghost', onclick: () => dlg.close() }, 'Cancel'), h('button', { type: 'submit', class: 'btn primary' }, 'Save brand kit')));
+  dlg.append(h('div', { class: 'dlg-head' }, h('h2', {}, 'Brand kit'), h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => dlg.close() }, icon('x', 18))), form);
+  dlg.querySelector('input').focus();
 }
 
 /* ------------------------------------------------------------------ actions */
@@ -420,15 +571,25 @@ async function moveLocal() {
   moving = true;
   const btn = moveEl.querySelector('button');
   const done = [];
-  let failed = 0;
+  let failed = 0, completed = 0, next = 0;
+  if (btn) { btn.disabled = true; btn.textContent = `Moving 0 of ${n}...`; }
   try {
-    for (const [i, m] of list.entries()) {
-      if (btn) { btn.disabled = true; btn.textContent = `Moving ${i + 1} of ${n}...`; }
-      try {
-        const r = await store.moveLocalDesign(m.id);
-        if (r !== 'missing') { done.push(m.id); await store.local.patch(m.id, { meta: { sharedCopy: true } }).catch(() => { }); }
-      } catch (e) { console.error(e); failed++; }
-    }
+    // Move up to three designs at once. Each design also uploads its images in small parallel batches.
+    const worker = async () => {
+      while (next < list.length) {
+        const m = list[next++];
+        try {
+          const r = await store.moveLocalDesign(m.id);
+          if (r !== 'missing') {
+            done.push(m.id);
+            await store.local.patch(m.id, { meta: { sharedCopy: true } }).catch(() => { });
+          }
+        } catch (e) { console.error(e); failed++; }
+        completed++;
+        if (btn) btn.textContent = `Moving ${completed} of ${n}...`;
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, list.length) }, worker));
   } finally { moving = false; }
   await refreshHome();
   if (failed) toast(`${failed} design${failed === 1 ? '' : 's'} could not be moved. Check the connection and press the button again.`, 'error', 6000);

@@ -10,7 +10,7 @@ import { prepareEdit, editOneLevel, runAiEdit, compositeCanvases } from './aiedi
 import { sampleGarment } from './samples.js';
 import { clubEliteViews } from './samples-club.js';
 import { parseGarmentText, makeGarmentViews, GEN_VIEWS } from './generate.js';
-import { aiGenerate, AiError, useAi } from './ai.js';
+import { aiGenerate, aiEdit, AiError, useAi } from './ai.js';
 import { startTask } from './ai-ui.js';
 import * as SEL from './selection.js';
 import { takeStartingPoint } from './review.js';
@@ -68,26 +68,67 @@ export async function recompute(name = state.activeView) {
 }
 export const scheduleRecompute = debounce(() => recompute(), 90);
 
+// Shape is a property of the garment, not of a camera view. Keep the front, back and
+// side on the same shape settings, while leaving each view's artwork, colour and fabric alone.
+const linkedShapeViews = () => ['front', 'back', 'side'].filter(name => state.views[name] && state.views[name].base);
+async function recomputeLinkedViews() {
+  for (const name of linkedShapeViews()) await recompute(name);
+}
+const scheduleShapeRecompute = debounce(() => recomputeLinkedViews(), 90);
+
 let sliderSnapped = false;
 export function beginEdit() { if (!sliderSnapped) { snapshot(); sliderSnapped = true; } }
 export function endEdit() { sliderSnapped = false; }
 
 export function setParam(key, val) {
   beginEdit();
-  activeView().params[key] = val; markFlow('refined'); notify('params'); scheduleRecompute();
+  // Use the active view as the source of truth for the COMPLETE shape, not just
+  // the slider being moved. This also reconciles any older view-specific differences.
+  const params = { ...activeView().params, [key]: val };
+  for (const name of linkedShapeViews()) state.views[name].params = { ...params };
+  markFlow('refined'); notify('params'); scheduleShapeRecompute();
 }
 export function resetParams() {
-  snapshot(); const V = activeView(); V.params = { ...DEFAULT_PARAMS }; V.presets = { fit: null, sleeve: null }; notify('params'); recompute();
+  snapshot();
+  for (const name of linkedShapeViews()) {
+    const V = state.views[name]; V.params = { ...DEFAULT_PARAMS }; V.presets = { fit: null, sleeve: null };
+  }
+  markFlow('refined'); notify('params'); recomputeLinkedViews();
 }
 export function applyFit(name) {
-  snapshot(); const V = activeView();
-  V.params = { ...DEFAULT_PARAMS, ...FIT_PRESETS[name] }; V.presets = { fit: name, sleeve: null }; markFlow('refined'); notify('params'); recompute();
+  snapshot();
+  for (const view of linkedShapeViews()) {
+    const V = state.views[view];
+    V.params = { ...DEFAULT_PARAMS, ...FIT_PRESETS[name] };
+    V.presets = { fit: name, sleeve: null };
+  }
+  markFlow('refined'); notify('params'); recomputeLinkedViews();
 }
 export function applySleeve(name) {
-  snapshot(); const V = activeView();
+  snapshot();
   const keys = ['sleeveLength', 'sleeveWidth', 'sleeveFlare', 'sleeveShape'];
-  for (const k of keys) V.params[k] = 0;
-  Object.assign(V.params, SLEEVE_PRESETS[name]); V.presets = { ...(V.presets || {}), sleeve: name }; markFlow('refined'); notify('params'); recompute();
+  const params = { ...activeView().params };
+  for (const k of keys) params[k] = 0;
+  Object.assign(params, SLEEVE_PRESETS[name]);
+  for (const view of linkedShapeViews()) {
+    const V = state.views[view];
+    V.params = { ...params };
+    V.presets = { ...(V.presets || {}), sleeve: name };
+  }
+  markFlow('refined'); notify('params'); recomputeLinkedViews();
+}
+export function clearPreset(kind) {
+  snapshot();
+  const table = kind === 'fit' ? FIT_PRESETS : SLEEVE_PRESETS;
+  const source = activeView(), preset = table[source.presets?.[kind]] || {};
+  const params = { ...source.params };
+  for (const key of Object.keys(preset)) params[key] = 0;
+  for (const name of linkedShapeViews()) {
+    const V = state.views[name];
+    V.params = { ...params };
+    V.presets = { ...(V.presets || {}), [kind]: null };
+  }
+  markFlow('refined'); notify('params'); recomputeLinkedViews();
 }
 export function setColor(patch) { beginEdit(); Object.assign(activeView().color, patch); markFlow('refined'); notify('color'); scheduleRecompute(); }
 export function setFabric(name, amount) {
@@ -178,7 +219,7 @@ const applyGarmentLook = (V, spec) => {
   V.presets = { fit: FIT_PRESETS[spec.fit] ? spec.fit : null, sleeve: SLEEVE_PRESETS[spec.sleeve] ? spec.sleeve : null };
   V.fabric = spec.fabric ? { name: spec.fabric.name, amount: spec.fabric.amount } : { name: null, amount: 0.6 };
 };
-export async function generateFromPrompt(text, { defaultKind = 'tee' } = {}) {
+export async function generateFromPrompt(text, { defaultKind = 'tee', defaultColor = null, addStripes = false } = {}) {
   const prompt = String(text || '').trim();
   if (!prompt) {
     const msg = 'Describe a garment first, for example "navy hoodie with white stripes". Or use "Use sample" to draw the chosen shape.';
@@ -187,46 +228,54 @@ export async function generateFromPrompt(text, { defaultKind = 'tee' } = {}) {
   }
   if (generating) return { ok: false, message: 'Already generating, please wait.' };
   generating = true;
-  let note = '';
-  if (useAi()) {   // AI engine: one front-view image from the server; any AI failure falls back to the offline generator below
-    const r = await generateWithAi(prompt);
-    if (r.result) { generating = false; return r.result; }
-    if (r.cancelled) { generating = false; return { ok: false, message: 'Cancelled. Nothing was changed.' }; }
-    note = 'The built-in engine was used instead.';
-  }
-  const done = busy('Generating garment…');
   try {
-    await tick();
-    const spec = parseGarmentText(prompt, { defaultKind });
-    const views = makeGarmentViews(spec);
-    snapshot();
-    for (const v of GEN_VIEWS) {
-      await installBase(v, views[v], { sample: spec.sample });
-      applyGarmentLook(state.views[v], spec);
+    let note = '';
+    const spec = parseGarmentText(prompt, { defaultKind, defaultColor, addStripes });
+    if (useAi()) {   // AI makes the front; matching procedural views use the same garment specification.
+      const r = await generateWithAi(prompt, spec, { defaultKind, defaultColor, addStripes });
+      if (r.result) return r.result;
+      if (r.cancelled) return { ok: false, message: 'Cancelled. Nothing was changed.' };
+      note = 'The built-in engine was used instead.';
     }
-    for (const v of GEN_VIEWS) await recompute(v);
-    state.activeView = 'front';
-    state.variations = null;
-    state.name = spec.title;
-    pushVersion('Generated');
-    markFlow('generated'); notify('loaded');
-    const message = `Generated: ${spec.summary}. Front, back, side and detail are ready to edit.`;
-    toast(note ? 'AI was not available, so the built-in engine made this garment. Front, back, side and detail are ready to edit.' : 'Generated. Front, back, side and detail are ready to edit.', 'ok', 4500);
-    return { ok: true, message: note ? `${message} ${note}` : message, spec };
+    const done = busy('Generating garment…');
+    try {
+      await tick();
+      const views = makeGarmentViews(spec);
+      snapshot();
+      for (const v of GEN_VIEWS) {
+        await installBase(v, views[v], { sample: spec.sample });
+        applyGarmentLook(state.views[v], spec);
+      }
+      for (const v of GEN_VIEWS) await recompute(v);
+      state.activeView = 'front';
+      state.variations = null;
+      state.name = spec.title;
+      pushVersion('Generated');
+      markFlow('generated'); notify('loaded');
+      const message = `Generated: ${spec.summary}. Front, back, side and detail are ready to edit.`;
+      toast(note ? 'AI was not available, so the built-in engine made this garment. Front, back, side and detail are ready to edit.' : 'Generated. Front, back, side and detail are ready to edit.', 'ok', 4500);
+      return { ok: true, message: note ? `${message} ${note}` : message, spec };
+    } catch (e) {
+      console.error(e);
+      const msg = 'That garment could not be generated. Try a simpler description, such as "red hoodie", or pick a sample.';
+      toast(msg, 'error', 5000);
+      return { ok: false, message: msg };
+    } finally { done(); }
   } catch (e) {
     console.error(e);
-    const msg = 'That garment could not be generated. Try a simpler description, such as "red hoodie", or pick a sample.';
+    const msg = 'The generator hit a problem. Please try again with a simpler garment description.';
     toast(msg, 'error', 5000);
     return { ok: false, message: msg };
-  } finally { generating = false; done(); }
+  } finally { generating = false; }
 }
 
-// AI "Generate garment": the server returns one picture, which becomes the front view (segmented like an upload).
+// AI "Generate garment": the server makes the front; Threadform builds matching procedural back, side and detail views.
 // Returns {result} on success, {cancelled:true} when the person cancelled, or {} after showing a friendly message (caller falls back).
-async function generateWithAi(prompt) {
+async function generateWithAi(prompt, spec, options = {}) {
   const task = startTask({ title: 'Generating garment with AI', hint: 'This can take up to a minute. You can keep working or cancel.' });
   try {
-    const { canvas } = await aiGenerate({ prompt, refs: state.references, view: 'front', signal: task.signal });
+    const aiPrompt = `${prompt}\n\nGarment details: ${spec.summary}. Body colour: ${spec.color}. ${spec.stripe ? `Include ${spec.stripeName || 'contrasting'} stripes.` : 'Do not add stripes unless specifically described.'} Keep the design clean and suitable for a clothing mockup.`;
+    const { canvas } = await aiGenerate({ prompt: aiPrompt, refs: state.references, view: 'front', signal: task.signal });
     if (task.closed) return { cancelled: true };
     task.setStatus('Preparing the garment for editing…');
     const done = busy('Preparing the garment…');
@@ -244,22 +293,29 @@ async function generateWithAi(prompt) {
         } catch (e) { console.warn('bg removal failed', e); }
       }
       if (task.closed) return { cancelled: true };
+      const matchingViews = makeGarmentViews(spec);
       snapshot();
-      await installBase('front', c);
-      await recompute('front');
+      await installBase('front', c, { sample: spec.sample, label: 'AI front' });
+      applyGarmentLook(state.views.front, spec);
+      for (const view of GEN_VIEWS) {
+        if (view === 'front') continue;
+        await installBase(view, matchingViews[view], { sample: spec.sample, label: 'Matching ' + view });
+        applyGarmentLook(state.views[view], spec);
+      }
+      for (const view of GEN_VIEWS) await recompute(view);
       state.activeView = 'front'; state.variations = null;
-      state.name = prompt.length > 40 ? prompt.slice(0, 38).trimEnd() + '…' : prompt;
+      state.name = spec.title || (prompt.length > 40 ? prompt.slice(0, 38).trimEnd() + '…' : prompt);
       pushVersion('Generated with AI');
       markFlow('generated'); notify('loaded');
     } finally { done(); }
-    const message = 'Generated with AI. The front view is ready to edit.';
+    const message = 'AI front generated. Matching back, side and detail views were built from the same garment specification and are ready to edit.';
     task.succeed(message);
-    return { result: { ok: true, message, ai: true } };
+    return { result: { ok: true, message, ai: true, spec } };
   } catch (e) {
     if (e instanceof AiError && e.kind === 'aborted') return { cancelled: true };
     if (!(e instanceof AiError)) console.error(e);
     const err = e instanceof AiError ? e : new AiError('upstream');
-    task.fail(err, { note: 'Using the built-in engine instead.', actions: [{ label: 'Try AI again', retry: true, primary: true, fn: () => generateFromPrompt(prompt) }] });
+    task.fail(err, { note: 'Using the built-in engine instead.', actions: [{ label: 'Try AI again', retry: true, primary: true, fn: () => generateFromPrompt(prompt, options) }] });
     return {};
   }
 }
@@ -295,6 +351,9 @@ export async function generateVariations(promptText) {
   const V = activeView(); if (!V.current) { toast('Load or generate a garment first.', 'info'); return; }
   if (!promptText.trim()) { toast('Describe what you would like to change, e.g. "make the sleeves flared".', 'info'); return; }
   markFlow('described');
+  if (!useAi() && /\b(move|put|place|position|centre|center|middle|relocat|shift|align)\b/i.test(promptText) && /\b(logo|logos|crest|badge|emblem|text|lettering|graphic|artwork|print)\b/i.test(promptText)) {
+    toast('Moving logos and artwork needs AI editing. Turn on AI editing in the Describe panel and make sure the site has its AI key configured. No unchanged options were created.', 'error', 7000); return;
+  }
   const start = takeStartingPoint();   // a previewed option the person chose to edit further: the next options start from it (review.js)
   const req = { prompt: promptText, view: state.activeView, mask: effectiveMask(V), src: start ? start.canvas : V.current, seg: start ? (start.seg || await segmentGarment(start.canvas)) : V.seg, refs: state.references };
   if (useAi()) return aiOptions(req);

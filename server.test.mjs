@@ -155,6 +155,16 @@ await t('open (dev) mode with no password serves the studio and has no login rou
   s.server.close();
 });
 
+await t('API requests are rate limited after login', async () => {
+  const c = await session();
+  let last;
+  for (let i = 0; i < 241; i++) {
+    last = await get('/api/shared/status', { headers: { cookie: c } });
+  }
+  assert.equal(last.status, 429);
+  assert.ok(Number(last.headers.get('retry-after')) > 0);
+});
+
 await t('healthz is public and reveals nothing; methods are restricted', async () => {
   const r = await get('/healthz'); assert.equal(r.status, 200); assert.equal(await r.text(), 'ok');
   const c = await session();

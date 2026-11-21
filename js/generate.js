@@ -48,7 +48,7 @@ const cap = s => s.replace(/^./, c => c.toUpperCase());
  * @returns {{kind, kindLabel, color, colourName, stripe:string|false, stripeName, trim?:string, cuffs?:'rib'|'hem', fit:string|null,
  *            sleeve:string|null, fabric:{name,amount}|null, sample:object, title:string, summary:string, notes:string[], prompt:string}}
  */
-export function parseGarmentText(text, { defaultKind = 'tee' } = {}) {
+export function parseGarmentText(text, { defaultKind = 'tee', defaultColor = null, addStripes = false } = {}) {
   const raw = String(text || '').trim().slice(0, 1200);
   const lower = raw.toLowerCase();
   const notes = [];
@@ -73,12 +73,13 @@ export function parseGarmentText(text, { defaultKind = 'tee' } = {}) {
   const bodyCol = cols.find(c => !c.role);
   const stripeCol = cols.find(c => c.role === 'stripe');
   const trimCol = cols.find(c => c.role === 'trim');
-  const color = bodyCol ? bodyCol.hex : SAMPLE_DEFAULTS.color;
-  const colourName = bodyCol ? bodyCol.name : 'cream';
+  const pickedColor = /^#[0-9a-f]{6}$/i.test(String(defaultColor || '')) ? String(defaultColor).toLowerCase() : null;
+  const color = bodyCol ? bodyCol.hex : (pickedColor || SAMPLE_DEFAULTS.color);
+  const colourName = bodyCol ? bodyCol.name : (pickedColor ? 'selected colour' : 'cream');
 
   // stripes (parsePrompt knows about "no stripes" / "add stripes")
-  const removedStripes = (p.removeParts || []).includes('stripes');
-  const wantsStripes = !removedStripes && (!!stripeCol || /\bstripe[sd]?\b|pinstripe/.test(lower) || (p.addElements || []).some(e => e.type === 'stripe'));
+  const removedStripes = (p.removeParts || []).includes('stripes') || (p.avoid || []).includes('stripes');
+  const wantsStripes = !removedStripes && (!!stripeCol || addStripes || /\bstripe[sd]?\b|pinstripe/.test(lower) || (p.addElements || []).some(e => e.type === 'stripe'));
   const stripe = wantsStripes ? (stripeCol ? stripeCol.hex : contrastOf(color)) : false;
   const stripeName = stripe ? (stripeCol ? stripeCol.name : (lum(color) > 0.5 ? 'dark' : 'white')) : null;
   const trim = trimCol ? trimCol.hex : undefined;
