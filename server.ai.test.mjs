@@ -107,6 +107,40 @@ await t('generate: plain generations call, and edits when refs are given', async
   assert.equal((await api('/api/ai/generate', { method: 'POST', body: { prompt: '  ' } })).status, 400);
 });
 
+await t('phase 6 generate: another view is drawn from the front reference with the garment spec, shape and artwork in the prompt', async () => {
+  mock.reset();
+  const garment = { kind: 'long-sleeve top', cut: 'boxy', sleeves: 'open hem, no cuffs', panels: ['two sleeve panels'], fabric: 'heavyweight cotton', evil: 'ignored' };
+  const r = await api('/api/ai/generate', { method: 'POST', body: { prompt: 'cream long-sleeve shirt with brown stripes', view: 'back', reference: IMG, garment, shape: { sleeveFlare: 35 }, artwork: ['text "CLUB ELITE" (layer "Back text")'] } });
+  assert.equal(r.status, 200, r.text); assert.match(r.json.image, /^data:image\/png;base64,/);
+  const q = last(); assert.equal(q.path, '/v1/images/edits'); assert.deepEqual(q.files.map(f => f.name), ['image[]']);
+  const p = promptOf(q);
+  for (const re of [/approved FRONT view/, /SAME garment/, /Back view/, /open hem, no cuffs/, /heavyweight cotton/, /flared sleeve ends/, /CLUB ELITE/]) assert.match(p, re);
+  assert.doesNotMatch(p, /ignored/);
+  // the mock draws the other view in the colour of the reference it was given (consistency end to end)
+  const out = decodePNG(Buffer.from(r.json.image.split(',')[1], 'base64')), i = (128 * out.width + 128) * 4;
+  assert.deepEqual([out.data[i], out.data[i + 1], out.data[i + 2]], [200, 180, 150]);
+  assert.equal((await api('/api/ai/generate', { method: 'POST', body: { prompt: 'x', reference: 'nope' } })).status, 400);
+});
+
+await t('phase 6 edit: garment context, artwork to keep and the regenerated section reach the model; the mask still applies', async () => {
+  mock.reset();
+  const r = await edit({ prompt: 'regenerate the sleeves', garment: { kind: 'hoodie', panels: ['kangaroo pocket'] }, shape: { bodyWidth: 60 }, artwork: ['logo (layer "Crest")'], section: 'sleeves' });
+  assert.equal(r.status, 200, r.text);
+  const p = promptOf(last());
+  for (const re of [/selective regeneration of the sleeves ONLY/, /kangaroo pocket/, /wider, boxier body/, /Crest/, /must stay exactly as it is/, /change ONLY the transparent masked area/]) assert.match(p, re);
+  assert.deepEqual(last().files.map(f => f.name), ['image[]', 'mask']);
+});
+
+await t('phase 6 failures: every upstream failure has its own specific code so the studio can say what failed', async () => {
+  const codes = {};
+  for (const f of ['429', '500', '400', 'badjson']) { mock.reset(); mock.setFailure(f); const r = await api('/api/ai/generate', { method: 'POST', body: { prompt: 'a navy tee' } }); codes[f] = r.json.error.code; assert.ok(r.json.error.message.length > 20); }
+  assert.deepEqual(codes, { 429: 'ai_provider_busy', 500: 'ai_upstream', 400: 'ai_rejected', badjson: 'ai_bad_response' });
+  mock.reset(); mock.setFailure('500', 1);
+  assert.equal((await api('/api/ai/generate', { method: 'POST', body: { prompt: 'a navy tee' } })).status, 502);
+  assert.equal((await api('/api/ai/generate', { method: 'POST', body: { prompt: 'a navy tee' } })).status, 200, 'the mock recovers after the requested number of failures (Retry works)');
+  mock.reset();
+});
+
 await t('understand: the five owner examples give sensible, sanitised ops', async () => {
   const ask = async prompt => { const r = await api('/api/ai/understand', { method: 'POST', body: { prompt, image: null, view: 'front', hasSelection: false } }); assert.equal(r.status, 200, r.text); return r.json.ops; };
   let o = await ask("make the sleeves slightly flared but don't add cuffs");

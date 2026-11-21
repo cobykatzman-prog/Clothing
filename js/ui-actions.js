@@ -1,19 +1,21 @@
 // Pipeline + actions shared by all UI panels (owner: shell).
-import { state, VIEWS, activeView, snapshot, notify, pushVersion, markFlow, touchMask, hasMask, newColor, undo as sUndo, redo as sRedo } from './state.js';
+import { state, VIEWS, VIEW_LABELS, activeView, snapshot, notify, pushVersion, markFlow, touchMask, hasMask, newColor, undo as sUndo, redo as sRedo } from './state.js';
 import { SIZE, cloneCanvas, loadImageToCanvas, debounce, hasTransparentBorder, cropToContent, toast, friendly } from './util.js';
 import { segmentGarment, removeBackground, REGION_NAMES } from './segment.js';
 import { applyShape, DEFAULT_PARAMS, FIT_PRESETS, SLEEVE_PRESETS } from './warp.js';
 import { applyColor, applyFabric } from './fabric.js';
 import { applyParts, partsActive } from './manual.js';
+import { applySectionFabrics, sectionFabricsActive } from './colourway-render.js';
 import { localVariations } from './variations.js';
 import { prepareEdit, editOneLevel, runAiEdit, compositeCanvases } from './aiedit.js';
 import { sampleGarment } from './samples.js';
 import { clubEliteViews } from './samples-club.js';
 import { parseGarmentText, makeGarmentViews, GEN_VIEWS } from './generate.js';
-import { aiGenerate, aiEdit, AiError, useAi } from './ai.js';
-import { startTask } from './ai-ui.js';
+import { aiGenerate, aiEdit, AiError, useAi, aiEnabled } from './ai.js';
+import { startTask, recoveryActions } from './ai-ui.js';
+import { garmentForAi, shapeForAi, describeArtwork, sectionById, sectionPrompt } from './aigen.js';
 import * as SEL from './selection.js';
-import { takeStartingPoint } from './review.js';
+import { takeStartingPoint, previewOption } from './review.js';
 
 // ---------- busy overlay ----------
 export function busy(msg = 'Working…') {
@@ -57,6 +59,10 @@ export async function recompute(name = state.activeView) {
     }
     if (partsActive(V.parts)) {   // per-part colours (manual), after the whole-garment colour
       canvas = applyParts(canvas === V.base ? cloneCanvas(canvas) : canvas, seg, V.parts);
+      if (tok !== V.job) return;
+    }
+    if (sectionFabricsActive(V.parts)) {   // per-section fabric appearance (colourways panel), after the colours
+      canvas = applySectionFabrics(canvas === V.base ? cloneCanvas(canvas) : canvas, seg, V.parts);
       if (tok !== V.job) return;
     }
     V.current = canvas; V.seg = seg;
@@ -226,7 +232,10 @@ const applyGarmentLook = (V, spec) => {
   V.presets = { fit: FIT_PRESETS[spec.fit] ? spec.fit : null, sleeve: SLEEVE_PRESETS[spec.sleeve] ? spec.sleeve : null };
   V.fabric = spec.fabric ? { name: spec.fabric.name, amount: spec.fabric.amount } : { name: null, amount: 0.6 };
 };
-export async function generateFromPrompt(text, { defaultKind = 'tee', defaultColor = null, addStripes = false } = {}) {
+// The garment description of the last generated design (not saved): later AI edits and regenerated views stay consistent with it.
+let lastGen = null;
+export const lastGeneration = () => lastGen;
+export async function generateFromPrompt(text, { defaultKind = 'tee', defaultColor = null, addStripes = false, forceLocal = false } = {}) {
   const prompt = String(text || '').trim();
   if (!prompt) {
     const msg = 'Describe a garment first, for example "navy hoodie with white stripes". Or use "Use sample" to draw the chosen shape.';
@@ -238,12 +247,14 @@ export async function generateFromPrompt(text, { defaultKind = 'tee', defaultCol
   try {
     let note = '';
     const spec = parseGarmentText(prompt, { defaultKind, defaultColor, addStripes });
-    if (useAi()) {   // AI makes the front; matching procedural views use the same garment specification.
+    if (useAi() && !forceLocal) {   // AI makes the front; matching procedural views use the same garment specification.
       const r = await generateWithAi(prompt, spec, { defaultKind, defaultColor, addStripes });
       if (r.result) return r.result;
       if (r.cancelled) return { ok: false, message: 'Cancelled. Nothing was changed.' };
-      note = 'The built-in engine was used instead.';
+      // The AI failed: say so and let the person choose (the card offers Retry and Use built-in engine). Nothing was replaced.
+      return { ok: false, aiFailed: true, message: r.message || 'The AI could not generate the garment. Nothing was changed. Choose Retry or Use built-in engine in the AI card.' };
     }
+    if (forceLocal) note = 'The built-in engine was used as you chose.';
     const done = busy('Generating garment…');
     try {
       await tick();
@@ -258,9 +269,10 @@ export async function generateFromPrompt(text, { defaultKind = 'tee', defaultCol
       state.variations = null;
       state.name = spec.title;
       pushVersion('Generated');
+      lastGen = { prompt, spec };
       markFlow('generated'); notify('loaded');
       const message = `Generated: ${spec.summary}. Front, back, side and detail are ready to edit.`;
-      toast(note ? 'AI was not available, so the built-in engine made this garment. Front, back, side and detail are ready to edit.' : 'Generated. Front, back, side and detail are ready to edit.', 'ok', 4500);
+      toast(note ? 'The built-in engine made this garment. Front, back, side and detail are ready to edit.' : 'Generated. Front, back, side and detail are ready to edit.', 'ok', 4500);
       return { ok: true, message: note ? `${message} ${note}` : message, spec };
     } catch (e) {
       console.error(e);
@@ -280,9 +292,10 @@ export async function generateFromPrompt(text, { defaultKind = 'tee', defaultCol
 // Returns {result} on success, {cancelled:true} when the person cancelled, or {} after showing a friendly message (caller falls back).
 async function generateWithAi(prompt, spec, options = {}) {
   const task = startTask({ title: 'Generating garment with AI', hint: 'This can take up to a minute. You can keep working or cancel.' });
+  const hadWork = !!(activeView().base || state.elements.length);
   try {
     const aiPrompt = `${prompt}\n\nGarment details: ${spec.summary}. Body colour: ${spec.color}. ${spec.stripe ? `Include ${spec.stripeName || 'contrasting'} stripes.` : 'Do not add stripes unless specifically described.'} Keep the design clean and suitable for a clothing mockup.`;
-    const { canvas } = await aiGenerate({ prompt: aiPrompt, refs: state.references, view: 'front', signal: task.signal });
+    const { canvas } = await aiGenerate({ prompt: aiPrompt, refs: state.references, view: 'front', garment: garmentForAi(spec), artwork: describeArtwork(state.elements, 'front'), signal: task.signal });
     if (task.closed) return { cancelled: true };
     task.setStatus('Preparing the garment for editing…');
     const done = busy('Preparing the garment…');
@@ -301,6 +314,7 @@ async function generateWithAi(prompt, spec, options = {}) {
       }
       if (task.closed) return { cancelled: true };
       const matchingViews = makeGarmentViews(spec);
+      if (hadWork) pushVersion('Before AI generation');   // the previous garment stays in Version history; Undo also restores it
       snapshot();
       await installBase('front', c, { sample: spec.sample, label: 'AI front' });
       applyGarmentLook(state.views.front, spec);
@@ -313,17 +327,22 @@ async function generateWithAi(prompt, spec, options = {}) {
       state.activeView = 'front'; state.variations = null;
       state.name = spec.title || (prompt.length > 40 ? prompt.slice(0, 38).trimEnd() + '…' : prompt);
       pushVersion('Generated with AI');
+      lastGen = { prompt, spec };
       markFlow('generated'); notify('loaded');
     } finally { done(); }
-    const message = 'AI front generated. Matching back, side and detail views were built from the same garment specification and are ready to edit.';
-    task.succeed(message);
+    const kept = state.elements.length ? ` Your ${state.elements.length} artwork layer${state.elements.length > 1 ? 's were' : ' was'} kept.` : '';
+    const message = `AI front generated. Matching back, side and detail views were built from the same garment specification and are ready to edit.${kept}`;
+    task.succeed(message, { autoClose: 0, actions: [{ label: 'Redraw the back with AI from this front', fn: () => regenerateView('back') }] });
     return { result: { ok: true, message, ai: true, spec } };
   } catch (e) {
     if (e instanceof AiError && e.kind === 'aborted') return { cancelled: true };
     if (!(e instanceof AiError)) console.error(e);
     const err = e instanceof AiError ? e : new AiError('upstream');
-    task.fail(err, { note: 'Using the built-in engine instead.', actions: [{ label: 'Try AI again', retry: true, primary: true, fn: () => generateFromPrompt(prompt, options) }] });
-    return {};
+    task.fail(err, {
+      note: 'Nothing was changed.',
+      actions: recoveryActions(err, { retry: () => generateFromPrompt(prompt, options), local: () => generateFromPrompt(prompt, { ...options, forceLocal: true }) }),
+    });
+    return { message: `${err.label}: ${err.message} Nothing was changed.` };
   }
 }
 
@@ -354,7 +373,8 @@ export function effectiveMask(V = activeView()) {
 // Both paths go through aiedit.js, which composites every result through the edit mask, so pixels outside it never change.
 const OPTION_LABELS = ['Subtle', 'Medium', 'Bold'];
 const OPTION_TOAST = 'No area selected: changes may touch any matching part of the garment.';
-export async function generateVariations(promptText) {
+export async function generateVariations(promptText, { section = '' } = {}) {
+  const req0Section = section;
   const V = activeView(); if (!V.current) { toast('Load or generate a garment first.', 'info'); return; }
   if (!promptText.trim()) { toast('Describe what you would like to change, e.g. "make the sleeves flared".', 'info'); return; }
   markFlow('described');
@@ -362,7 +382,7 @@ export async function generateVariations(promptText) {
     toast('Moving logos and artwork needs AI editing. Turn on AI editing in the Describe panel and make sure the site has its AI key configured. No unchanged options were created.', 'error', 7000); return;
   }
   const start = takeStartingPoint();   // a previewed option the person chose to edit further: the next options start from it (review.js)
-  const req = { prompt: promptText, view: state.activeView, mask: effectiveMask(V), src: start ? start.canvas : V.current, seg: start ? (start.seg || await segmentGarment(start.canvas)) : V.seg, refs: state.references };
+  const req = { prompt: promptText, view: state.activeView, mask: effectiveMask(V), src: start ? start.canvas : V.current, seg: start ? (start.seg || await segmentGarment(start.canvas)) : V.seg, refs: state.references, garment: garmentForAi(lastGen && lastGen.spec), section: req0Section };
   if (useAi()) return aiOptions(req);
   const done = busy('Creating three options…');
   try {
@@ -456,12 +476,14 @@ async function bake(canvas, seg, label) {
 }
 export async function acceptVariation(i) {
   const o = state.variations?.[i]; if (!o || !o.canvas) return;   // placeholders (still working / cancelled) have no picture yet
+  if (o.regen) return acceptRegenerated(o);
   const done = busy('Applying…');
   try { snapshot(); await bake(o.canvas, o.seg, `${o.label}: ${o.ops?.summary || 'option'}`); state.applied = { index: i }; markFlow('compared'); notify('applied'); toast(`${o.label} option applied. Sliders now refine from this result.`, 'ok'); }
   finally { done(); }
 }
 export async function combineVariation(i) {
   const o = state.variations?.[i]; const V = activeView(); if (!o || !o.canvas || !V.current) return;
+  if (o.regen) { toast('A redrawn view replaces the whole view, so it cannot be combined. Use it on its own.', 'info', 4500); return; }
   const done = busy('Combining…');
   try {
     snapshot();
@@ -476,6 +498,115 @@ export async function combineVariation(i) {
     }
     markFlow('compared'); notify('applied'); toast(`Added the ${o.label} option on top.`, 'ok');
   } catch (e) { console.error(e); toast('Those options could not be combined. Use one option on its own, then describe the next change.', 'error', 5000); } finally { done(); }
+}
+
+
+// ---------- selective regeneration (Phase 6) ----------
+// One view, or one garment section, is redrawn on its own. Nothing is replaced until the person accepts the preview:
+// the result lands in the option cards + review bar (compare, accept, reject, history, undo) like any other option.
+// Artwork LAYERS are separate objects and are never touched; the shape sliders stay linked (the new picture becomes the
+// view's base and the same sliders are applied to it again).
+const paramsAreDefault = p => Object.keys(DEFAULT_PARAMS).every(k => !p[k]);
+async function cutOutGenerated(canvas) {
+  if (hasTransparentBorder(canvas)) return canvas;
+  try {
+    const cut = cropToContent(await removeBackground(canvas));
+    const d = cut.getContext('2d').getImageData(0, 0, cut.width, cut.height).data; let solid = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 40) solid++;
+    if (solid / (cut.width * cut.height) >= 0.02) return cut;
+  } catch (e) { console.warn('bg removal failed', e); }
+  return canvas;
+}
+async function presentRegenerated(view, canvas, { source, prompt, summary }) {
+  const seg = await segmentGarment(canvas);
+  const V = state.views[view];
+  const params = { ...(V.base ? V.params : state.views.front.params) };
+  let preview = canvas, pseg = seg;
+  if (!paramsAreDefault(params)) { const r = await applyShape(canvas, seg, params); preview = r.canvas; pseg = r.seg || seg; }
+  const opt = {
+    label: `${VIEW_LABELS[view]} redrawn`, level: 'full', canvas: preview, seg: pseg, source, ops: { summary }, prompt, mask: null, feather: 0,
+    regen: { view, base: canvas, baseSeg: seg, params },
+  };
+  if (state.activeView !== view) { state.activeView = view; state.selectedId = null; notify('view'); }
+  state.review = null; state.variations = [opt]; state.applied = null;
+  markFlow('generated'); notify('variations');
+  previewOption(0);
+}
+async function acceptRegenerated(o) {
+  const { view, base, baseSeg, params } = o.regen, V = state.views[view];
+  if (state.activeView !== view) return;
+  const done = busy('Applying…');
+  try {
+    snapshot();
+    V.job++; V.original = base; V.base = base; V.baseSeg = baseSeg; V.sample = null;
+    V.params = { ...params }; if (V.presets == null) V.presets = { fit: null, sleeve: null };
+    const m = V.mask.getContext('2d'); m.clearRect(0, 0, SIZE, SIZE); touchMask(V); V.regionSel = []; V.saved = [];
+    await recompute(view);
+    pushVersion(`Redrew ${view} view`);
+    state.applied = { index: 0 }; markFlow('compared'); notify('applied');
+    toast(`${VIEW_LABELS[view]} view replaced. Your artwork layers were kept and the shape sliders still apply.`, 'ok', 5000);
+  } finally { done(); }
+}
+
+/** Builds the built-in engine's picture of one view of the last generated garment (a preview, like the AI one). */
+async function regenerateViewLocal(view, prompt) {
+  const spec = lastGen && lastGen.spec;
+  if (!spec) { toast('The built-in engine can only redraw views of a garment made with Generate garment. Nothing was changed.', 'info', 6000); return; }
+  const done = busy('Drawing the view…');
+  try { await tick(); await presentRegenerated(view, makeGarmentViews(spec)[view], { source: 'local', prompt, summary: `Redrawn ${view} view with the built-in engine` }); }
+  catch (e) { console.error(e); toast('The view could not be drawn. Nothing was changed.', 'error', 5000); }
+  finally { done(); }
+}
+
+/**
+ * Redraw one view with AI. Back, side and detail use the FRONT as the reference, so the design stays the same garment.
+ * On any failure a card says what failed and offers Retry and Use built-in engine; the design is never changed.
+ */
+export async function regenerateView(view = state.activeView, { prompt = '' } = {}) {
+  const V = state.views[view], front = state.views.front;
+  if (!V) return;
+  const ownPrompt = String(prompt || (lastGen && lastGen.prompt) || '').trim();
+  if (view !== 'front' && !front.base) { toast('Add or generate a front view first. The other views are drawn to match it.', 'info', 5000); return; }
+  if (view === 'front' && !ownPrompt) { toast('Describe the garment first (Generate garment), then redraw the front.', 'info', 5000); return; }
+  const spec = lastGen && lastGen.spec;
+  const task = startTask({ title: `Redrawing the ${view} with AI`, hint: view === 'front' ? 'This can take up to a minute. Nothing is replaced until you accept it.' : 'Using the front view as the reference so it is the same garment. Nothing is replaced until you accept it.' });
+  const retry = () => regenerateView(view, { prompt });
+  const local = () => regenerateViewLocal(view, ownPrompt);
+  if (!useAi()) {
+    const err = new AiError('off', { message: aiEnabled() ? 'AI is switched off for you ("Use AI" in Describe), so nothing was sent.' : 'AI is not configured on this server (no API key is set), so nothing was sent.' });
+    task.fail(err, { note: 'Nothing was changed.', actions: recoveryActions(err, { local: spec ? local : null }) });
+    return;
+  }
+  try {
+    const text = ownPrompt || (view === 'front' ? '' : (state.name || 'the garment shown in the reference image'));
+    const r = await aiGenerate({
+      prompt: text, view, signal: task.signal,
+      reference: view === 'front' ? null : front.base,
+      refs: view === 'front' ? state.references : [],
+      garment: garmentForAi(spec), shape: shapeForAi(front.params), artwork: describeArtwork(state.elements, view),
+    });
+    if (task.closed) return;
+    task.setStatus('Preparing the preview…');
+    const cut = await cutOutGenerated(r.canvas);
+    await presentRegenerated(view, cut, { source: 'ai', prompt: ownPrompt, summary: view === 'front' ? 'Redrawn front view' : `Redrawn ${view} view to match the front` });
+    task.succeed('Preview is on the canvas. Compare it, then Accept or Reject. Nothing has been replaced yet.', { autoClose: 5000 });
+  } catch (e) {
+    if (e instanceof AiError && e.kind === 'aborted') return;
+    if (!(e instanceof AiError)) console.error(e);
+    const err = e instanceof AiError ? e : new AiError('upstream');
+    task.fail(err, { note: 'Nothing was changed.', actions: recoveryActions(err, { retry, local: spec ? local : null }) });
+  }
+}
+
+/** Regenerate one garment section (sleeves, collar, body, hem, stripes): selects it, then makes three mask-composited options. */
+export async function regenerateSection(id, extra = '') {
+  const sec = sectionById(id), V = activeView();
+  if (!sec) return;
+  if (!V.current) { toast('Load or generate a garment first.', 'info'); return; }
+  if (!SEL.regionOp(sec.regions, 'replace', V)) return;
+  state.ui.prompt = sectionPrompt(sec, { spec: lastGen && lastGen.spec, extra });
+  notify('selection');
+  return generateVariations(state.ui.prompt, { section: sec.label.toLowerCase() });
 }
 
 export const undo = () => { sUndo(); };

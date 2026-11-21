@@ -170,14 +170,58 @@ const LEVEL_WORDING = {
   bold: 'Make a BOLD version of the change: full, pronounced and unmistakable, while keeping the garment realistic and wearable.'
 };
 
-export function buildEditPrompt({ prompt, keep, avoid, hasMask, refCount, view, level }) {
+/* ---- garment-aware context (Phase 6): a plain description of ONE garment that every view and edit must agree with ---- */
+
+const GARMENT_FIELDS = { kind: 'Garment type', cut: 'Cut', fit: 'Fit', sleeves: 'Sleeves', collar: 'Collar', neckline: 'Neckline', hem: 'Hem', cuffs: 'Cuffs', fabric: 'Fabric', color: 'Body colour', stripes: 'Stripes', trim: 'Trim and piping' };
+const GARMENT_LISTS = { panels: 'Panels and seams', details: 'Construction details', construction: 'Construction' };
+/** Untrusted client input -> a flat object of short plain strings. Unknown keys are dropped. */
+export function sanitizeGarment(raw) {
+  if (!isObj(raw)) return null;
+  const g = {};
+  for (const k of Object.keys(GARMENT_FIELDS)) { const v = clean(typeof raw[k] === 'string' ? raw[k] : '', 90); if (v) g[k] = v; }
+  for (const k of Object.keys(GARMENT_LISTS)) { const v = strings(raw[k], 8, 90); if (v.length) g[k] = v; }
+  return Object.keys(g).length ? g : null;
+}
+export function garmentLines(g) {
+  if (!g) return [];
+  const L = [];
+  for (const [k, label] of Object.entries(GARMENT_FIELDS)) if (g[k]) L.push(`${label}: ${g[k]}`);
+  for (const [k, label] of Object.entries(GARMENT_LISTS)) if (g[k]) L.push(`${label}: ${g[k].join('; ')}`);
+  return L;
+}
+// Shape sliders (-100..100) -> words, so the model hears the same proportions the studio shows.
+const SHAPE_WORDS = {
+  bodyLength: ['a longer body', 'a shorter body'], bodyWidth: ['a wider, boxier body', 'a narrower, slimmer body'], collarSize: ['a larger collar', 'a smaller collar'],
+  cropLength: ['a cropped hem', 'a longer hem'], hemShape: ['a curved hem', 'a straight hem'], neckOpening: ['a wider neck opening', 'a narrower neck opening'],
+  shoulderWidth: ['wider shoulders', 'narrower shoulders'], sleeveFlare: ['flared sleeve ends', 'tapered sleeve ends'], sleeveLength: ['longer sleeves', 'shorter sleeves'],
+  sleeveShape: ['curved, bell-like sleeves', 'straight sleeves'], sleeveWidth: ['wider sleeves', 'slimmer sleeves']
+};
+export function describeShape(shape) {
+  if (!isObj(shape)) return [];
+  const out = [];
+  for (const k of PARAM_KEYS) {
+    const v = num(shape[k], -100, 100);
+    if (v === null || Math.abs(v) < 10) continue;
+    const a = Math.abs(v), amount = a <= 30 ? 'slightly' : a <= 65 ? 'noticeably' : 'strongly';
+    out.push(`${SHAPE_WORDS[k][v > 0 ? 0 : 1]} (${amount})`);
+  }
+  return out;
+}
+const artworkLine = list => (list && list.length ? `Existing artwork (logos, lettering, prints) that must stay exactly as it is unless the request names it: ${list.join('; ')}.` : '');
+
+export function buildEditPrompt({ prompt, keep, avoid, hasMask, refCount, view, level, garment = null, shape = [], artwork = [], section = '' }) {
   const L = [];
   L.push(`You are a precise garment-design retoucher working on a fashion design tool. The first image is the ${view} view of ONE clothing item.`);
   L.push(`Requested edit: "${prompt}".`);
+  if (section) L.push(`This is a selective regeneration of the ${section} ONLY: redesign that part freshly, in the same style as the rest of the garment. Do not touch any other part.`);
   L.push(LEVEL_WORDING[level] || LEVEL_WORDING.medium);
   if (hasMask) L.push('A mask is supplied: change ONLY the transparent masked area. Preserve everything outside the masked area exactly, pixel for pixel.');
   else L.push('Change only the garment parts the request mentions. Preserve every other part exactly as it is.');
   L.push('Keep the same garment identity: same colours and stripes (and stripe order), logos, prints, lettering, stitching, seams, fabric texture and weave, camera angle, lighting, soft shadows, background and composition. Do not recolour, restyle, redraw, re-pose or re-frame anything that was not requested. Prefer the smallest change that fulfils the request, with a seamless transition at the edge of the edited area.');
+  const gl = garmentLines(garment);
+  if (gl.length) L.push(`The design this garment belongs to (stay consistent with it): ${gl.join('. ')}.`);
+  if (shape.length) L.push(`Its proportions are currently: ${shape.join(', ')}. Keep them unless the request changes them.`);
+  const art = artworkLine(artwork); if (art) L.push(art);
   if (keep.length) L.push(`Explicitly keep unchanged: ${keep.join('; ')}.`);
   if (avoid.length) L.push(`Do NOT do any of the following: ${avoid.join('; ')}.`);
   if (refCount > 0) L.push(`The other ${refCount} image${refCount > 1 ? 's are' : ' is'} style or material reference${refCount > 1 ? 's' : ''} only. Borrow the requested colour, fabric, trim or detail from ${refCount > 1 ? 'them' : 'it'}; do NOT copy the reference garment's shape, framing or background.`);
@@ -185,13 +229,26 @@ export function buildEditPrompt({ prompt, keep, avoid, hasMask, refCount, view, 
   return L.join('\n');
 }
 
-export function buildGeneratePrompt({ prompt, view, refCount }) {
-  const L = [
-    `Photorealistic flat-lay product image of a single garment, ${view} view, centred and fully in frame, even soft studio lighting, subtle natural shadows, transparent or plain light background. No model, mannequin, hands, text overlays or watermark.`,
-    `Garment: ${prompt}.`
-  ];
-  if (refCount > 0) L.push(`The supplied image${refCount > 1 ? 's are' : ' is a'} reference${refCount > 1 ? 's' : ''} for colour, fabric and details: design a new garment inspired by ${refCount > 1 ? 'them' : 'it'} rather than copying it exactly.`);
-  return L.join('\n');
+const VIEW_HINTS = {
+  front: 'Front view: show the front neckline, any placket, chest area and front hem.',
+  back: 'Back view: show the back neckline and back yoke; there is no front placket, buttons or chest pocket on the back unless the garment needs them.',
+  side: 'Side view: a true profile of the garment, showing the side seam, sleeve hang and hem line.',
+  detail: 'Detail view: a close-up of the collar, neckline and shoulder construction.'
+};
+export function buildGeneratePrompt({ prompt, view, refCount, garment = null, shape = [], artwork = [], frontRef = false }) {
+  const L = [];
+  const flat = `Photorealistic flat-lay product image of a single garment, ${view} view, centred and fully in frame, even soft studio lighting, subtle natural shadows, transparent or plain light background. No model, mannequin, hands, text overlays or watermark.`;
+  if (frontRef && view !== 'front') {
+    L.push(`The first image is the approved FRONT view of ONE clothing item. Draw the ${view} view of this SAME garment: identical colours, stripe colours and order, fabric and weave, trims, collar, sleeve length and shape, hem, proportions, scale, lighting and background. Only what genuinely differs when seen from the ${view} may change. Do not invent new graphics or logos, and do not copy front-only details onto the ${view}.`);
+    L.push(VIEW_HINTS[view] || '', flat);
+  } else L.push(flat, VIEW_HINTS[view] || '');
+  L.push(`Garment: ${prompt}.`);
+  const gl = garmentLines(garment);
+  if (gl.length) L.push(`Construction to follow exactly: ${gl.join('. ')}.`);
+  if (shape.length) L.push(`Draw it with neutral proportions; the studio applies these shape changes afterwards, so do not pre-apply them: ${shape.join(', ')}.`);
+  if (artwork.length) L.push(`The studio adds these artwork layers itself on top, so do NOT draw them and leave clean fabric where they will sit: ${artwork.join('; ')}.`);
+  if (refCount > 0) L.push(`The other supplied image${refCount > 1 ? 's are' : ' is a'} reference${refCount > 1 ? 's' : ''} for colour, fabric and details: ${frontRef ? 'borrow from' : 'design a new garment inspired by'} ${refCount > 1 ? 'them' : 'it'} rather than copying ${refCount > 1 ? 'them' : 'it'} exactly.`);
+  return L.filter(Boolean).join('\n');
 }
 
 const UNDERSTAND_SYSTEM = `MODE: UNDERSTAND
@@ -476,16 +533,18 @@ export function createAi({ env = process.env, baseHeaders, sameOriginPost, clien
       maskPng = conv.png;
     }
     const started = Date.now();
-    const text = buildEditPrompt({ prompt, keep, avoid, hasMask: !!maskPng, refCount: refs.length, view, level });
+    const text = buildEditPrompt({ prompt, keep, avoid, hasMask: !!maskPng, refCount: refs.length, view, level, garment: sanitizeGarment(b.garment), shape: describeShape(b.shape), artwork: strings(b.artwork, 8, 90), section: clean(b.section, 40) });
     const j = await upstream('/images/edits', { form: editForm({ image, mask: maskPng, refs, prompt: text, transparent: hasTransparency(image.buffer) }) });
     return { image: await imageFrom(j), level, model: cfg.imageModel, ms: Date.now() - started };
   }
   async function generate(b) {
     const { prompt, view } = common(b);
     const refs = refsOf(b);
-    const text = buildGeneratePrompt({ prompt, view, refCount: refs.length });
+    const front = b.reference == null ? null : decodeDataUrl(b.reference, 'The front view reference');   // consistency: the approved front view of the same garment
+    const text = buildGeneratePrompt({ prompt, view, refCount: refs.length, garment: sanitizeGarment(b.garment), shape: describeShape(b.shape), artwork: strings(b.artwork, 8, 90), frontRef: !!front });
     let j;
-    if (refs.length) j = await upstream('/images/edits', { form: editForm({ image: refs[0], mask: null, refs: refs.slice(1), prompt: text, transparent: false }) });
+    if (front) j = await upstream('/images/edits', { form: editForm({ image: front, mask: null, refs, prompt: text, transparent: hasTransparency(front.buffer) }) });
+    else if (refs.length) j = await upstream('/images/edits', { form: editForm({ image: refs[0], mask: null, refs: refs.slice(1), prompt: text, transparent: false }) });
     else j = await upstream('/images/generations', { json: { model: cfg.imageModel, prompt: text, n: 1, size: '1024x1024', quality: cfg.quality, background: 'transparent', output_format: 'png' } });
     return { image: await imageFrom(j), model: cfg.imageModel };
   }

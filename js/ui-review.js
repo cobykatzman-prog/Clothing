@@ -39,6 +39,7 @@ export function rejectPreview() {
 export async function regenerate() {
   const r = state.review; if (!r) return;
   const prompt = r.prompt || state.ui.prompt;
+  if (r.option && r.option.regen) { const view = r.option.regen.view; REV.endReview(); await A.regenerateView(view, { prompt: r.option.prompt }); return; }   // a redrawn view is redrawn again
   REV.endReview();   // the starting point (if any) is kept for this run
   if (!prompt.trim()) { toast('Describe the change first, then press Create 3 options.', 'info'); return; }
   REV.noteRun(prompt);

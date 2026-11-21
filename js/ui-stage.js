@@ -26,7 +26,7 @@ export function initStage(root) {
       h('div', { class: 'muted small' }, 'Tip: you can also drag an image onto this window.')));
   wrap.append(empty, busyEl, procEl);
 
-  const tabs = h('div', { class: 'tabs', role: 'tablist' }, VIEWS.map(v => h('button', { class: 'tab', role: 'tab', 'data-v': v, tip: v === 'detail' ? 'A close-up (cuff, collar, print…) of the same design' : `${VIEW_LABELS[v]} view of this design`, onclick: async () => { S.activeView = v; S.selectedId = null; notify('view'); await A.ensureView(v); } }, VIEW_LABELS[v], h('i', { class: 'tdot' }))));
+  const tabs = h('div', { class: 'tabs', role: 'tablist' }, VIEWS.map(v => h('button', { class: 'tab', role: 'tab', 'data-v': v, tip: v === 'detail' ? 'A close-up (cuff, collar, print…) of the same design' : `${VIEW_LABELS[v]} view of this design`, onclick: async () => { S.activeView = v; S.selectedId = null; notify('view'); await A.ensureView(v); stage.fit(); } }, VIEW_LABELS[v], h('i', { class: 'tdot' }))));
   const toolBtn = (t, ic, label, tip) => h('button', { class: 'tool-i', 'data-tool': t, tip: `${tip}`, 'aria-label': label, onclick: () => { S.ui.tool = t; notify('tool'); } }, icon(ic, 18));
   let stage;
   const act = (ic, label, fn, tip) => h('button', { class: 'tool-i', 'aria-label': label, tip: tip || label, onclick: () => fn() }, icon(ic, 18));
