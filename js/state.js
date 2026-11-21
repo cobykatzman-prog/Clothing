@@ -5,6 +5,7 @@ import { segmentGarment } from './segment.js';
 import { ElementLayer } from './elements.js';
 import { defaultMeasureState, normalizeMeasureState } from './measure.js';
 import { defaultSpecState, normalizeSpecState } from './spec.js';
+import { defaultTechPack, normalizeTechPack } from './techpack.js';
 
 export const VIEWS = ['front', 'back', 'side', 'detail'];
 export const VIEW_LABELS = { front: 'Front', back: 'Back', side: 'Side', detail: 'Detail' };
@@ -35,6 +36,7 @@ export function newView() {
 const subs = new Set();
 export const state = {
   name: 'Untitled design',
+  techpack: defaultTechPack(),      // tech pack fields: notes, trims, stitching, construction, revision (techpack.js, saved with the design)
   spec: defaultSpecState(),         // per-size manual values, grading increments, tolerances (spec.js, saved with the design)
   measure: defaultMeasureState(),   // size / unit / calibration / show-dimensions of this design (measure.js, saved with the design)
   tags: [],              // home-page tags of this design (saved in the design document, see serializeDesign)
@@ -94,7 +96,7 @@ export function capture() {
       regionSel: [...v.regionSel], sample: v.sample, parts: { ...v.parts }, saved: [...(v.saved || [])],
     };
   }
-  return { views, elements: state.elements.map(cloneElement), activeView: state.activeView, name: state.name, measure: { ...state.measure }, spec: normalizeSpecState(state.spec) };
+  return { views, elements: state.elements.map(cloneElement), activeView: state.activeView, name: state.name, measure: { ...state.measure }, spec: normalizeSpecState(state.spec), techpack: normalizeTechPack(state.techpack) };
 }
 function apply(s) {
   const keepSel = state.selectedId;   // undo / redo keeps the selected layer when it still exists
@@ -111,6 +113,7 @@ function apply(s) {
   state.name = s.name;
   if (s.measure) state.measure = { ...s.measure };
   state.spec = normalizeSpecState(s.spec);
+  state.techpack = normalizeTechPack(s.techpack);
   state.selectedId = state.elements.some(e => e.id === keepSel && (!e.view || e.view === s.activeView)) ? keepSel : null;
 }
 /** Call BEFORE a mutation: records the current state as an undo step. */
@@ -199,6 +202,7 @@ function snapDoc(s, ref) {   // s has the shape produced by capture()
     elements: s.elements.map(elDoc), activeView: s.activeView, name: s.name,
     measure: s.measure ? { ...s.measure } : null,
     spec: s.spec ? normalizeSpecState(s.spec) : null,
+    techpack: s.techpack ? normalizeTechPack(s.techpack) : null,
   };
 }
 // a version that is still in storage: re-reference its assets in the new save
@@ -217,7 +221,7 @@ function remapRaw(raw, R) {
 export async function serializeDesign() {
   const R = makeRefs();
   const doc = {
-    v: 1, name: state.name, activeView: state.activeView, tags: [...(state.tags || [])], measure: { ...state.measure }, spec: normalizeSpecState(state.spec),
+    v: 1, name: state.name, activeView: state.activeView, tags: [...(state.tags || [])], measure: { ...state.measure }, spec: normalizeSpecState(state.spec), techpack: normalizeTechPack(state.techpack),
     views: Object.fromEntries(VIEWS.map(n => [n, viewDoc(state.views[n], R.canvas)])),
     elements: state.elements.map(elDoc),
     references: state.references.filter(Boolean).map(R.canvas),
@@ -282,6 +286,7 @@ async function hydrateSnapshot(sd, load) {
     // Older saved versions did not include it, so fall back to the standard defaults.
     measure: sd.measure ? normalizeMeasureState(sd.measure) : defaultMeasureState(),
     spec: normalizeSpecState(sd.spec),
+    techpack: normalizeTechPack(sd.techpack),
   };
 }
 function lazyVersion(v, assets) {
@@ -307,6 +312,7 @@ export async function hydrateDesign(doc = {}, assets = {}) {
   state.activeView = VIEWS.includes(doc.activeView) ? doc.activeView : 'front';
   state.measure = normalizeMeasureState(doc.measure);
   state.spec = normalizeSpecState(doc.spec);
+  state.techpack = normalizeTechPack(doc.techpack);
   state.selectedId = null;
   state.elements = (doc.elements || []).map(o => ElementLayer.fromJSON(o));
   state.references = (await Promise.all((doc.references || []).map(k => load(k)))).filter(Boolean);

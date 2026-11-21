@@ -6,6 +6,7 @@ import { exportPNG, exportSVG, exportDesignSheet, download } from './export.js';
 import { exportMeasureData, measurementsCSV, manufacturerSpecCSV, gradedMeasurementCSV } from './measure.js';
 import { exportSpecCSV, printSpec } from './ui-spec.js';
 import { openExportDialog } from './export-dialog.js';
+import { openTechPack } from './ui-techpack.js';
 import { editControls, editHistoryPanel } from './ui-review.js';
 
 const slug = () => (state.name || 'design').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'design';
@@ -62,6 +63,7 @@ export function initBottom(root) {
     }),
     item('Measurement spec (CSV, labelled)', 'All 9 points of measure, sizes XS–XXL, tolerances, calibrated / manual / estimated status', async () => { exportSpecCSV(); }),
     item('Measurement spec (print)', 'Printable table; use Save as PDF in the print dialog', async () => { printSpec(); }),
+    h('button', { class: 'menu-item', role: 'menuitem', id: 'btn-techpack', onclick: () => { menu.hidden = true; openTechPack(); } }, h('b', {}, 'Tech pack…'), h('span', {}, 'Drawings, size chart, materials, artwork placement: print / PDF, spreadsheet')),
     item('Design sheet', 'Specs, swatches, all views', async () => {
       const views = {}; for (const n of VIEWS) if (S.views[n].current) views[n] = S.views[n].current;
       const params = {}; for (const n of VIEWS) params[n] = { ...S.views[n].params };

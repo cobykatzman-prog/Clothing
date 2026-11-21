@@ -3,7 +3,7 @@
 Two layers: fast unit/server tests (`npm test`) and browser journeys (`npm run test:e2e`, Playwright, no extra installs).
 
 ```bash
-npm test            # (now also spec.test: POM grading/sources/validation/CSV) server 15, shared 18, ai 16, prompt 26, mask 187, aiedit 14, measure, generate (seconds)
+npm test            # (now also techpack.test (model, placement, CSV, spreadsheet) and spec.test: POM grading/sources/validation/CSV) server 15, shared 18, ai 16, prompt 26, mask 187, aiedit 14, measure, generate (seconds)
 npm run test:e2e    # browser journeys below (about 4 minutes); screenshots go to $OUT (default <tmpdir>/threadform-e2e)
 node test/e2e.browser.test.cjs          # one file at a time
 ```
@@ -30,6 +30,7 @@ Tick every line by hand after a release too; each has an automated twin.
 | 9 | Shared library | Login gate; save shows "Saved to shared library"; a second login opens the shared link, edits, and the first session receives the change; unknown shared link falls back home | e2e-shared |
 | 10 | Selection + AI-free edit logic | Mask engine, region/smart/wand selection, instruction semantics (avoid/lock/keep), lift to layer, back-to-front match | `mask.browser`, `phase3b.browser` |
 | 11 | Editor layout + arrange tools | At 1440x900, 1024x768, 768x1024 and 390x844 (Basic and Advanced): no page scroll, canvas never covered by the bottom bar, header on one line, current step label does not wrap; small screens use the Tools / Edit dock (sheets close with Esc); header panel toggles collapse a side. Inspector shows only the selected item's controls with numeric X / Y / Width / Height / Rotation; Align, Shift-click multi-select, Distribute, Group / Ungroup (Ctrl+G), group move / hide / lock / duplicate, layer rename, drag snapping with guides (Alt = free, Snap toggle) | `editor.browser`, `js/arrange.test.mjs` |
+| 12 | Tech pack | Export > Tech pack opens an editor and an 8-page A4 preview: front, back, side and detail drawings with measurement callouts and numbered artwork boxes; graded size chart (C / M / E labels, tolerance ranges); materials, colours and trims (from the design plus typed rows); stitching and construction (suggested vs entered); artwork placement in cm from HPS, hem and centre line; revision details and version history; production notes. Print / Save as PDF (A4 landscape, multi-page), multi-sheet spreadsheet (.xml) and CSV bundle download; fields persist after reload and undo; artwork labels switch to Calibrated once the scale is calibrated | `techpack.browser`, `js/techpack.test.mjs` |
 
 Also run before a release (kept outside the repo-wide scripts, they use fixed ports 8123/8124): the accessibility/contrast QA
 (`qa.js`), the long studio walkthrough (`e2e.js`) and the Club Élite sample check (`club-test.js`).
