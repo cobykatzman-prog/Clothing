@@ -329,29 +329,46 @@ export function designKind(state, ref) {
   return guessKind(ref, sample && sample.kind);
 }
 export function designCalibration(state, viewName = state.activeView) {
-  // Side/detail photos are close-ups or oblique views, not reliable flat POM references.
-  if (!['front', 'back'].includes(viewName)) return null;
-  // Each front/back view is calibrated from its own untouched base image against the SAME
-  // selected size chart. This normalises photo scale/crop while keeping one shared spec.
+  // Front and Back are the authoritative flat POM references. Side uses the
+  // Front reference scale; Detail remains intentionally excluded from garment sizing.
+  if (!['front', 'back', 'side'].includes(viewName)) return null;
   const fallback = referenceSeg(state);
-  const viewBase = ['front', 'back'].includes(viewName) && state.views[viewName] && state.views[viewName].baseSeg;
+  const calibrationView = viewName === 'side' ? 'front' : viewName;
+  const viewBase = state.views[calibrationView] && state.views[calibrationView].baseSeg;
   const ref = viewBase && rawPixels(viewBase) ? viewBase : fallback;
   if (!ref) return null;
   const m = state.measure || defaultMeasureState(), kind = designKind(state, fallback || ref);
-  const key = [viewName, kind, m.size, m.manual ? m.manual.key + ':' + m.manual.cm : ''].join('|');
+  const key = [calibrationView, kind, m.size, m.manual ? m.manual.key + ':' + m.manual.cm : ''].join('|');
   let per = calCache.get(ref); if (!per) { per = new Map(); calCache.set(ref, per); }
-  let cal = per.get(key); if (!cal) { cal = makeCalibration(ref, { kind, size: m.size, manual: m.manual, view: viewName }); per.set(key, cal); }
+  let cal = per.get(key); if (!cal) { cal = makeCalibration(ref, { kind, size: m.size, manual: m.manual, view: calibrationView }); per.set(key, cal); }
   return cal;
 }
-/** Live measurements of one view: {rows, cal, kind, size, unit, seg} or null while there is nothing to measure. */
+function profileBounds(seg) {
+  const b = seg && seg.bbox;
+  if (b && [b.x, b.y, b.w, b.h].every(Number.isFinite) && b.w > 1 && b.h > 1) return b;
+  return null;
+}
+/** Live measurements for one view. Side is reported as silhouette dimensions, never mislabeled as flat POMs. */
 export function designMeasure(state, viewName = state.activeView) {
-  // A side profile or detail crop cannot produce standard flat-garment measurements.
-  if (!['front', 'back'].includes(viewName)) return null;
-  const V = state.views[viewName]; if (!V || !V.seg || !rawPixels(V.seg)) return null;
+  if (!['front', 'back', 'side'].includes(viewName)) return null;
+  const V = state.views[viewName]; if (!V || !V.seg) return null;
   const cal = designCalibration(state, viewName); if (!cal) return null;
   const m = state.measure || defaultMeasureState();
+  if (viewName === 'side') {
+    const b = profileBounds(V.seg), original = profileBounds(V.baseSeg || V.seg);
+    if (!b || !original) return null;
+    const fs = V.seg.metrics?.fitScale || 1, ofs = (V.baseSeg || V.seg).metrics?.fitScale || 1;
+    const rows = [
+      { key: 'profileWidth', label: 'Side silhouette width', short: 'Profile width',
+        cm: b.w / fs * cal.s, origCm: original.w / ofs * cal.s },
+      { key: 'profileHeight', label: 'Side silhouette height', short: 'Profile height',
+        cm: b.h / fs * cal.sy, origCm: original.h / ofs * cal.sy },
+    ];
+    for (const r of rows) { r.deltaCm = r.cm - r.origCm; r.src = 'estimated'; }
+    return { rows, cal, kind: cal.kind, size: m.size, unit: m.unit, seg: V.seg, view: viewName, profile: true };
+  }
+  if (!rawPixels(V.seg)) return null;
   const rows = measurementRows(V.seg, V.baseSeg || V.seg, cal, { view: viewName });
-  // where each number comes from (shown on the dimension lines: ~ = estimated)
   for (const r of rows) r.src = cal.manual && cal.manual.key === r.key ? 'calibrated' : 'estimated';
   return { rows, cal, kind: cal.kind, size: m.size, unit: m.unit, seg: V.seg, view: viewName };
 }
@@ -364,7 +381,7 @@ export function calibrationText(cal, unit = 'cm') {
   if (cal.manual) return `your ${SHORT[cal.manual.key].toLowerCase()} = ${formatMeasure(cal.manual.cm, unit)}`;
   return `typical ${KIND_LABELS[cal.kind] || 'garment'} size ${cal.size}`;
 }
-export const NOTE = 'Approximate flat-garment measurements estimated from the picture and the selected size.';
+export const NOTE = 'Approximate image-derived estimates. Confirm every point of measure against a physical sample before production.';
 
 /* ------------------------------------------------------------------ CSV */
 const csvCell = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
@@ -469,8 +486,34 @@ const estW = (text, fp) => text.length * fp * 0.58 + fp * 0.9;
  * opts: {unit, fontPx (default 19), canvasSize (clamp inside, e.g. 1024), only:[keys]}
  */
 export function dimensionLayout(seg, rows, opts = {}) {
-  const raw = rawPixels(seg); if (!raw || !rows || !rows.length) return { dims: [], exts: [] };
+  if (!rows || !rows.length) return { dims: [], exts: [] };
   const unit = opts.unit || 'cm', fp = opts.fontPx || 19, cs = opts.canvasSize || 0;
+  const profileRows = rows.filter(r => r.key === 'profileWidth' || r.key === 'profileHeight');
+  if (profileRows.length) {
+    const b = profileBounds(seg); if (!b) return { dims: [], exts: [] };
+    const by = Object.fromEntries(profileRows.map(r => [r.key, r]));
+    const dims = [], exts = [], lim = (v, lo, hi) => cs ? Math.min(hi, Math.max(lo, v)) : v;
+    const addProfile = (key, a, z, labelSide = -1) => {
+      const r = by[key]; if (!r) return;
+      const name = r.short || r.label, value = '~' + formatMeasure(r.cm, unit);
+      const w = estW(name + ' ' + value, fp), mid = { x: (a.x + z.x) / 2, y: (a.y + z.y) / 2 };
+      const horizontal = Math.abs(z.x - a.x) >= Math.abs(z.y - a.y);
+      const off = labelSide * fp * 1.5;
+      dims.push({ key, a, b: z, name, value, w, h: fp * 1.5, ang: 0,
+        lx: mid.x + (horizontal ? 0 : off), ly: mid.y + (horizontal ? off : 0), lifted: true });
+    };
+    const y = b.y + b.h / 2, x = lim(b.x - fp * 2.2, fp * 1.5, cs ? cs - fp * 1.3 : 1e9);
+    addProfile('profileWidth', { x: b.x, y }, { x: b.x + b.w, y });
+    addProfile('profileHeight', { x, y: b.y }, { x, y: b.y + b.h }, 1);
+    exts.push(
+      { a: { x: b.x, y: y - 5 }, b: { x: b.x, y: y + 5 } },
+      { a: { x: b.x + b.w, y: y - 5 }, b: { x: b.x + b.w, y: y + 5 } },
+      { a: { x: x + 5, y: b.y }, b: { x: b.x, y: b.y } },
+      { a: { x: x + 5, y: b.y + b.h }, b: { x: b.x, y: b.y + b.h } },
+    );
+    return { dims, exts, fp };
+  }
+  const raw = rawPixels(seg); if (!raw) return { dims: [], exts: [] };
   const by = {}; rows.forEach(r => { by[r.key] = r; });
   const L = seg.landmarks, M = seg.metrics, bb = seg.bbox && seg.bbox.w ? seg.bbox : { x: L.hemR.x, y: L.neckTop.y, w: L.hemL.x - L.hemR.x, h: 1 };
   const hemY = (L.hemL.y + L.hemR.y) / 2, cx = L.centerX;

@@ -198,19 +198,41 @@ test('front and back use distinct neck-drop grading and accurate view labels', (
   assert.notEqual(frontNeck.cm, backNeck.cm);
 });
 
-test('side and detail crops do not masquerade as flat garment measurements', () => {
+test('side profile provides silhouette width and height on the shared front size scale', () => {
   const front = mockGarment();
+  const sideBase = { ...mockGarment(), bbox: { x: 400, y: 150, w: 180, h: 700 }, metrics: { fitScale: 1 } };
+  const sideEdited = { ...mockGarment(), bbox: { x: 390, y: 150, w: 200, h: 680 }, metrics: { fitScale: 1 } };
   const state = {
     activeView: 'side',
+    measure: { size: 'M', kind: 'longSleeve', manual: null, unit: 'cm' },
+    views: {
+      front: { baseSeg: front, seg: front, sample: null },
+      back: { baseSeg: null, seg: null, sample: null },
+      side: { baseSeg: sideBase, seg: sideEdited, sample: null },
+      detail: { baseSeg: null, seg: null, sample: null },
+    },
+  };
+  const d = designMeasure(state, 'side');
+  assert.ok(d && d.profile);
+  assert.deepEqual(d.rows.map(r => r.key), ['profileWidth', 'profileHeight']);
+  assert.ok(d.rows[0].cm > d.rows[0].origCm);
+  assert.ok(d.rows[1].cm < d.rows[1].origCm);
+  const layout = dimensionLayout(sideEdited, d.rows, { fontPx: 12, canvasSize: 1024 });
+  assert.deepEqual(new Set(layout.dims.map(x => x.key)), new Set(['profileWidth', 'profileHeight']));
+});
+
+test('detail crops remain excluded from garment measurement tables', () => {
+  const front = mockGarment();
+  const state = {
+    activeView: 'detail',
     measure: { size: 'M', kind: 'tee', manual: null },
     views: {
       front: { baseSeg: front, seg: front, sample: null },
       back: { baseSeg: null, seg: null, sample: null },
-      side: { baseSeg: front, seg: front, sample: null },
+      side: { baseSeg: null, seg: null, sample: null },
       detail: { baseSeg: front, seg: front, sample: null },
     },
   };
-  assert.equal(designMeasure(state, 'side'), null);
   assert.equal(designMeasure(state, 'detail'), null);
 });
 

@@ -97,7 +97,7 @@ export function createStage(el, wrap) {
     ctx.shadowColor = 'rgba(30,30,40,.14)'; ctx.shadowBlur = 24 / T.zoom; ctx.shadowOffsetY = 6 / T.zoom;
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, SIZE, SIZE);
     ctx.shadowColor = 'transparent';
-    ctx.fillStyle = checkerPattern(ctx); ctx.fillRect(0, 0, SIZE, SIZE);
+    ctx.fillStyle = '#f4f2ee'; ctx.fillRect(0, 0, SIZE, SIZE);
     ctx.imageSmoothingQuality = 'high';
     ctx.imageSmoothingEnabled = T.zoom < 2.5;     // zoomed right in, show true pixels so small details can be selected exactly
     if (V.current) {
@@ -323,7 +323,17 @@ export function createStage(el, wrap) {
     draw: request, resize,
     get zoom() { return T.zoom; },
     get view() { return { zoom: T.zoom, px: T.px, py: T.py, rot: T.rot, w: W, h: H }; },
-    fit() { T.zoom = clamp(Math.min(W, H) * 0.92 / SIZE, MIN_ZOOM, 3); T.px = T.py = 0; request(); notify('zoom'); },
+    fit() {
+      // Fit the actual garment silhouette, not the shared 1024px image frame.
+      // Different crops and front/back/side silhouettes therefore occupy a consistent
+      // amount of the editor without stretching or changing their aspect ratio.
+      const V = activeView(), b = V.seg?.bbox?.w > 1 && V.seg?.bbox?.h > 1
+        ? V.seg.bbox : { x: 0, y: 0, w: SIZE, h: SIZE };
+      const pad = 1.24;
+      T.zoom = clamp(Math.min(W / (b.w * pad), H / (b.h * pad)), MIN_ZOOM, 3);
+      anchor({ x: b.x + b.w / 2, y: b.y + b.h / 2 }, W / 2, H / 2);
+      request(); notify('zoom');
+    },
     zoomBy(f) { zoomAt(W / 2 + T.px, H / 2 + T.py, f); },
     /** absolute zoom (1 = 100 %), around the stage centre unless a stage point is given */
     zoomTo(z, sx = W / 2, sy = H / 2) { zoomAt(sx, sy, clamp(z, MIN_ZOOM, MAX_ZOOM) / T.zoom); },
