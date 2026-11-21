@@ -95,6 +95,7 @@ export function capture() {
   return { views, elements: state.elements.map(cloneElement), activeView: state.activeView, name: state.name, measure: { ...state.measure } };
 }
 function apply(s) {
+  const keepSel = state.selectedId;   // undo / redo keeps the selected layer when it still exists
   for (const n of VIEWS) {
     const v = state.views[n], d = s.views[n];
     v.job++; // cancel pending recomputes
@@ -107,7 +108,7 @@ function apply(s) {
   state.activeView = s.activeView;
   state.name = s.name;
   if (s.measure) state.measure = { ...s.measure };
-  state.selectedId = null;
+  state.selectedId = state.elements.some(e => e.id === keepSel && (!e.view || e.view === s.activeView)) ? keepSel : null;
 }
 /** Call BEFORE a mutation: records the current state as an undo step. */
 export function snapshot() {

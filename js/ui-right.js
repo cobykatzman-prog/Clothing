@@ -8,7 +8,7 @@ import { createPartPanel, createInspector } from './manual.js';
 import { presetBlock, shapeBlock, wholeColourBlock, fabricBlock } from './ui-look.js';
 import { measureSection } from './ui-measure.js';
 import { engineRow } from './ai-ui.js';
-import { previewOption, combine as combineOption } from './ui-review.js';
+import { previewOption, acceptPreview, combine as combineOption } from './ui-review.js';
 
 const EXAMPLES = ['make the sleeves flared', 'boxy oversized fit', 'remove the cuffs', 'cropped hem', 'heavyweight cotton', 'red piping on the collar', 'vintage Greek island style'];
 
@@ -129,6 +129,7 @@ export function initRight(root) {
 
   const sumOf = (o, i) => (o.ops && o.ops.summary) || ['A small change to what you asked for', 'The change exactly as you described it', 'A stronger version of your change'][i] || '';
   const shorten = t => (t.length > 60 ? t.slice(0, 58).trimEnd() + '…' : t);
+  async function useOption(i) { if (previewOption(i)) await acceptPreview(); }
   function renderCards() {
     const v = S.variations;
     if (!v) { cards.replaceChildren(h('div', { class: 'muted small empty-cards' }, 'Your three options will appear here.')); return; }
@@ -149,7 +150,8 @@ export function initRight(root) {
           h('span', { class: 'muted small', tip: sumOf(o, i) }, shorten(sumOf(o, i))),
           o.note ? h('span', { class: 'vnote small' }, 'AI was not used for this option: ' + o.note) : null),
         h('div', { class: 'row gap' },
-          h('button', { class: 'btn primary sm', tip: applied ? 'This option is on the garment now' : 'Show this option on the garment. Accept or reject it below the canvas', onclick: () => previewOption(i) }, applied ? icon('check', 14) : null, applied ? 'Applied' : 'Preview'),
+          h('button', { class: 'btn primary sm', 'data-act': 'use', disabled: applied, tip: applied ? 'This option is on the garment now' : 'Put this option on the garment. It is recorded in Edit history, so you can undo it', onclick: () => useOption(i) }, applied ? icon('check', 14) : null, applied ? 'Applied' : 'Use this'),
+          h('button', { class: 'btn ghost sm', 'data-act': 'preview', tip: 'Look at this option on the garment first. Accept or reject it from the bar below the canvas', onclick: () => previewOption(i) }, 'Preview'),
           h('button', { class: 'btn ghost sm', disabled: !S.applied, tip: S.applied ? 'Apply this option on top of the one you picked' : 'Pick an option first, then add another on top', onclick: () => combineOption(i) }, 'Combine')));
     }));
   }

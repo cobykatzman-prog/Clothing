@@ -203,7 +203,14 @@ export async function ensureView(name) {
   const V = state.views[name];
   if (V.base) return;
   const src = VIEWS.map(n => state.views[n].sample).find(Boolean);
-  if (src) await loadSample(src.kind, src.showpiece ? null : src, name);
+  if (!src) return;
+  const donor = VIEWS.map(n => state.views[n]).find(v => v !== V && v.base && v.current);
+  await loadSample(src.kind, src.showpiece ? null : src, name);
+  // the new view is the same garment: it takes the shape settings the other views already have
+  if (donor && state.views[name].base && !paramsDefault(donor.params)) {
+    V.params = { ...donor.params }; V.presets = { ...(donor.presets || { fit: null, sleeve: null }) };
+    await recompute(name);
+  }
 }
 export async function removeBg() {
   const V = activeView(); if (!V.base) return;
