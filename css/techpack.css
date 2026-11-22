@@ -75,3 +75,4 @@
   body.printing-tp .tp-draw img{max-height:480px}
   @page{size:A4 landscape;margin:8mm}
 }
+.menu{max-height:calc(100dvh - 150px);overflow-y:auto}

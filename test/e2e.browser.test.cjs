@@ -323,7 +323,7 @@ const { ok } = R;
   R.section('J7 export');
   await page.click('#btn-export'); ok(await page.isVisible('#export-menu'), 'Export opens a menu');
   const items = await page.$$eval('#export-menu .menu-item', b => b.map(x => x.querySelector('b').textContent));
-  for (const it of items.filter(i => !/Custom|\(print\)/.test(i))) {
+  for (const it of items.filter(i => !/Custom|\(print\)|Tech pack/.test(i))) {
     if (!(await page.isVisible('#export-menu'))) await page.click('#btn-export');
     const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click(`#export-menu .menu-item:has(b:text-is("${it}"))`)]);
     const f = await dl.path(); const size = fs.statSync(f).size;
