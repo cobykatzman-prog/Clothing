@@ -48,7 +48,7 @@ export function createStage(el, wrap) {
   let lastBox = null;
   function resize() {
     const r = wrap.getBoundingClientRect();
-    dpr = window.devicePixelRatio || 1;
+    dpr = Math.min(window.devicePixelRatio || 1, 2); // Cap backing-store cost on high-density displays.
     // when the stage moves because something above it grew (the selection options row), keep the picture where it is on screen
     if (lastBox && W) {
       const dy = r.top - lastBox.top, dx = r.left - lastBox.left;
@@ -98,7 +98,7 @@ export function createStage(el, wrap) {
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, SIZE, SIZE);
     ctx.shadowColor = 'transparent';
     ctx.fillStyle = checkerPattern(ctx); ctx.fillRect(0, 0, SIZE, SIZE);
-    ctx.imageSmoothingQuality = 'high';
+    ctx.imageSmoothingQuality = T.zoom < 1 ? 'medium' : 'high'; // Faster downscaling while fitting the garment.
     ctx.imageSmoothingEnabled = T.zoom < 2.5;     // zoomed right in, show true pixels so small details can be selected exactly
     if (V.current) {
       ctx.drawImage(stageCanvas(V), 0, 0);   // the previewed option while a review is open (review.js)
