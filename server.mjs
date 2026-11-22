@@ -21,6 +21,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createShared, OWNS as SHARED_ROUTES } from './shared.mjs';
 import { createAi, OWNS as AI_ROUTES } from './ai.mjs';
@@ -32,6 +33,13 @@ const MIME = {
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon', '.webp': 'image/webp', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8'
 };
+
+const PKG_VERSION = (() => { try { return String(JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version || ''); } catch (_) { return ''; } })();
+/** The commit this server runs: Render sets RENDER_GIT_COMMIT at build time. Only a hex sha is ever reported (never free text from the environment). */
+export function buildInfo(env = process.env) {
+  const raw = String(env.RENDER_GIT_COMMIT || env.GIT_COMMIT || env.VERCEL_GIT_COMMIT_SHA || env.SOURCE_VERSION || '').trim();
+  return { version: PKG_VERSION || null, commit: /^[0-9a-f]{7,40}$/i.test(raw) ? raw.toLowerCase() : null };
+}
 
 const sha = s => crypto.createHash('sha256').update(String(s)).digest();
 const same = (a, b) => crypto.timingSafeEqual(sha(a), sha(b));   // constant-time, length-independent
@@ -88,6 +96,7 @@ export function createApp(env = process.env) {
   const SESSION_DAYS = Math.min(30, Number(env.SESSION_DAYS) > 0 ? Number(env.SESSION_DAYS) : 7);
   const SESSION_MS = SESSION_DAYS * 86400000;
   const SEC = loadSecurityHeaders();
+  const BUILD = buildInfo(env);
   const pwTag = sha(PASSWORD).toString('hex');   // changing the password invalidates every existing session
   const usersTag = sha([...USERS].map(([n, p]) => n + '\n' + p).join('\0')).toString('hex');   // so does changing any user's password
 
@@ -241,13 +250,25 @@ ${failed ? '<p class="err" role="alert">That did not match. Please try again.</p
     return t;
   };
 
+  const gzCache = new Map();   // file -> { etag, buf }: each static file is compressed once per change
+  function gzipOf(file, etag) {
+    const c = gzCache.get(file);
+    if (c && c.etag === etag) return c.buf;
+    const buf = zlib.gzipSync(fs.readFileSync(file), { level: 6 });
+    gzCache.set(file, { etag, buf });
+    return buf;
+  }
+
   async function handler(req, res) {
     try {
       const url = new URL(req.url, 'http://x');
       const pathname = url.pathname;
       const m = req.method;
 
-      if (pathname === '/healthz') return send(req, res, 200, 'ok');
+      if (pathname === '/healthz') {   // public: liveness + which build is running (a commit sha and a version, no secrets, no configuration)
+        if (m !== 'GET' && m !== 'HEAD') return send(req, res, 405, 'Method not allowed', { Allow: 'GET, HEAD' });
+        return send(req, res, 200, JSON.stringify({ status: 'ok', app: 'threadform', ...BUILD }), { 'Content-Type': 'application/json; charset=utf-8' });
+      }
 
       if (gated && pathname === '/login') {
         if (m === 'GET' || m === 'HEAD') {
@@ -306,11 +327,17 @@ ${failed ? '<p class="err" role="alert">That did not match. Please try again.</p
       const st = fs.statSync(file), etag = `W/"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}"`;
       const hdrs = baseHeaders(req, { 'Content-Type': MIME[ext], 'Cache-Control': 'private, no-cache', ETag: etag });
       if (req.headers['if-none-match'] === etag) { res.writeHead(304, hdrs); return res.end(); }
+      const gz = /\bgzip\b/.test(String(req.headers['accept-encoding'] || '')) && /^\.(js|mjs|css|svg|json|txt)$/.test(ext) && st.size > 1024 ? gzipOf(file, etag) : null;
+      hdrs.Vary = 'Accept-Encoding';
+      if (gz) { res.writeHead(200, { ...hdrs, 'Content-Encoding': 'gzip', 'Content-Length': gz.length }); return res.end(m === 'HEAD' ? undefined : gz); }
       res.writeHead(200, { ...hdrs, 'Content-Length': st.size });
       if (m === 'HEAD') return res.end();
-      fs.createReadStream(file).pipe(res);
+      const rs = fs.createReadStream(file);
+      rs.on('error', () => res.destroy());   // a file removed mid-request must not crash the process
+      rs.pipe(res);
     } catch (err) {
       if (err && err.status === 413) return send(req, res, 413, 'Too large');
+      console.error('request failed:', err && err.name, err && err.code || '');   // name/code only: never the message, which could hold a URL or a value
       return send(req, res, 500, 'Something went wrong.');   // never echo internals
     }
   }
@@ -330,4 +357,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.log(`Threadform listening on :${port} (${app.gated ? 'login required' : 'OPEN: no SITE_PASSWORD set'})`);
     if (!app.gated) console.warn('WARNING: SITE_PASSWORD is not set, so anyone can use this server.');
   } catch (e) { console.error('Cannot start:', e.message); process.exit(1); }
+  // One bad request must not take the whole service down for everyone; log the kind of failure only.
+  process.on('unhandledRejection', e => console.error('unhandled rejection:', e && e.name));
+  process.on('uncaughtException', e => console.error('uncaught exception:', e && e.name));
 }

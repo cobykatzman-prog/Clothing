@@ -5,6 +5,7 @@ Two layers: fast unit/server tests (`npm test`) and browser journeys (`npm run t
 ```bash
 npm test            # (now also spec.test: POM grading/sources/validation/CSV) server 15, shared 18, ai 16, prompt 26, mask 187, aiedit 14, measure, generate (seconds)
 npm test            # server 15, shared 18, ai 19, prompt 26, mask 187, aiedit 14, aigen 8, measure, generate (seconds)
+npm run verify:deploy   # post-deploy smoke test of a live URL (DEPLOY_URL=..., see README 'Verify a deploy'); not part of npm test
 npm run test:e2e    # browser journeys below (about 4 minutes); screenshots go to $OUT (default <tmpdir>/threadform-e2e)
 node test/e2e.browser.test.cjs          # one file at a time
 ```
@@ -38,10 +39,22 @@ Tick every line by hand after a release too; each has an automated twin.
 Also run before a release (kept outside the repo-wide scripts, they use fixed ports 8123/8124): the accessibility/contrast QA
 (`qa.js`), the long studio walkthrough (`e2e.js`) and the Club Élite sample check (`club-test.js`).
 
+| 14 | Phase 8: security, roles, outage, backup, performance | Real `server.mjs` + mock Supabase with three accounts (alice owner, bob editor, carol viewer). Home loads with zero console errors, all ~70 modules answer 200 gzip-compressed, under 600 KB; login with a wrong password, with `Referrer-Policy: no-referrer` (Origin null), session cookie HttpOnly/Strict, logout stops serving code. Viewer: View only banner, edits make no write request, hand-made PUT/DELETE are 403, no Restore buttons in History. Editor edit reaches owner and viewer live. Owner restores an earlier version from History (saved as a new revision, editor receives it). Owner offline + editor saves first = conflict banner, Keep mine saves a "(my version)" copy, editor's version untouched. Supabase down / paused / missing tables: friendly Home badge, header "will retry", edit backed up in IndexedDB, queued edit sent and backup removed on recovery, server data unchanged during the outage. Backup all, delete a design, restore it (existing ids become "(restored)", damaged file refused), in shared and per-browser mode. 1440x900, 1024x768, 768x1024, 390x844: login, home, backup dialog and studio have no horizontal scroll. Printed timings: login to home, opening a design, sample shirt, a shape change | `phase8.browser` |
+| 15 | Syntax / module regression | Every `js/*.js`, server, script and test file passes `node --check`; every relative import resolves and every named import is exported by its target; index.html has no inline script; the module graph from `js/main.js` is closed. A syntax error in any module fails `npm test` | `test/syntax.test.mjs` |
+| 16 | Server security + resilience | Secret scan of the repo; sentinel secrets never in responses or logs (also on errors and outages); full header set on every response class; oversize bodies, wrong content type, rate limit, lockout (spoof-proof); cookie flags and tampering; gzip + ETag; `/healthz` version/commit; viewer/editor/owner write matrix with DB unchanged; stale save gives 409 and loses nothing; restore is a new revision; Supabase down/paused/missing tables give generic 502/503, `/healthz` and static files keep working, data intact, auto-recovery | `server.security.test.mjs`, `server.shared.test.mjs`, `server.workspace.test.mjs`, `server.test.mjs` |
+| 17 | Deploy verification script | `scripts/verify-deploy.mjs` passes on a healthy local server (with and without login), matches `EXPECT_COMMIT` by prefix, fails on another commit / no commit / wrong password / unreachable service / missing security headers, never prints the password | `test/verify-deploy.test.mjs` |
+| 18 | Backup / restore logic | Round trip of documents + pictures, server-owned meta dropped, malformed entries skipped with reasons, no overwrite on id clash, partial failures reported, unreadable designs listed on export | `js/backup.test.mjs` |
+
+Timing budgets: `js/mask.test.mjs` multiplies every budget by `TF_PERF_SCALE` (default 2, so a busy machine does not flake; use `TF_PERF_SCALE=1` for the strict numbers) and takes the best of up to 5 runs. Browser tests print their own timings; budgets there are deliberately generous (they catch 10x regressions, not noise).
+
+Already covered by earlier journeys and kept as the regression tests for past failures: JS syntax error blanking the app (`syntax.test` + home load with zero console errors), `Origin: null` login (`server.test.mjs` and `phase8.browser`), the **Use this** button (e2e J6), shared save and reopen (`e2e.shared.browser`).
+
 ## Manual-only checks (cannot be automated here)
 - A real Supabase project and real OpenAI key (the mocks follow the documented APIs; real behaviour is unverified).
 - Visual quality of AI results and of garment warps at extreme slider values (+-100).
 - Safari / Firefox / touch devices (tests run in Chromium only).
+- The live Render service: `npm run verify:deploy` is tested only against a local server (the sandbox cannot reach Render). Run it yourself after each deploy with `EXPECT_COMMIT` set.
+- Real Supabase outages: simulated by the mock (connection dropped, 503 paused page, missing-table 404, wrong key), not by a real project.
 
 ## Known gaps
 Undo history is not saved with a design (a reopened design starts with an empty undo list, by design).

@@ -166,7 +166,10 @@ await t('API requests are rate limited after login', async () => {
 });
 
 await t('healthz is public and reveals nothing; methods are restricted', async () => {
-  const r = await get('/healthz'); assert.equal(r.status, 200); assert.equal(await r.text(), 'ok');
+  const r = await get('/healthz'); assert.equal(r.status, 200);
+  const hz = await r.json(); assert.equal(hz.status, 'ok'); assert.equal(hz.app, 'threadform'); assert.deepEqual(Object.keys(hz).sort(), ['app', 'commit', 'status', 'version']);
+  assert.equal(hz.commit, null, 'no build commit in this environment'); assert.match(r.headers.get('content-type'), /json/);
+  assert.equal((await fetch(base + '/healthz', { method: 'POST' })).status, 405);
   const c = await session();
   assert.equal((await fetch(base + '/', { method: 'POST', redirect: 'manual', headers: { cookie: c } })).status, 405);
   assert.equal((await fetch(base + '/js/main.js', { method: 'DELETE', redirect: 'manual', headers: { cookie: c } })).status, 405);

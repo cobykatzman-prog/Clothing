@@ -8,6 +8,7 @@ import { REVIEW_STATES, normalizeReview, filterDesigns, canReorderDesigns } from
 import * as store from './storage.js';
 import * as R from './remote.js';
 import * as A from './ui-actions.js';
+import * as BK from './backup.js';
 
 const MAX_TAGS = 12, MAX_TAG_LEN = 24;
 let root, api, qEl, sortEl, countEl, listEl, emptyEl, noteEl, chipsEl, collectionEl;
@@ -50,7 +51,7 @@ export function initHome(el, actions) {
   root.replaceChildren(
     h('div', { class: 'home-top' },
       h('div', { class: 'brand' }, h('span', { class: 'logo' }, icon('layers', 18)), h('b', {}, 'Threadform')),
-      h('div', { class: 'home-actions' }, h('button', { class: 'btn ghost sm', onclick: () => editBrandKit() }, 'Brand kit'), h('button', { class: 'btn ghost sm', onclick: () => editMaterialsLibrary() }, 'Materials'), h('button', { class: 'btn ghost sm', onclick: () => manageCollections() }, 'Manage collections'), h('button', { class: 'btn ghost sm', onclick: () => createCollection() }, 'New collection'), h('button', { class: 'btn primary', id: 'home-new', onclick: () => chooser() }, icon('plus', 16), 'New design'), logoutForm())),
+      h('div', { class: 'home-actions' }, h('button', { class: 'btn ghost sm', onclick: () => editBrandKit() }, 'Brand kit'), h('button', { class: 'btn ghost sm', onclick: () => editMaterialsLibrary() }, 'Materials'), h('button', { class: 'btn ghost sm', onclick: () => manageCollections() }, 'Manage collections'), h('button', { class: 'btn ghost sm', onclick: () => createCollection() }, 'New collection'), h('button', { class: 'btn ghost sm', id: 'home-backup', onclick: () => backupDialog() }, 'Backup'), h('button', { class: 'btn primary', id: 'home-new', onclick: () => chooser() }, icon('plus', 16), 'New design'), logoutForm())),
     h('div', { class: 'home-body' },
       h('div', { class: 'home-tools' },
         h('div', {}, h('h1', {}, SHARED() ? 'Shared designs' : 'Your designs'), countEl),
@@ -538,6 +539,55 @@ function assignCollection(m) {
     activeCollection = collection;
     toast(collection ? 'Added to ' + collection + '.' : 'Removed from its collection.', 'ok');
   });
+}
+
+/** Backup and restore of the whole design library as one JSON file (js/backup.js has the logic and the format). */
+function backupDialog() {
+  const dlg = makeDialog('backup-dialog');
+  const status = h('p', { class: 'muted small', role: 'status', 'aria-live': 'polite', id: 'backup-status' });
+  const fileIn = h('input', { type: 'file', accept: 'application/json,.json', hidden: true, id: 'backup-file', 'aria-label': 'Choose a Threadform backup file' });
+  let busy = false;
+  const setBusy = (b, ...btns) => { busy = b; btns.forEach(x => { x.disabled = b; }); };
+  const download = h('button', { type: 'button', class: 'btn primary', id: 'backup-download' }, icon('download', 15), ' Download backup of all designs');
+  const restore = h('button', { type: 'button', class: 'btn ghost', id: 'backup-restore', onclick: () => { if (!busy) fileIn.click(); } }, icon('upload', 15), ' Restore from a backup file');
+  download.addEventListener('click', async () => {
+    if (busy) return; setBusy(true, download, restore);
+    try {
+      status.textContent = 'Collecting your designs...';
+      const { text, count, missing } = await BK.exportAll(store, (d, total) => { status.textContent = `Collecting your designs... ${d} of ${total}`; });
+      const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+      const a = document.createElement('a'); a.href = url; a.download = BK.backupFileName(); document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      status.textContent = `Saved ${count} design${count === 1 ? '' : 's'} to ${BK.backupFileName()}.` + (missing.length ? ` Could not read: ${missing.join(', ')}. Try again for those.` : '');
+      toast(missing.length ? `Backup saved, but ${missing.length} design${missing.length === 1 ? ' was' : 's were'} skipped.` : 'Backup downloaded.', missing.length ? 'error' : 'ok', 5000);
+    } catch (e) { console.error(e); status.textContent = friendly(e, 'The backup could not be made. Check your connection and try again.'); }
+    finally { setBusy(false, download, restore); }
+  });
+  fileIn.addEventListener('change', async () => {
+    const file = fileIn.files?.[0]; fileIn.value = ''; if (!file || busy) return;
+    setBusy(true, download, restore);
+    try {
+      if (file.size > BK.MAX_BACKUP_BYTES) throw new BK.BackupError('That file is larger than 400 MB, which is too large to restore in one go.');
+      const { designs, skipped } = BK.parseBackup(await file.text());
+      if (!designs.length) { status.textContent = skipped.length ? `Nothing could be restored: ${skipped.map(x => x.id + ' (' + x.reason + ')').join('; ')}.` : 'That backup has no designs in it.'; return; }
+      const yes = await ask({ title: `Restore ${designs.length} design${designs.length === 1 ? '' : 's'}?`, text: 'Restored designs are added next to your current ones. Nothing is overwritten: a design that already exists is restored as a new copy named "(restored)".' + (skipped.length ? ` ${skipped.length} entr${skipped.length === 1 ? 'y' : 'ies'} in the file cannot be used and will be skipped.` : ''), ok: 'Restore' });
+      if (!yes) { status.textContent = 'Restore cancelled. Nothing was changed.'; return; }
+      const r = await BK.restoreEntries(store, designs, (d, total) => { status.textContent = `Restoring... ${d} of ${total}`; });
+      status.textContent = `Restored ${r.restored} design${r.restored === 1 ? '' : 's'}` + (r.renamed ? ` (${r.renamed} as new copies because they already existed)` : '') + '.'
+        + (r.failed.length ? ` Could not restore: ${r.failed.map(f => f.name).join(', ')}.` : '') + (skipped.length ? ` Skipped ${skipped.length} unusable entr${skipped.length === 1 ? 'y' : 'ies'}.` : '');
+      toast(r.failed.length ? `Restored ${r.restored}, ${r.failed.length} failed.` : `Restored ${r.restored} design${r.restored === 1 ? '' : 's'}.`, r.failed.length ? 'error' : 'ok', 5000);
+      await refreshHome();
+    } catch (e) { if (!(e instanceof BK.BackupError)) console.error(e); status.textContent = friendly(e, 'That backup could not be restored. Nothing was changed.'); }
+    finally { setBusy(false, download, restore); }
+  });
+  dlg.append(
+    h('div', { class: 'dlg-head' }, h('h2', {}, 'Backup and restore'), h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => dlg.close() }, icon('x', 18))),
+    h('div', { class: 'dlg-body' },
+      h('p', { class: 'muted' }, SHARED()
+        ? 'Downloads every design in the shared library (documents, settings and pictures) as one file you keep. Use it before big changes, or to move designs to another library.'
+        : 'Downloads every design saved in this browser (documents, settings and pictures) as one file you keep. Browser storage can be cleared by the browser, so keep a copy somewhere safe.'),
+      h('div', { class: 'dlg-actions' }, download, restore, fileIn),
+      status));
 }
 
 const BRAND_KEY = 'threadform.brand-kit.v1';

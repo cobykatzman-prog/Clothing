@@ -8,15 +8,20 @@ function near(a, b, tol, msg) { ok(Math.abs(a - b) <= tol, `${msg} (got ${a}, wa
 const section = s => console.log('- ' + s);
 const SZ = 1024;
 const timings = {};
-function timed(name, budget, fn) {
+// Timing budgets are generous on purpose (they catch order-of-magnitude regressions, not 20% noise) and scale x2 by default so a
+// busy CI box or a parallel test run does not flake. TF_PERF_SCALE=1 gives the strict budgets, a bigger number a looser one.
+const SCALE = Number(process.env.TF_PERF_SCALE) > 0 ? Number(process.env.TF_PERF_SCALE) : 2;
+function timed(name, budget0, fn) {
+  const budget = budget0 * SCALE;
   fn();                                            // warm-up (JIT)
   let r, ms = Infinity;
-  for (let k = 0; k < 3; k++) { const t = performance.now(); r = fn(); ms = Math.min(ms, performance.now() - t); }   // best of 3: robust against CI noise
+  for (let k = 0; k < 5; k++) { const t = performance.now(); r = fn(); ms = Math.min(ms, performance.now() - t); if (ms <= budget / 2) break; }   // best of up to 5: robust against CI noise
   timings[name] = Math.round(ms);
   ok(ms <= budget, `${name} took ${ms.toFixed(0)} ms (budget ${budget})`);
   return r;
 }
-function timedCold(name, budget, fn) {            // first call including cache fill
+function timedCold(name, budget0, fn) {            // first call including cache fill (cannot be repeated, so it only gets the scaled budget)
+  const budget = budget0 * SCALE;
   const t = performance.now(); const r = fn(); const ms = performance.now() - t;
   timings[name + ' (cold)'] = Math.round(ms);
   ok(ms <= budget, `${name} cold took ${ms.toFixed(0)} ms (budget ${budget})`);

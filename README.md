@@ -35,6 +35,23 @@ How it works: a successful login sets a signed, `HttpOnly`, `SameSite=Strict` (a
 
 The free plan sleeps after a period of inactivity, so the first visit after a while can take about a minute to wake up.
 
+#### Verify a deploy (`npm run verify:deploy`)
+
+`/healthz` is public and answers JSON: `{"status":"ok","app":"threadform","version":"1.0.0","commit":"<sha>"}`. The commit comes from Render's built-in `RENDER_GIT_COMMIT` (also read: `GIT_COMMIT`, `VERCEL_GIT_COMMIT_SHA`, `SOURCE_VERSION`); only a hex sha is ever reported, never free text, and nothing else about the configuration. After a deploy, from any machine with Node 18+ (zero installs):
+
+```bash
+DEPLOY_URL=https://your-service.onrender.com EXPECT_COMMIT=<sha of the commit you pushed> npm run verify:deploy
+# optional, enables the logged-in checks (never printed):  DEPLOY_PASSWORD=... [DEPLOY_USERNAME=...]
+```
+
+It retries `/healthz` for up to `WAIT_SEC` (default 120; Render needs a minute to wake or finish a deploy, and while `EXPECT_COMMIT` is set it keeps waiting until the new commit is live), then checks: health + version, that the running commit equals `EXPECT_COMMIT`, the login page and the full security-header set (CSP, nosniff, frame, referrer, permissions, COOP/CORP, cache, HSTS on https), that nothing (`/`, `/js/main.js`, `/api/designs`, `/server.mjs`, `/.env`...) is served without a login, and, with `DEPLOY_PASSWORD`, that login works, `index.html` and every JavaScript/CSS module it pulls in loads with the right type, and the API status routes answer (a configured-but-unhealthy Supabase is reported as a warning). Exit code 0 = OK, 1 = a check failed, 2 = bad usage. Honest limit: it was developed and tested against a local `server.mjs` (`test/verify-deploy.test.mjs`); the sandbox it was written in cannot reach Render, so it has not yet been run against your live service.
+
+If Supabase is down, paused or missing tables the studio keeps working: `/healthz` stays 200 (Render does not restart a healthy app for a database problem), the Home badge says what is wrong in plain words, edits are kept in this browser and retried automatically (the header says "Not saved (offline): will retry"), and the saved designs themselves are untouched. See **Backup and restore** below.
+
+### Backup and restore of all designs
+
+Home > **Backup** downloads every design (document, settings and pictures) as one `threadform-backup-YYYY-MM-DD.json` file; **Restore from a backup file** puts them back. Restore never overwrites: a design whose id already exists comes back as a new design named "... (restored)", unusable entries are skipped and listed, and a damaged or newer-format file is refused with a plain message before anything changes. It works in both modes (per-browser storage and the shared library; viewers can export but not restore). Keep a backup before changing the database or clearing browser data; the file contains your designs only (no passwords or keys). Format and logic: `js/backup.js`, tests `js/backup.test.mjs` and `test/phase8.browser.test.cjs`.
+
 
 ## Shared designs (Supabase)
 
@@ -143,6 +160,14 @@ Threadform is built so it is safe to share a public link. Without the shared lib
 2. Keep the repo free of secrets, and turn on GitHub secret scanning / push protection.
 3. Use HTTPS (Render provides it automatically).
 4. After deploying, run `curl -I https://your-site/login` and check that `Content-Security-Policy` and `X-Frame-Options` are present.
+
+**Security review (v2 phase 8)**: what was checked, found and fixed
+- *Secrets*: nothing key-shaped is committed (`server.security.test.mjs` scans every tracked file for OpenAI/JWT/private-key/GitHub/AWS patterns and secrets assigned to real values; `.env` is ignored by the repo; `render.yaml` marks every secret `sync: false`). A real `server.mjs` process is started with sentinel secrets and hit with good and bad requests while Supabase is up, down, paused and rejecting the key: no sentinel appears in any response, header or log line, and no stack trace or upstream text reaches a client. The server logs only the error name/code, never messages.
+- *Authentication*: signed, expiring, `HttpOnly`, `SameSite=Strict` cookie; constant-time password checks (also for unknown users); per-IP lockout after 5 failures (15 min) keyed on the last `X-Forwarded-For` hop so a spoofed header does not help, plus a global ceiling; changing a password or `SESSION_SECRET` invalidates every session; login/logout need a same-origin POST (`Sec-Fetch-Site`, then `Origin`, then `Referer`; `Origin: null` with a matching Referer is accepted, which fixed a past login outage).
+- *Authorisation*: viewer / editor / owner roles are enforced by the server on every write route (design create/update/delete/duplicate/restore/ACL/asset upload, Brand Kit writes); `server.security.test.mjs` runs the matrix with separate accounts and checks the database is unchanged after each refused write.
+- *Limits*: login body 4 KB, design JSON 1.5 MB, metadata 80 KB, image 3.2 MB, AI request caps, 240 API requests per 5 minutes per IP, 30 s request timeout, bounded upstream time to Supabase/OpenAI.
+- *Fixed in phase 8*: (medium) a static file removed or unreadable while being streamed raised an unhandled stream error that could stop the whole server for everybody; (low) unexpected errors were swallowed silently, now logged by name only, and process-level handlers keep the service up; (low) `/healthz` could not say which build was live (now version + commit); JavaScript/CSS are now gzip-compressed (about 1.1 MB of modules is about 390 KB on the wire).
+- *Accepted / known*: sessions are stateless, so *Log out* clears the cookie but cannot revoke a stolen one before it expires (keep `SESSION_DAYS` short; changing `SESSION_SECRET` revokes all); the global failure ceiling (50 per 15 minutes) lets a determined attacker with many IPs temporarily block everybody's login (the service stays up); `style-src` needs `'unsafe-inline'` for the editor's inline styles (scripts stay `'self'` only); rate-limit counters are per process.
 
 **Known limits**
 - One shared password, not per-person accounts. Anyone who has it can use the studio, and you cannot revoke one person without changing it for everyone (changing it logs everyone out).

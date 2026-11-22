@@ -84,3 +84,5 @@ Known limits to keep honest: no real Supabase/OpenAI/Render access from sandbox 
 
 
 OWNER SCOPE RULE: only ROADMAP v2 (the PDF brief) is in scope. The earlier brief and its phase list above are cancelled; do not build features from them.
+
+Phase 8 status: done in code (see README "Security review", "Verify a deploy", "Backup and restore" and TESTING.md rows 14-18). Not verifiable here: the live Render service and a real Supabase project.
